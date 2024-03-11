@@ -22,3 +22,9 @@ def get_image_properties(image_path):
     laplacian_var = cv2.Laplacian(image, cv2.CV_64F).var()
 
     return width, height, aspect_ratio, avg_red_intensity, avg_green_intensity, avg_blue_intensity, brightness, contrast, laplacian_var
+
+def get_image_size(image_path):
+    image = cv2.imread(image_path)
+    height, width, channels = image.shape
+
+    return width, height
