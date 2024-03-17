@@ -1,12 +1,20 @@
-import cv2
-import numpy as np
-from PIL import Image
 import hashlib
 import os
 import shutil
 
+import cv2
+from PIL import Image
+
 
 def get_image_size(image_path):
+    """
+    Returns the width and height of an image.
+    Args:
+        image_path: Path to the image.
+    Returns:
+        width: Width of the image.
+        height: Height of the image.
+    """
     image = cv2.imread(image_path)
     height, width, channels = image.shape
 
@@ -15,6 +23,18 @@ def get_image_size(image_path):
 
 def crop_image_padding(img_path, cropped_img_path, mask_path=None, cropped_mask_path=None, padding_color=(0, 0, 0),
                        threshold=10):
+    """
+    Crops the image and mask to remove any padding.
+    Args:
+        img_path: Path to the input image.
+        cropped_img_path: Path to save the cropped image.
+        mask_path: Path to the input mask.
+        cropped_mask_path: Path to save the cropped mask.
+        padding_color: Color to check for padding.
+        threshold: Threshold for color difference.
+    Returns:
+        None. Saves the cropped image and mask to the specified paths.
+    """
     with Image.open(img_path) as img:
         pixels = img.load()
 
@@ -71,6 +91,15 @@ def crop_image_padding(img_path, cropped_img_path, mask_path=None, cropped_mask_
 
 
 def resize_and_maintain_aspect(img_path, output_path, target_size=(854, 480), fill_color=(0, 0, 0)):
+    """
+    Resize an image to a target size maintaining the aspect ratio.
+    If the image is smaller than the target, pad it with a specified color.
+    :param img_path: Path to the input image.
+    :param output_path: Path to the output image.
+    :param target_size: Tuple (width, height) of the target size.
+    :param fill_color: Tuple (R, G, B) of the color to fill the padded area.
+    :return: None. The image is saved to the output path.
+    """
     with Image.open(img_path) as img:
         # Maintain aspect ratio
         img.thumbnail(target_size, Image.Resampling.LANCZOS)
@@ -87,7 +116,10 @@ def resize_and_maintain_aspect(img_path, output_path, target_size=(854, 480), fi
 
 
 def file_hash(filepath):
-    """Generate a hash for a file."""
+    """Generate a hash for a file.
+    :param filepath: Path to the file.
+    :return: Hash string of the file.
+    """
     sha256_hash = hashlib.sha256()
     with open(filepath, "rb") as f:
         # Read and update hash in chunks of 4K
@@ -99,7 +131,6 @@ def file_hash(filepath):
 def adjust_bounding_box(original_box, original_size, resized_size, padding):
     """
     Adjusts bounding box coordinates based on the resized image dimensions and padding.
-
     :param original_box: Tuple (x1, y1, x2, y2) of the original bounding box coordinates.
     :param original_size: Tuple (width, height) of the original image size.
     :param resized_size: Tuple (width, height) of the resized image dimensions.
@@ -123,4 +154,30 @@ def adjust_bounding_box(original_box, original_size, resized_size, padding):
     x2_adjusted = x2_scaled + padding[0]
     y2_adjusted = y2_scaled + padding[1]
 
-    return (x1_adjusted, y1_adjusted, x2_adjusted, y2_adjusted)
+    return x1_adjusted, y1_adjusted, x2_adjusted, y2_adjusted
+
+
+def move_images(source_dir, dest_dir, df, filename_col='FRAME'):
+    """
+    Move images from a source directory to a destination directory based on filenames in a DataFrame.
+
+    Parameters:
+    - source_dir: The source directory where images are currently stored.
+    - dest_dir: The destination directory where images should be moved.
+    - df: The DataFrame containing the filenames of the images to be moved.
+    - filename_col: The name of the DataFrame column containing the image filenames. Defaults to 'FRAME'.
+    """
+    # Create the destination directory if it doesn't exist
+    os.makedirs(dest_dir, exist_ok=True)
+
+    # Iterate through the DataFrame
+    for _, row in df.iterrows():
+        frame_filename = row[filename_col]
+        source_path = os.path.join(source_dir, frame_filename)
+        destination_path = os.path.join(dest_dir, frame_filename)
+
+        # Attempt to move the file
+        try:
+            shutil.move(source_path, destination_path)
+        except IOError as e:
+            print(f"Could not move {frame_filename}. Error: {e}")
