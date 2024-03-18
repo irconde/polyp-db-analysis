@@ -187,7 +187,7 @@ def main():
     args = parser.parse_args()
     base_path = args.base_path
 
-    datasets = ['piba', 'piccolo']
+    datasets = ['piba', 'piccolo', 'sun', 'polar']
 
     combined_df = merge_datasets(args.base_path, datasets)
 
