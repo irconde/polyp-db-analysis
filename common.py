@@ -3,7 +3,8 @@ import os
 import shutil
 
 import cv2
-from PIL import Image
+from PIL import Image, ImageDraw
+from matplotlib import pyplot as plt
 
 
 def get_image_size(image_path):
@@ -155,6 +156,18 @@ def adjust_bounding_box(original_box, original_size, resized_size, padding):
     y2_adjusted = y2_scaled + padding[1]
 
     return x1_adjusted, y1_adjusted, x2_adjusted, y2_adjusted
+
+
+# Function to draw bounding boxes on an image and save it
+def draw_bounding_boxes(bounding_boxes, image_path, save_path):
+    # Open the image
+    with Image.open(image_path) as img:
+        draw = ImageDraw.Draw(img)
+        coordinates = [int(coord.strip()) for coord in bounding_boxes.split(',') if coord.strip()]
+        draw.rectangle(coordinates, outline="red", width=2)
+
+        # Save the image with bounding boxes
+        img.save(save_path)
 
 
 def move_images(source_dir, dest_dir, df, filename_col='FRAME'):

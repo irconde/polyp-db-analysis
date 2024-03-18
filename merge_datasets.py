@@ -6,10 +6,24 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
-from common import file_hash
+from common import file_hash, draw_bounding_boxes
 
 
-def merge_datasets(base_path, datasets):
+def merge_datasets(base_path, datasets, num_elements=None):
+    """
+    Merge datasets into a single DataFrame, optionally including a specified number of elements from each dataset.
+
+    Args:
+    - base_path (str): The base path where the dataset folders are located.
+    - datasets (list of str): A list of dataset names to merge.
+    - num_elements (int, optional): The number of elements to include from each dataset.
+                                    If None (default), all rows are included.
+
+    Returns:
+    - pd.DataFrame: The combined DataFrame with an 'ORIGINAL DATASET' column indicating the source dataset
+                    for each row. If num_elements is specified and is less than the number of available rows
+                    in a dataset, rows are randomly selected to meet the specified count.
+    """
     dataframes = []
 
     for dataset in datasets:
@@ -17,6 +31,11 @@ def merge_datasets(base_path, datasets):
         try:
             df = pd.read_excel(spreadsheet_path)
             df['ORIGINAL DATASET'] = dataset
+
+            # Randomly select 'num_elements' rows if specified and dataset is larger
+            if num_elements is not None and len(df) > num_elements:
+                df = df.sample(n=num_elements)
+
             dataframes.append(df)
         except FileNotFoundError:
             print(f"Spreadsheet not found: {spreadsheet_path}")
@@ -57,13 +76,14 @@ def copy_and_rename_images(df, base_path, dest_dir):
             print(f"File not found: {source_image_path}")
 
 
-def calculate_target_size(df):
+def calculate_target_size(df, width_percentile=0, height_percentile=0):
     """
-    Calculate target width and height for image standardization.
-    The target width and height are calculated based on the median
-    aspect ratio and median dimensions of the dataset.
-    :param df: DataFrame containing image metadata
-    :return: target width and height as integers
+    Calculate target width and height for image standardization based on percentiles.
+
+    :param df: DataFrame containing image metadata.
+    :param width_percentile: Percentile to use for width calculation.
+    :param height_percentile: Percentile to use for height calculation.
+    :return: target width and height as integers.
     :rtype: tuple of integers (target_width, target_height)
     """
     # Calculate aspect ratios
@@ -72,20 +92,17 @@ def calculate_target_size(df):
     # Calculate median aspect ratio
     median_aspect_ratio = np.median(aspect_ratios)
 
-    # Calculate median width and height
-    median_width = np.median(df['WIDTH'])
-    median_height = np.median(df['HEIGHT'])
+    # Calculate width and height based on the specified percentiles
+    target_width = int(np.percentile(df['WIDTH'], width_percentile))
+    target_height = int(np.percentile(df['HEIGHT'], height_percentile))
 
-    # Determine target dimensions based on the median aspect ratio
-    # and median dimensions, rounding to nearest integer
+    # Adjust target dimensions to maintain the median aspect ratio
     if median_aspect_ratio > 1:
-        # Landscape orientation, fix height and adjust width
-        target_height = int(median_height)
-        target_width = int(target_height * median_aspect_ratio)
+        # Landscape orientation, adjust width based on aspect ratio and height percentile
+        target_width = max(target_width, int(target_height * median_aspect_ratio))
     else:
-        # Portrait orientation, fix width and adjust height
-        target_width = int(median_width)
-        target_height = int(target_width / median_aspect_ratio)
+        # Portrait orientation, adjust height based on aspect ratio and width percentile
+        target_height = max(target_height, int(target_width / median_aspect_ratio))
 
     return target_width, target_height
 
@@ -178,33 +195,55 @@ def process_images_and_bboxes(df, source_dir, target_width, target_height):
             print(f"File not found: {img_path}")
 
 
-def main():
-    # Set up argument parser
-    parser = argparse.ArgumentParser(description='Merge datasets into a single DataFrame.')
-    parser.add_argument('base_path', type=str, help='The base path where the dataset folders are located.')
-
-    # Parse arguments
-    args = parser.parse_args()
-    base_path = args.base_path
+def main(base_path, num_elements, plot_images):
 
     datasets = ['piba', 'piccolo', 'sun', 'polar']
 
-    combined_df = merge_datasets(args.base_path, datasets)
+    combined_df = merge_datasets(args.base_path, datasets, num_elements=num_elements)
+    destination_folder = 'img' if num_elements is None else 'img_'+str(num_elements)
+    output_filename = 'output.xlsx' if num_elements is None else 'output_'+str(num_elements)+'.xlsx'
 
     # Keep only entries with a single bounding box (no blank spaces in 'BOUNDING BOX')
     combined_df = combined_df[combined_df['BOUNDING BOX'].str.count(' ') == 0]
 
     # Copy and rename images
-    copy_and_rename_images(combined_df, base_path, os.path.join(base_path, 'img'))
+    print("COPYING IMAGES")
+    copy_and_rename_images(combined_df, base_path, os.path.join(base_path, destination_folder))
 
     # Calculate target size
+    print("CALCULATING TARGET SIZE")
     target_width, target_height = calculate_target_size(combined_df)
+    print('Target size: ', target_width, ' x ', target_height)
 
-    process_images_and_bboxes(combined_df, os.path.join(base_path, 'img'), target_width, target_height)
+    # Standardize and adjust images and bounding boxes
+    print("STANDARDIZING IMAGES")
+    process_images_and_bboxes(combined_df, os.path.join(base_path, destination_folder), target_width, target_height)
 
     # Save the combined DataFrame to a spreadsheet
-    save_combined_dataframe(combined_df, base_path, 'output.xlsx')
+    save_combined_dataframe(combined_df, base_path, output_filename)
+
+    # Loop through the DataFrame and draw bounding boxes on each image
+    if plot_images:
+        # Create the destination directory if it doesn't exist
+        bbox_dest_dir = os.path.join(base_path, 'img_bbox')
+        os.makedirs(bbox_dest_dir, exist_ok=True)
+        for index, row in combined_df.iterrows():
+            image_filename = row['FRAME']
+            input_frame_path = os.path.join(os.path.join(base_path, destination_folder), image_filename)
+            output_frame_path = os.path.join(bbox_dest_dir, image_filename)
+            draw_bounding_boxes(row['BOUNDING BOX'], input_frame_path, output_frame_path)
 
 
 if __name__ == "__main__":
-    main()
+    # Set up argument parser
+    parser = argparse.ArgumentParser(description='Merge datasets into a single DataFrame.')
+    # Add arguments
+    parser.add_argument('base_path', type=str, help='The base path where the dataset folders are located.')
+    parser.add_argument("--num_elements", type=int, default=None,
+                        help="Number of elements to include from each dataset. If not specified, all rows are included.")
+    parser.add_argument("--plot", action='store_true', help="Enable image plotting.")
+
+    # Parse arguments
+    args = parser.parse_args()
+
+    main(args.base_path, args.num_elements, args.plot)
