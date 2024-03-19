@@ -219,6 +219,8 @@ def main(base_path, num_elements, plot_images):
     print("STANDARDIZING IMAGES")
     process_images_and_bboxes(combined_df, os.path.join(base_path, destination_folder), target_width, target_height)
 
+    combined_df.drop(columns=['WIDTH', 'HEIGHT'])
+
     # Save the combined DataFrame to a spreadsheet
     save_combined_dataframe(combined_df, base_path, output_filename)
 
