@@ -1,4 +1,3 @@
-import hashlib
 import os
 import shutil
 
@@ -114,19 +113,6 @@ def resize_and_maintain_aspect(img_path, output_path, target_size=(854, 480), fi
             new_img = img
 
         new_img.save(output_path)
-
-
-def file_hash(filepath):
-    """Generate a hash for a file.
-    :param filepath: Path to the file.
-    :return: Hash string of the file.
-    """
-    sha256_hash = hashlib.sha256()
-    with open(filepath, "rb") as f:
-        # Read and update hash in chunks of 4K
-        for byte_block in iter(lambda: f.read(4096), b""):
-            sha256_hash.update(byte_block)
-    return sha256_hash.hexdigest()
 
 
 def adjust_bounding_box(original_box, original_size, resized_size, padding):

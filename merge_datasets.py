@@ -6,7 +6,8 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
-from common import file_hash, draw_bounding_boxes
+from common import draw_bounding_boxes
+import uuid
 
 
 def merge_datasets(base_path, datasets, num_elements=None):
@@ -59,19 +60,11 @@ def copy_and_rename_images(df, base_path, dest_dir):
 
         if os.path.exists(source_image_path):
             # Copy the file to the destination directory with its original filename
-            shutil.copy(source_image_path, dest_dir)
-            copied_file_path = os.path.join(dest_dir, row['FRAME'])
-
-            # Compute the file's hash from the destination directory
-            new_filename = file_hash(copied_file_path) + '.png'
-            new_file_path = os.path.join(dest_dir, new_filename)
-
-            # Rename the file in the destination directory
-            os.rename(copied_file_path, new_file_path)
-
+            new_filename = uuid.uuid4().hex + '.png'
+            dest_file_path = os.path.join(dest_dir, new_filename)
+            shutil.copy(source_image_path, dest_file_path)
             # Update the DataFrame in place with the new filename
             df.at[index, 'FRAME'] = new_filename
-
         else:
             print(f"File not found: {source_image_path}")
 
@@ -197,7 +190,7 @@ def process_images_and_bboxes(df, source_dir, target_width, target_height):
 
 def main(base_path, num_elements, plot_images):
 
-    datasets = ['piba', 'piccolo', 'sun', 'polar']
+    datasets = ['piba', 'sun', 'piccolo', 'polar']
 
     combined_df = merge_datasets(args.base_path, datasets, num_elements=num_elements)
     destination_folder = 'img' if num_elements is None else 'img_'+str(num_elements)
@@ -206,7 +199,10 @@ def main(base_path, num_elements, plot_images):
     # Keep only entries with a single bounding box (no blank spaces in 'BOUNDING BOX')
     combined_df = combined_df[combined_df['BOUNDING BOX'].str.count(' ') == 0]
 
+    print(len(combined_df))
+
     # Copy and rename images
+
     print("COPYING IMAGES")
     copy_and_rename_images(combined_df, base_path, os.path.join(base_path, destination_folder))
 
@@ -219,7 +215,7 @@ def main(base_path, num_elements, plot_images):
     print("STANDARDIZING IMAGES")
     process_images_and_bboxes(combined_df, os.path.join(base_path, destination_folder), target_width, target_height)
 
-    combined_df.drop(columns=['WIDTH', 'HEIGHT'])
+    combined_df.drop(columns=['WIDTH', 'HEIGHT'], inplace=True)
 
     # Save the combined DataFrame to a spreadsheet
     save_combined_dataframe(combined_df, base_path, output_filename)
