@@ -20,6 +20,12 @@ def convert_bbox_to_yolo_format(bbox, image_width, image_height):
     width /= image_width
     height /= image_height
 
+    # Clamp the values to [0, 1] to avoid out-of-bounds errors
+    x_center = max(0, min(1, x_center))
+    y_center = max(0, min(1, y_center))
+    width = max(0, min(1, width))
+    height = max(0, min(1, height))
+
     return x_center, y_center, width, height
 
 
