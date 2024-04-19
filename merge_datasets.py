@@ -188,6 +188,15 @@ def process_images_and_bboxes(df, source_dir, target_width, target_height):
             print(f"File not found: {img_path}")
 
 
+def process_negative_images(source_dir, target_width, target_height):
+    if os.path.exists(source_dir):
+        files = os.listdir(source_dir)
+        for file in files:
+            source_file_path = os.path.join(source_dir, file)
+            if os.path.isfile(source_file_path):
+                standardize_and_override_image(source_file_path, target_width, target_height)
+
+
 def main(base_path, num_elements, plot_images):
 
     datasets = ['piba', 'sun', 'piccolo', 'polar']
@@ -214,6 +223,10 @@ def main(base_path, num_elements, plot_images):
     # Standardize and adjust images and bounding boxes
     print("STANDARDIZING IMAGES")
     process_images_and_bboxes(combined_df, os.path.join(base_path, destination_folder), target_width, target_height)
+
+    if num_elements is None:
+        negative_destination_folder = 'negative_img'
+        process_negative_images(os.path.join(base_path, negative_destination_folder), target_width, target_height)
 
     combined_df.drop(columns=['WIDTH', 'HEIGHT'], inplace=True)
 
