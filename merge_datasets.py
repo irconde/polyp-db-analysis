@@ -9,6 +9,27 @@ from PIL import Image
 from common import draw_bounding_boxes
 import uuid
 
+# Function to generate standardized polyp_id
+def generate_standardized_id(df):
+    # Mapping dictionary for [original_dataset][polyp_id] to numeric identifier
+    id_mapping = {}
+    new_ids = []
+
+    for idx, row in df.iterrows():
+        dataset = row['ORIGINAL DATASET']
+        old_polyp_id = row['POLYP ID']
+
+        if dataset not in id_mapping:
+            id_mapping[dataset] = {}
+
+        if old_polyp_id not in id_mapping[dataset]:
+            id_mapping[dataset][old_polyp_id] = len(id_mapping[dataset]) + 1
+
+        # New polyp_id with dataset prefix and sequential number
+        new_polyp_id = f"{dataset}-{id_mapping[dataset][old_polyp_id]:04d}"
+        new_ids.append(new_polyp_id)
+
+    return new_ids
 
 def merge_datasets(base_path, datasets, num_elements=None):
     """
@@ -198,7 +219,7 @@ def process_negative_images(source_dir, target_width, target_height):
 
 
 def main(base_path, num_elements, plot_images):
-
+    # process_negative_images(base_path, 588, 478)
     datasets = ['piba', 'sun', 'piccolo', 'polar']
 
     combined_df = merge_datasets(args.base_path, datasets, num_elements=num_elements)
@@ -229,6 +250,9 @@ def main(base_path, num_elements, plot_images):
         process_negative_images(os.path.join(base_path, negative_destination_folder), target_width, target_height)
 
     combined_df.drop(columns=['WIDTH', 'HEIGHT'], inplace=True)
+
+    # Standardize polyp ids
+    combined_df['POLYP ID'] = generate_standardized_id(combined_df)
 
     # Save the combined DataFrame to a spreadsheet
     save_combined_dataframe(combined_df, base_path, output_filename)
