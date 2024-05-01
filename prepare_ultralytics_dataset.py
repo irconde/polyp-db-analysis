@@ -5,6 +5,132 @@ from PIL import Image
 import numpy as np
 import argparse
 import yaml
+from sklearn.model_selection import train_test_split
+
+
+# Function to load configuration params from yaml figuration file
+def load_config(config_path):
+    with open(config_path, 'r') as file:
+        return yaml.safe_load(file)
+
+
+# Function to split data according to a given configuration
+def split_data(df, config):
+    # Extract splitting options for easier access
+    splitting_options = config['splitting_options']
+    train_ratio = splitting_options['train_ratio']
+    val_ratio = splitting_options['validation_ratio']
+    test_ratio = splitting_options['test_ratio']
+    split_type = splitting_options['split_type']
+    split_level = splitting_options['split_level']
+
+    # Determine if stratification is requested
+    stratify_by_shape = (split_type == 'STRATIFIED')
+
+    # Call the appropriate function based on the split level
+    if split_level == 'POLYP ID':
+        return polyp_level_split(df, train_ratio, val_ratio, test_ratio, stratify_by_shape)
+    elif split_level == 'FRAME':
+        return image_level_split(df, train_ratio, val_ratio, test_ratio, stratify_by_shape)
+    else:
+        raise ValueError("Unsupported split level provided in configuration.")
+
+
+# Function to carry out data splitting at the polyp level
+def polyp_level_split(df, train_ratio, validation_ratio, test_ratio, stratify_by_shape=False):
+    if not np.isclose(train_ratio + validation_ratio + test_ratio, 1.0, atol=0.01):
+        raise ValueError("The sum of train, validation, and test ratios must be close to 1")
+
+    if stratify_by_shape:
+        # Verify shape consistency within each polyp group
+        if df.groupby('POLYP ID')['SHAPE'].nunique().max() != 1:
+            raise ValueError("Shape is not consistent within polyp groups, stratified split by shape is not possible.")
+
+        # Extract representative shape for each polyp group
+        representative_shape = df.drop_duplicates('POLYP ID').set_index('POLYP ID')['SHAPE']
+
+        # Initial check for stratification feasibility
+        if representative_shape.value_counts().min() < 2:
+            raise ValueError("Insufficient members in at least one class for stratified splitting.")
+
+    # Group data by polyp_id
+    grouped = df.groupby('POLYP ID')
+    polyp_ids = list(grouped.groups.keys())
+    np.random.shuffle(polyp_ids)  # Shuffle to avoid any inherent ordering bias
+
+    # Stratify if required and possible
+    stratify_col_train = representative_shape[polyp_ids] if stratify_by_shape else None
+
+    # Split polyp_ids into train and remaining sets
+    train_ids, remaining_ids = train_test_split(
+        polyp_ids, test_size=1 - train_ratio,
+        stratify=stratify_col_train if stratify_by_shape else None
+    )
+
+    # Handling zero test ratio
+    if test_ratio == 0:
+        val_df = pd.concat([grouped.get_group(pid) for pid in remaining_ids])
+        test_df = pd.DataFrame()
+    else:
+        # Recalculate remaining shapes for the validation and test split
+        remaining_shapes = representative_shape.loc[remaining_ids] if stratify_by_shape else None
+
+        # Second check for stratification feasibility on remaining splits
+        if stratify_by_shape and remaining_shapes.value_counts().min() < 2:
+            raise ValueError("Insufficient members in at least one class for further stratified splitting.")
+
+        # Calculate the relative ratio for remaining splits
+        remaining_ratio = validation_ratio / (validation_ratio + test_ratio)
+
+        # Split remaining_ids into validation and test sets
+        val_ids, test_ids = train_test_split(
+            remaining_ids, test_size=1 - remaining_ratio,
+            stratify=remaining_shapes if stratify_by_shape else None
+        )
+        val_df = pd.concat([grouped.get_group(pid) for pid in val_ids])
+        test_df = pd.concat([grouped.get_group(pid) for pid in test_ids])
+
+    # Collect data for each split
+    train_df = pd.concat([grouped.get_group(pid) for pid in train_ids])
+
+    return train_df, val_df, test_df
+
+
+# Function to carry out data splitting at the frame level
+def image_level_split(df, train_ratio, validation_ratio, test_ratio, stratify_by_shape=False):
+    if not np.isclose(train_ratio + validation_ratio + test_ratio, 1.0, atol=0.01):
+        raise ValueError("The sum of train, validation, and test ratios must be close to 1")
+
+        # Check if stratification is requested and feasible
+    if stratify_by_shape:
+        if df['SHAPE'].nunique() < 2 or any(df['SHAPE'].value_counts() < 2):
+            raise ValueError("Stratification by shape not possible due to insufficient data per class.")
+
+        # Stratification column
+    stratify_col = df['SHAPE'] if stratify_by_shape else None
+
+    # Splitting dataset into train and remaining sets
+    train_df, remaining_df = train_test_split(
+        df, test_size=1 - train_ratio,
+        stratify=stratify_col if stratify_col is not None else None
+    )
+
+    # Handling zero test ratio
+    if test_ratio == 0:
+        val_df = remaining_df
+        test_df = pd.DataFrame()  # Return an empty DataFrame if no test data is needed
+    else:
+        # Calculate the relative ratio for remaining splits
+        remaining_ratio = validation_ratio / (validation_ratio + test_ratio)
+
+        # Split remaining data into validation and test sets
+        val_df, test_df = train_test_split(
+            remaining_df, test_size=1 - remaining_ratio,
+            stratify=stratify_col.loc[remaining_df.index] if stratify_col is not None else None
+        )
+
+    return train_df, val_df, test_df
+
 
 # Function to convert bounding box from absolute to YOLO format
 def convert_bbox_to_yolo_format(bbox, image_width, image_height):
@@ -29,101 +155,172 @@ def convert_bbox_to_yolo_format(bbox, image_width, image_height):
     return x_center, y_center, width, height
 
 
-def main(base_path):
-    # Load the Excel file
-    excel_path = os.path.join(base_path, 'annotations.xlsx')
-    df = pd.read_excel(excel_path)
-
-    # Shuffle the DataFrame rows
-    df = df.sample(frac=1).reset_index(drop=True)
-
-    # Define your class labels and corresponding IDs
-    class_labels_to_id = {'IIa': 0, 'IIb': 1, 'IIc': 2, 'III': 3,
-                          'Ip': 4, 'Is': 5, 'Isp': 6}
-
-    source_dir = os.path.join(base_path, 'img/')
-    base_dir = os.path.join(base_path, 'dataset/')
-    train_dir = os.path.join(base_dir, 'images/train/')
-    val_dir = os.path.join(base_dir, 'images/val/')
-    test_dir = os.path.join(base_dir, 'images/test/')
-
-    # Create directories if they don't exist
+def create_folder_hierarchy(save_path, create_test_dir=False):
+    train_dir = os.path.join(save_path, 'images/train/')
+    val_dir = os.path.join(save_path, 'images/val/')
     os.makedirs(train_dir, exist_ok=True)
     os.makedirs(val_dir, exist_ok=True)
-    os.makedirs(test_dir, exist_ok=True)
     os.makedirs(train_dir.replace('images', 'labels'), exist_ok=True)
     os.makedirs(val_dir.replace('images', 'labels'), exist_ok=True)
-    os.makedirs(test_dir.replace('images', 'labels'), exist_ok=True)
+    test_dir = None
+    if create_test_dir:
+        test_dir = os.path.join(save_path, 'images/test/')
+        os.makedirs(test_dir, exist_ok=True)
+        os.makedirs(test_dir.replace('images', 'labels'), exist_ok=True)
+    return train_dir, val_dir, test_dir
 
-    # Dataset split proportions
-    train_split = 0.7
-    val_split = 0.2
-    # test_split = 0.1  # Remainder for test set
 
-    # Calculate split indices
-    num_images = len(df)
-    num_train = int(num_images * train_split)
-    num_val = int(num_images * val_split)
-    num_test = num_images - num_train - num_val
+def process_img(train_df, val_df, test_df, classes, source_path, save_path):
+    # Process and split dataset into directories
+    for subset, data in zip(('train', 'val', 'test'), (train_df, val_df, test_df)):
+        if data is not None and not data.empty:
+            dest_dir = os.path.join(save_path, f'images/{subset}/')
+            for index, row in data.iterrows():
+                image_path = os.path.join(source_path, row['FRAME'])
+                dest_image_path = os.path.join(dest_dir, row['FRAME'])
+                dest_label_path = dest_image_path.replace('images', 'labels').replace('.png', '.txt')
 
+                # Copy image to the corresponding directory
+                copy2(image_path, dest_image_path)
+                # Get image dimensions
+                with Image.open(image_path) as img:
+                    image_width, image_height = img.size
+                # Convert bounding box to YOLO format
+                bbox = [float(x) for x in
+                        row['BOUNDING BOX'].split(',')]  # Assuming bbox is stored as "x_min,y_min,x_max,y_max"
+                x_center_norm, y_center_norm, width_norm, height_norm = convert_bbox_to_yolo_format(bbox,
+                                                                                                    image_width,
+                                                                                                    image_height)
+                # Determine the class ID
+                class_id = classes[row['SHAPE']]
+
+                # Prepare the annotation line
+                annotation_line = f"{class_id} {x_center_norm} {y_center_norm} {width_norm} {height_norm}\n"
+                # Write annotation to the corresponding file
+                with open(dest_label_path, 'w') as f:
+                    f.write(annotation_line)
+
+
+def save_dataset_config_file(save_path, train_path, val_path, test_path, classes):
+    # Path for the YAML configuration file to be used in training
+    yaml_path = os.path.join(save_path, 'data.yaml')
     # data for yaml dataset configuration file
     dataset_config = {
-        'train': train_dir,
-        'val': val_dir,
-        'test': test_dir,  # If you have a test set
-        'nc': len(class_labels_to_id),
-        'names': list(class_labels_to_id.keys())
+        'train': train_path,
+        'val': val_path,
+        'nc': len(classes),
+        'names': list(classes.keys())
     }
-
-    # Process and split dataset
-    for index, row in df.iterrows():
-        # Get image dimensions
-        image_path = os.path.join(source_dir, row['FRAME'])
-        with Image.open(image_path) as img:
-            image_width, image_height = img.size
-
-        # Convert bounding box to YOLO format
-        bbox = [float(x) for x in
-                row['BOUNDING BOX'].split(',')]  # Assuming bbox is stored as "x_min,y_min,x_max,y_max"
-        x_center_norm, y_center_norm, width_norm, height_norm = convert_bbox_to_yolo_format(bbox, image_width,
-                                                                                            image_height)
-
-        # Determine the class ID
-        class_id = class_labels_to_id[row['SHAPE']]
-
-        # Prepare the annotation line
-        annotation_line = f"{class_id} {x_center_norm} {y_center_norm} {width_norm} {height_norm}\n"
-
-        # Assign to train, val, or test based on the split
-        if index < num_train:
-            dest_dir = train_dir
-        elif index < num_train + num_val:
-            dest_dir = val_dir
-        else:
-            dest_dir = test_dir
-
-        dest_image_path = os.path.join(dest_dir, row['FRAME'])
-        dest_label_path = dest_image_path.replace('images', 'labels').replace('.png', '.txt')
-
-        # Copy image to the corresponding directory
-        copy2(image_path, dest_image_path)
-    
-        # Write annotation to the corresponding file
-        with open(dest_label_path, 'w') as f:
-            f.write(annotation_line)
-
-    # Path for the YAML file
-    yaml_path = os.path.join(base_dir, 'data.yaml')
+    if test_path is not None:
+        dataset_config['test'] = test_path
 
     # Writing the dataset configuration to a YAML file
     with open(yaml_path, 'w') as yamlfile:
-        documents = yaml.dump(dataset_config, yamlfile)
+        yaml.dump(dataset_config, yamlfile)
 
+
+def calculate_negative_split_sizes(sizes, config):
+    negative_ratio = config['ratio']
+    distribution = config['distribution']
+    total_positives = sum(sizes)
+    if total_positives == 0:
+        raise ValueError("Total size of splits must be greater than zero to allocate negative samples.")
+
+    if distribution == "SPLIT-RATIO":
+        proportions = [size / total_positives for size in sizes]
+    elif distribution == "EVEN":
+        non_zero_count = sum(1 for size in sizes if size > 0)
+        proportions = [1 / non_zero_count if size > 0 else 0 for size in sizes]
+    else:
+        raise ValueError("Unsupported distribution type specified.")
+
+    total_negatives = int(total_positives * negative_ratio)
+    neg_sizes = [int(total_positives * prop * negative_ratio) for prop in proportions]
+    rounding_correction = total_negatives - sum(neg_sizes)
+    # Apply rounding correction to the last non-zero split
+    if rounding_correction != 0:
+        for i in reversed(range(len(neg_sizes))):
+            if sizes[i] > 0:  # Ensure the split is non-zero
+                neg_sizes[i] += rounding_correction
+                break
+
+    return neg_sizes
+
+
+def split_negative_data(negative_sample_path, split_sizes):
+    negative_img_paths = [os.path.join(negative_sample_path, f) for f in os.listdir(negative_sample_path) if
+                          f.endswith('.jpg')]
+    total_samples = sum(split_sizes)
+    total_img_count = len(negative_img_paths)
+    if total_samples > total_img_count:
+        raise ValueError("Not enough negative samples to fulfill the requested split sizes.")
+
+    np.random.shuffle(negative_img_paths)  # Shuffle to ensure randomness
+
+    train_end = split_sizes[0]
+    val_end = train_end + split_sizes[1]
+
+    neg_train_split = negative_img_paths[:train_end]
+    neg_val_split = negative_img_paths[train_end:val_end]
+    neg_test_split = negative_img_paths[val_end:val_end + split_sizes[2]]
+
+    return [neg_train_split, neg_val_split, neg_test_split]
+
+
+def process_negative_samples(negative_splits, save_path):
+    split_types = ['train', 'val', 'test']
+    for index, split in enumerate(negative_splits):
+        # Corresponding folder for the split
+        split_type = split_types[index]
+        img_dest_dir = os.path.join(save_path, f'images/{split_type}/')
+        label_dest_dir = os.path.join(save_path, f'labels/{split_type}/')
+        for img_path in split:
+            # Copy image to the corresponding directory
+            filename = os.path.basename(img_path)
+            dest_path = os.path.join(img_dest_dir, filename)
+            copy2(img_path, dest_path)
+            # Create an empty annotation file
+            label_path = os.path.join(label_dest_dir, filename.replace('.jpg', '.txt'))
+            open(label_path, 'w').close()  # Create an empty file for YOLO
+
+
+def main(config_file):
+    # Define class labels and corresponding IDs
+    classes = {'IIa': 0, 'IIb': 1, 'IIc': 2, 'III': 3,
+               'Ip': 4, 'Is': 5, 'Isp': 6}
+    # Load the configuration options
+    config = load_config(config_file)
+    src_path = config['src_path']
+    img_src_path = os.path.join(src_path, 'img/')
+    ng_img_src_path = os.path.join(src_path, 'negative_img/')
+    save_path = os.path.dirname(os.path.abspath(config_file))
+
+    # Load the Excel file
+    excel_path = os.path.join(src_path, 'metadata.xlsx')
+    df = pd.read_excel(excel_path)
+
+    # Split the data according to the configuration
+    train_df, val_df, test_df = split_data(df, config)
+
+    # Create folder hierarchy
+    train_path, val_path, test_path = create_folder_hierarchy(save_path, len(test_df.index) > 0)
+
+    # Split images accordingly
+    process_img(train_df, val_df, test_df, classes, img_src_path, save_path)
+
+    # Process negative samples
+    neg_split_sizes = calculate_negative_split_sizes([len(train_df), len(val_df), len(test_df)],
+                                                     config['negative_sampling'])
+    neg_splits = split_negative_data(ng_img_src_path, neg_split_sizes)
+    process_negative_samples(neg_splits, save_path)
+
+    # Save dataset summary in configuration file
+    save_dataset_config_file(save_path, train_path, val_path, test_path, classes)
 
 
 if __name__ == "__main__":
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description='Prepare dataset for Ultralytics YOLO training.')
-    parser.add_argument('base_path', type=str, help='Base path where the Excel and img folder are located')
+    parser.add_argument('config_file', type=str, help='Base path where the config file is located')
     args = parser.parse_args()
-    main(args.base_path)
+    main(args.config_file)

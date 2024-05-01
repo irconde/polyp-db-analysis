@@ -224,7 +224,7 @@ def main(base_path, num_elements, plot_images):
 
     combined_df = merge_datasets(args.base_path, datasets, num_elements=num_elements)
     destination_folder = 'img' if num_elements is None else 'img_'+str(num_elements)
-    output_filename = 'output.xlsx' if num_elements is None else 'output_'+str(num_elements)+'.xlsx'
+    output_filename = 'metadata.xlsx' if num_elements is None else 'output_'+str(num_elements)+'.xlsx'
 
     # Keep only entries with a single bounding box (no blank spaces in 'BOUNDING BOX')
     combined_df = combined_df[combined_df['BOUNDING BOX'].str.count(' ') == 0]
