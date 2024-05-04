@@ -29,75 +29,112 @@ def split_data(df, config):
 
     # Call the appropriate function based on the split level
     if split_level == 'POLYP ID':
-        return polyp_level_split(df, train_ratio, val_ratio, test_ratio, stratify_by_shape)
+        return polyp_level_split(df, (train_ratio, val_ratio, test_ratio), stratify_by_shape)
     elif split_level == 'FRAME':
-        return image_level_split(df, train_ratio, val_ratio, test_ratio, stratify_by_shape)
+        return image_level_split(df, (train_ratio, val_ratio, test_ratio), stratify_by_shape)
     else:
         raise ValueError("Unsupported split level provided in configuration.")
 
 
+# id_col='POLYP ID', stratify_col='SHAPE', ratios=(0.7, 0.2, 0.1)
+def stratified_split_if_possible(df, id_col, stratify_col, ratios, random_state=42):
+    # Compute the minimum number of samples needed to split according to the smallest ratio
+    min_samples = int(1 / min(ratios))
+
+    # Initialize dictionaries to store the split dataframes
+    train_dfs = []
+    val_dfs = []
+    test_dfs = []
+
+    # Randomize the order of shapes to avoid any inherent ordering bias
+    shapes = df[stratify_col].unique()
+    np.random.seed(random_state)
+    np.random.shuffle(shapes)
+
+    # Check for each shape whether stratified splitting is possible
+    for shape in df[stratify_col].unique():
+        shape_data = df[df[stratify_col] == shape]
+        polyps = shape_data[id_col].unique()
+
+        if len(polyps) >= min_samples:
+            # Perform stratified split
+            train_val_polyps, test_polyps = train_test_split(polyps, test_size=ratios[2], random_state=random_state)
+            train_polyps, val_polyps = train_test_split(train_val_polyps, test_size=ratios[1] / (ratios[0] + ratios[1]),
+                                                        random_state=random_state)
+
+            # Append DataFrames by selecting data for each polyp ID
+            train_dfs.append(df[df[id_col].isin(train_polyps)])
+            val_dfs.append(df[df[id_col].isin(val_polyps)])
+            test_dfs.append(df[df[id_col].isin(test_polyps)])
+        else:
+            # Evenly distribute polyps across splits if stratified split is not possible
+            np.random.seed(random_state)
+            np.random.shuffle(polyps)
+            n_train = int(len(polyps) * ratios[0])
+            n_val = int(len(polyps) * (ratios[0] + ratios[1]))
+
+            # Append DataFrames by selecting data for each polyp ID
+            train_dfs.append(df[df[id_col].isin(polyps[:n_train])])
+            val_dfs.append(df[df[id_col].isin(polyps[n_train:n_val])])
+            test_dfs.append(df[df[id_col].isin(polyps[n_val:])])
+
+    # Concatenate all dataframes for each split
+    train_df = pd.concat(train_dfs, ignore_index=True)
+    val_df = pd.concat(val_dfs, ignore_index=True)
+    test_df = pd.concat(test_dfs, ignore_index=True)
+
+    return train_df, val_df, test_df
+
+
+def split_by_field(df, group_field, ratios, random_state=42):
+    # Group data by the specified field
+    train_ratio, validation_ratio, test_ratio = ratios
+    grouped = df.groupby(group_field)
+    group_keys = list(grouped.groups.keys())
+    np.random.shuffle(group_keys)  # Shuffle to avoid any inherent ordering bias
+
+    # Split group_keys into train and remaining sets
+    train_keys, remaining_keys = train_test_split(group_keys, test_size=1 - train_ratio, stratify=None,
+                                                  random_state=random_state)
+
+    if test_ratio == 0:
+        val_df = pd.concat([grouped.get_group(key) for key in remaining_keys])
+        test_df = pd.DataFrame()
+    else:
+        # Calculate the relative ratio for remaining splits
+        remaining_ratio = validation_ratio / (validation_ratio + test_ratio)
+        # Split remaining_keys into validation and test sets
+        val_keys, test_keys = train_test_split(remaining_keys, test_size=1 - remaining_ratio, stratify=None,
+                                               random_state=random_state)
+        val_df = pd.concat([grouped.get_group(key) for key in val_keys])
+        test_df = pd.concat([grouped.get_group(key) for key in test_keys])
+
+    # Collect data for each split
+    train_df = pd.concat([grouped.get_group(key) for key in train_keys])
+
+    return train_df, val_df, test_df
+
+
 # Function to carry out data splitting at the polyp level
-def polyp_level_split(df, train_ratio, validation_ratio, test_ratio, stratify_by_shape=False):
+def polyp_level_split(df, ratios, stratify_by_shape=False):
+    random_state = 42
+    train_ratio, validation_ratio, test_ratio = ratios
     if not np.isclose(train_ratio + validation_ratio + test_ratio, 1.0, atol=0.01):
         raise ValueError("The sum of train, validation, and test ratios must be close to 1")
 
     if stratify_by_shape:
-        # Verify shape consistency within each polyp group
-        if df.groupby('POLYP ID')['SHAPE'].nunique().max() != 1:
-            raise ValueError("Shape is not consistent within polyp groups, stratified split by shape is not possible.")
-
-        # Extract representative shape for each polyp group
-        representative_shape = df.drop_duplicates('POLYP ID').set_index('POLYP ID')['SHAPE']
-
-        # Initial check for stratification feasibility
-        if representative_shape.value_counts().min() < 2:
-            raise ValueError("Insufficient members in at least one class for stratified splitting.")
-
-    # Group data by polyp_id
-    grouped = df.groupby('POLYP ID')
-    polyp_ids = list(grouped.groups.keys())
-    np.random.shuffle(polyp_ids)  # Shuffle to avoid any inherent ordering bias
-
-    # Stratify if required and possible
-    stratify_col_train = representative_shape[polyp_ids] if stratify_by_shape else None
-
-    # Split polyp_ids into train and remaining sets
-    train_ids, remaining_ids = train_test_split(
-        polyp_ids, test_size=1 - train_ratio,
-        stratify=stratify_col_train if stratify_by_shape else None
-    )
-
-    # Handling zero test ratio
-    if test_ratio == 0:
-        val_df = pd.concat([grouped.get_group(pid) for pid in remaining_ids])
-        test_df = pd.DataFrame()
+        train_df, val_df, test_df = stratified_split_if_possible(df, 'POLYP ID', 'SHAPE',
+                                                                 (train_ratio, validation_ratio, test_ratio),
+                                                                 random_state)
     else:
-        # Recalculate remaining shapes for the validation and test split
-        remaining_shapes = representative_shape.loc[remaining_ids] if stratify_by_shape else None
-
-        # Second check for stratification feasibility on remaining splits
-        if stratify_by_shape and remaining_shapes.value_counts().min() < 2:
-            raise ValueError("Insufficient members in at least one class for further stratified splitting.")
-
-        # Calculate the relative ratio for remaining splits
-        remaining_ratio = validation_ratio / (validation_ratio + test_ratio)
-
-        # Split remaining_ids into validation and test sets
-        val_ids, test_ids = train_test_split(
-            remaining_ids, test_size=1 - remaining_ratio,
-            stratify=remaining_shapes if stratify_by_shape else None
-        )
-        val_df = pd.concat([grouped.get_group(pid) for pid in val_ids])
-        test_df = pd.concat([grouped.get_group(pid) for pid in test_ids])
-
-    # Collect data for each split
-    train_df = pd.concat([grouped.get_group(pid) for pid in train_ids])
+        train_df, val_df, test_df = split_by_field(df, 'POLYP ID', ratios, random_state)
 
     return train_df, val_df, test_df
 
 
 # Function to carry out data splitting at the frame level
-def image_level_split(df, train_ratio, validation_ratio, test_ratio, stratify_by_shape=False):
+def image_level_split(df, ratios, stratify_by_shape=False):
+    train_ratio, validation_ratio, test_ratio = ratios
     if not np.isclose(train_ratio + validation_ratio + test_ratio, 1.0, atol=0.01):
         raise ValueError("The sum of train, validation, and test ratios must be close to 1")
 
