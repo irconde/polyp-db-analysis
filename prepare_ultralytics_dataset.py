@@ -229,7 +229,7 @@ def process_img(train_df, val_df, test_df, classes, source_path, save_path):
                                                                                                     image_width,
                                                                                                     image_height)
                 # Determine the class ID
-                class_id = classes[row['SHAPE']]
+                class_id = 0 if len(classes) == 1 else classes[row['SHAPE']]
 
                 # Prepare the annotation line
                 annotation_line = f"{class_id} {x_center_norm} {y_center_norm} {width_norm} {height_norm}\n"
@@ -322,12 +322,17 @@ def process_negative_samples(negative_splits, save_path):
 
 
 def main(config_file):
-    # Define class labels and corresponding IDs
-    classes = {'IIa': 0, 'IIb': 1, 'IIc': 2, 'III': 3,
-               'Ip': 4, 'Is': 5, 'Isp': 6}
     # Load the configuration options
     config = load_config(config_file)
     src_path = config['src_path']
+
+    # Define class labels and corresponding IDs
+    if config['classification_type'] == 'BINARY':
+        classes = {'polyp': 0}
+    else:
+        classes = {'IIa': 0, 'IIb': 1, 'IIc': 2, 'III': 3,
+                   'Ip': 4, 'Is': 5, 'Isp': 6}
+
     img_src_path = os.path.join(src_path, 'img/')
     ng_img_src_path = os.path.join(src_path, 'negative_img/')
     save_path = os.path.dirname(os.path.abspath(config_file))
@@ -359,5 +364,6 @@ if __name__ == "__main__":
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description='Prepare dataset for Ultralytics YOLO training.')
     parser.add_argument('config_file', type=str, help='Base path where the config file is located')
+    parser.add_argument('--binary', action='store_true', help='Enable binary classification mode')
     args = parser.parse_args()
     main(args.config_file)
