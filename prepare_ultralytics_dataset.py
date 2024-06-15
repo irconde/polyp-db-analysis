@@ -40,6 +40,8 @@ def split_data(df, config):
 def stratified_split_if_possible(df, id_col, stratify_col, ratios, random_state=42):
     # Compute the minimum number of samples needed to split according to the smallest ratio
     min_samples = int(1 / min(ratios))
+    # Determine the number of splits based on non-zero ratios
+    num_splits = sum(ratio > 0 for ratio in ratios)
 
     # Initialize dictionaries to store the split dataframes
     train_dfs = []
@@ -55,35 +57,77 @@ def stratified_split_if_possible(df, id_col, stratify_col, ratios, random_state=
     for shape in df[stratify_col].unique():
         shape_data = df[df[stratify_col] == shape]
         polyps = shape_data[id_col].unique()
+        polyp_count = len(polyps)
 
-        if len(polyps) >= min_samples:
+        if polyp_count < num_splits:
+            raise ValueError(f"Not enough polyps for shape '{shape}'. At least 3 polyps are required.")
+
+        if polyp_count >= min_samples:
             # Perform stratified split
-            train_val_polyps, test_polyps = train_test_split(polyps, test_size=ratios[2], random_state=random_state)
+            if ratios[2] > 0:
+                train_val_polyps, test_polyps = train_test_split(polyps, test_size=ratios[2], random_state=random_state)
+            else:
+                train_val_polyps, test_polyps = polyps, []
+
             train_polyps, val_polyps = train_test_split(train_val_polyps, test_size=ratios[1] / (ratios[0] + ratios[1]),
                                                         random_state=random_state)
 
             # Append DataFrames by selecting data for each polyp ID
             train_dfs.append(df[df[id_col].isin(train_polyps)])
             val_dfs.append(df[df[id_col].isin(val_polyps)])
-            test_dfs.append(df[df[id_col].isin(test_polyps)])
+            if len(test_polyps) > 0:
+                test_dfs.append(df[df[id_col].isin(test_polyps)])
+
         else:
             # Evenly distribute polyps across splits if stratified split is not possible
-            np.random.seed(random_state)
-            np.random.shuffle(polyps)
-            n_train = int(len(polyps) * ratios[0])
-            n_val = int(len(polyps) * (ratios[0] + ratios[1]))
-
-            # Append DataFrames by selecting data for each polyp ID
-            train_dfs.append(df[df[id_col].isin(polyps[:n_train])])
-            val_dfs.append(df[df[id_col].isin(polyps[n_train:n_val])])
-            test_dfs.append(df[df[id_col].isin(polyps[n_val:])])
+            train_set, val_set, test_set = _evenly_distribute_polyps(df, polyps, id_col, ratios, num_splits, random_state)
+            train_dfs.append(train_set)
+            val_dfs.append(val_set)
+            if not test_set.empty:
+                test_dfs.append(test_set)
 
     # Concatenate all dataframes for each split
     train_df = pd.concat(train_dfs, ignore_index=True)
     val_df = pd.concat(val_dfs, ignore_index=True)
-    test_df = pd.concat(test_dfs, ignore_index=True)
+    test_df = pd.concat(test_dfs, ignore_index=True) if test_dfs else pd.DataFrame()
 
     return train_df, val_df, test_df
+
+
+def _evenly_distribute_polyps(df, polyps, id_col, ratios, num_splits, random_state):
+    np.random.seed(random_state)
+    np.random.shuffle(polyps)
+
+    total_polyps = len(polyps)
+
+    # Compute the initial number of polyps for each split based on the provided ratios
+    n_train = max(1, round(total_polyps * ratios[0]))
+    n_val = max(1, round(total_polyps * ratios[1]))
+    n_test = max(1, total_polyps - n_train - n_val) if ratios[2] > 0 else 0
+
+    min_test = 0 if  ratios[2] == 0 else 1
+
+    # Adjust if the sum exceeds the available polyps
+    while n_train + n_val + n_test > total_polyps:
+        if n_test > min_test:
+            n_test = max(min_test, n_test - 1)
+        elif n_val > 1:
+            n_val = max(1, n_val - 1)
+        else:
+            n_train = max(1, n_train - 1)
+
+    # Ensure each split gets at least one polyp if the total polyps are greater than or equal to the number of splits
+    if total_polyps >= num_splits:
+        n_train = max(1, n_train)
+        n_val = max(1, n_val)
+        n_test = max(1, n_test) if ratios[2] > 0 else 0
+
+    # Create splits by selecting data for each polyp ID
+    train_set = df[df[id_col].isin(polyps[:n_train])]
+    val_set = df[df[id_col].isin(polyps[n_train:n_train + n_val])]
+    test_set = df[df[id_col].isin(polyps[n_train + n_val:])] if n_test > 0 else pd.DataFrame()
+
+    return train_set, val_set, test_set
 
 
 def split_by_field(df, group_field, ratios, random_state=42):
@@ -344,6 +388,10 @@ def main(config_file):
     # Split the data according to the configuration
     train_df, val_df, test_df = split_data(df, config)
 
+    print(train_df.groupby('SHAPE')['POLYP ID'].count())
+    print(val_df.groupby('SHAPE')['POLYP ID'].count())
+    print(test_df.groupby('SHAPE')['POLYP ID'].count())
+
     # Create folder hierarchy
     train_path, val_path, test_path = create_folder_hierarchy(save_path, len(test_df.index) > 0)
 
@@ -364,6 +412,5 @@ if __name__ == "__main__":
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description='Prepare dataset for Ultralytics YOLO training.')
     parser.add_argument('config_file', type=str, help='Base path where the config file is located')
-    parser.add_argument('--binary', action='store_true', help='Enable binary classification mode')
     args = parser.parse_args()
     main(args.config_file)
