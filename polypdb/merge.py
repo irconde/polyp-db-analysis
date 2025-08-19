@@ -1,4 +1,3 @@
-import argparse
 import os
 import shutil
 
@@ -6,7 +5,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
-from common import draw_bounding_boxes
+from .utils import draw_bounding_boxes
 import uuid
 
 # Function to generate standardized polyp_id
@@ -31,7 +30,7 @@ def generate_standardized_id(df):
 
     return new_ids
 
-def merge_datasets(base_path, datasets, num_elements=None):
+def combine_datasets(base_path, datasets, num_elements=None):
     """
     Merge datasets into a single DataFrame, optionally including a specified number of elements from each dataset.
 
@@ -218,13 +217,24 @@ def process_negative_images(source_dir, target_width, target_height):
                 standardize_and_override_image(source_file_path, target_width, target_height)
 
 
-def main(base_path, num_elements, plot_images):
+def merge_datasets(base_path, num_elements=None, plot_images=False):
+    """Merge and standardize multiple datasets.
+
+    Parameters
+    ----------
+    base_path : str
+        Base directory where the dataset folders are located.
+    num_elements : int, optional
+        Number of samples to include from each dataset. All samples are used if ``None``.
+    plot_images : bool, optional
+        If ``True``, bounding boxes are drawn on images for visual inspection.
+    """
     # process_negative_images(base_path, 588, 478)
     datasets = ['piba', 'sun', 'piccolo', 'polar']
 
-    combined_df = merge_datasets(args.base_path, datasets, num_elements=num_elements)
-    destination_folder = 'img' if num_elements is None else 'img_'+str(num_elements)
-    output_filename = 'metadata.xlsx' if num_elements is None else 'output_'+str(num_elements)+'.xlsx'
+    combined_df = combine_datasets(base_path, datasets, num_elements=num_elements)
+    destination_folder = 'img' if num_elements is None else 'img_' + str(num_elements)
+    output_filename = 'metadata.xlsx' if num_elements is None else 'output_' + str(num_elements) + '.xlsx'
 
     # Keep only entries with a single bounding box (no blank spaces in 'BOUNDING BOX')
     combined_df = combined_df[combined_df['BOUNDING BOX'].str.count(' ') == 0]
@@ -267,18 +277,3 @@ def main(base_path, num_elements, plot_images):
             input_frame_path = os.path.join(os.path.join(base_path, destination_folder), image_filename)
             output_frame_path = os.path.join(bbox_dest_dir, image_filename)
             draw_bounding_boxes(row['BOUNDING BOX'], input_frame_path, output_frame_path)
-
-
-if __name__ == "__main__":
-    # Set up argument parser
-    parser = argparse.ArgumentParser(description='Merge datasets into a single DataFrame.')
-    # Add arguments
-    parser.add_argument('base_path', type=str, help='The base path where the dataset folders are located.')
-    parser.add_argument("--num_elements", type=int, default=None,
-                        help="Number of elements to include from each dataset. If not specified, all rows are included.")
-    parser.add_argument("--plot", action='store_true', help="Enable image plotting.")
-
-    # Parse arguments
-    args = parser.parse_args()
-
-    main(args.base_path, args.num_elements, args.plot)
