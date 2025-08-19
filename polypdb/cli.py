@@ -1,7 +1,9 @@
 import argparse
+import os
 import yaml
 
 from .merge import merge_datasets
+from .preprocess import CONVERTERS
 from .ultralytics import prepare_dataset, prepare_classification_dataset
 from .count_samples import count_samples
 
@@ -30,6 +32,9 @@ def main() -> None:
     count_parser = subparsers.add_parser("count", help="Count class samples in YOLO dataset")
     count_parser.add_argument("root_folder", help="Root folder of the dataset")
 
+    pipeline_parser = subparsers.add_parser("pipeline", help="Run full preprocessing pipeline")
+    pipeline_parser.add_argument("config", help="Path to YAML configuration file")
+
     args = parser.parse_args()
 
     if args.command == "merge":
@@ -45,6 +50,19 @@ def main() -> None:
             print(f"\n{split.capitalize()} split:")
             for class_id, cnt in counts[split].items():
                 print(f"Class {class_id}: {cnt} samples")
+    elif args.command == "pipeline":
+        cfg = load_config(args.config)
+        base_path = cfg["base_path"]
+        for name in cfg["datasets"]:
+            src = cfg["raw_sources"][name]
+            CONVERTERS[name](src, base_path)
+        merge_datasets(base_path=base_path, datasets=cfg["datasets"], num_elements=cfg.get("num_elements"))
+        if cfg.get("prepare"):
+            prepare_cfg = cfg.get("prepare_config", os.path.join(base_path, "ultralytics_config.yaml"))
+            if cfg.get("classification"):
+                prepare_classification_dataset(prepare_cfg)
+            else:
+                prepare_dataset(prepare_cfg)
 
 
 if __name__ == "__main__":

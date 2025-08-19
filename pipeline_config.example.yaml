@@ -1,0 +1,7 @@
+raw_sources:
+  piba: /path/to/raw/piba
+  polar: /path/to/raw/polar
+base_path: /path/to/standardized
+datasets: [piba, polar]
+num_elements: null
+prepare: true
