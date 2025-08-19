@@ -76,6 +76,28 @@ Count the number of samples per class in a YOLO dataset directory:
 polypdb count path/to/dataset
 ```
 
+### Full preprocessing pipeline
+
+Run conversion, merging and optional dataset preparation in a single step. The
+pipeline reads a configuration describing raw dataset locations and output
+paths:
+
+```yaml
+raw_sources:
+  piba: /path/to/raw/piba
+  polar: /path/to/raw/polar
+base_path: /path/to/standardized
+datasets: [piba, polar]
+num_elements: null
+prepare: true
+```
+
+Execute the pipeline:
+
+```bash
+polypdb pipeline pipeline_config.yaml
+```
+
 ## Development
 
 Run tests with `pytest` to verify changes.
