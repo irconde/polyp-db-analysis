@@ -3,6 +3,7 @@ import shutil
 
 from PIL import Image, ImageDraw
 from matplotlib import pyplot as plt
+import numpy as np
 
 
 def get_image_size(image_path):
@@ -113,6 +114,38 @@ def resize_and_maintain_aspect(img_path, output_path, target_size=(854, 480), fi
             new_img = img
 
         new_img.save(output_path)
+
+
+def resize_with_padding(img, target_size=(224, 224), fill_color=(0, 0, 0)):
+    """Resize ``img`` to ``target_size`` maintaining aspect ratio by padding.
+
+    :param img: ``PIL.Image`` to be resized.
+    :param target_size: Desired output size ``(width, height)``.
+    :param fill_color: RGB color tuple used for padding.
+    :return: Resized and padded ``PIL.Image``.
+    """
+    img = img.copy()
+    img.thumbnail(target_size, Image.Resampling.LANCZOS)
+    new_img = Image.new("RGB", target_size, fill_color)
+    new_img.paste(img, ((target_size[0] - img.size[0]) // 2,
+                         (target_size[1] - img.size[1]) // 2))
+    return new_img
+
+
+def normalize_image(img, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
+    """Normalize ``img`` using per-channel ``mean`` and ``std``.
+
+    The image is expected to be in RGB format.
+
+    :param img: ``PIL.Image`` to normalize.
+    :param mean: Tuple of channel means.
+    :param std: Tuple of channel standard deviations.
+    :return: ``numpy.ndarray`` containing the normalized image data.
+    """
+    arr = np.asarray(img).astype(np.float32) / 255.0
+    mean_arr = np.array(mean).reshape(1, 1, 3)
+    std_arr = np.array(std).reshape(1, 1, 3)
+    return (arr - mean_arr) / std_arr
 
 
 def adjust_bounding_box(original_box, original_size, resized_size, padding):
