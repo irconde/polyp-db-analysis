@@ -1,7 +1,6 @@
 import os
 import shutil
 
-import cv2
 from PIL import Image, ImageDraw
 from matplotlib import pyplot as plt
 
@@ -15,6 +14,7 @@ def get_image_size(image_path):
         width: Width of the image.
         height: Height of the image.
     """
+    import cv2
     image = cv2.imread(image_path)
     height, width, channels = image.shape
 

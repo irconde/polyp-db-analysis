@@ -3,7 +3,6 @@ import os
 from shutil import copy2
 from PIL import Image
 import numpy as np
-import argparse
 import yaml
 from sklearn.model_selection import train_test_split
 
@@ -365,7 +364,8 @@ def process_negative_samples(negative_splits, save_path):
             open(label_path, 'w').close()  # Create an empty file for YOLO
 
 
-def main(config_file):
+def prepare_dataset(config_file):
+    """Prepare dataset for Ultralytics YOLO training based on a YAML configuration."""
     # Load the configuration options
     config = load_config(config_file)
     src_path = config['src_path']
@@ -407,10 +407,3 @@ def main(config_file):
     # Save dataset summary in configuration file
     save_dataset_config_file(save_path, train_path, val_path, test_path, classes)
 
-
-if __name__ == "__main__":
-    # Parse command-line arguments
-    parser = argparse.ArgumentParser(description='Prepare dataset for Ultralytics YOLO training.')
-    parser.add_argument('config_file', type=str, help='Base path where the config file is located')
-    args = parser.parse_args()
-    main(args.config_file)
