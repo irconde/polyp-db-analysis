@@ -1,3 +1,12 @@
+"""Utilities for preprocessing the PIBA dataset.
+
+The routine mirrors the operations performed in
+``piba-database-analysis.ipynb`` including column renaming, normalisation of
+image modality, mapping Paris classification codes and building bounding boxes
+from ``(x, y, w, h)`` coordinates.  Image dimensions are also recorded so the
+resulting ``annotations.xlsx`` closely matches the notebook output.
+"""
+
 import os
 import pandas as pd
 import numpy as np
@@ -29,7 +38,12 @@ SHAPE_MAP = {
 
 
 def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
-    """Convert PIBA dataset to the standard directory layout."""
+    """Convert PIBA dataset to the standard directory layout.
+
+    Apart from renaming columns, the function normalises the light source
+    labels, maps morphology descriptions to Paris codes, computes image
+    dimensions and produces bounding boxes in ``x1,y1,x2,y2`` format.
+    """
     df = pd.read_excel(os.path.join(src_dir, "piba_db_dump.xlsx"))
     df = df.rename(columns=RENAME_COLUMNS)
     df["IMAGE TYPE"] = np.where(df["IMAGE TYPE"].str.contains("WL"), "WL", "NBI")

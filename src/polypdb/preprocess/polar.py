@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 
-from ..utils import move_images
+from ..utils import get_image_size, move_images
 
 
 def _transform_bbox(bbox_str: str) -> str:
@@ -10,7 +10,14 @@ def _transform_bbox(bbox_str: str) -> str:
 
 
 def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
-    """Convert POLAR dataset to the standard directory layout."""
+    """Convert POLAR dataset to the standard directory layout.
+
+    In addition to the basic column renaming performed by the notebooks, this
+    implementation drops entries with negative polyp sizes, converts bounding
+    boxes from ``(x, y, w, h)`` to ``(x1, y1, x2, y2)`` coordinates and records
+    the size of every image.  These steps mirror the data munging shown in
+    ``polar-database-analysis.ipynb``.
+    """
     df = pd.read_excel(os.path.join(src_dir, "annotations.xlsx"), sheet_name="validation_set")
     df = df.rename(
         columns={
@@ -21,8 +28,18 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
         }
     )
     df["FRAME"] = df["FRAME"].astype(str) + ".png"
+    df = df[df["SIZE"] >= 0]
     df["IMAGE TYPE"] = "NBI"
     df["BOUNDING BOX"] = df["BOUNDING BOX"].apply(_transform_bbox)
+
+    widths = []
+    heights = []
+    for frame in df["FRAME"]:
+        w, h = get_image_size(os.path.join(src_dir, "img", frame))
+        widths.append(w)
+        heights.append(h)
+    df["WIDTH"] = widths
+    df["HEIGHT"] = heights
     df = df.drop(
         columns=[
             "PATIENT_ID",
