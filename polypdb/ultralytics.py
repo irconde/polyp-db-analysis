@@ -6,6 +6,8 @@ import numpy as np
 import yaml
 from sklearn.model_selection import train_test_split
 
+from .utils import resize_with_padding, normalize_image
+
 
 # Function to load configuration params from yaml figuration file
 def load_config(config_path):
@@ -364,17 +366,33 @@ def process_negative_samples(negative_splits, save_path):
             open(label_path, 'w').close()  # Create an empty file for YOLO
 
 
-def _save_cropped_image(image_path, bbox, dest_path):
-    """Crop ``image_path`` using ``bbox`` and save as JPEG to ``dest_path``."""
+def _save_cropped_image(image_path, bbox, dest_path, output_size=(224, 224)):
+    """Crop ``image_path`` using ``bbox``, resize and normalize, then save to ``dest_path``.
+
+    The crop is resized to ``output_size`` while preserving aspect ratio via padding.
+    ImageNet statistics are used for normalization.
+    """
     with Image.open(image_path) as img:
         x_min, y_min, x_max, y_max = [int(float(v)) for v in bbox.split(',')]
         x_min = max(0, x_min)
         y_min = max(0, y_min)
         x_max = min(img.width, x_max)
         y_max = min(img.height, y_max)
-        cropped = img.crop((x_min, y_min, x_max, y_max))
+        cropped = img.crop((x_min, y_min, x_max, y_max)).convert('RGB')
+
+        # Resize with padding to maintain aspect ratio
+        resized = resize_with_padding(cropped, target_size=output_size)
+
+        # Apply per-channel normalization
+        normalized = normalize_image(resized)
+
+        # Convert back to uint8 for saving
+        mean = np.array([0.485, 0.456, 0.406]).reshape(1, 1, 3)
+        std = np.array([0.229, 0.224, 0.225]).reshape(1, 1, 3)
+        unnormalized = np.clip((normalized * std + mean) * 255, 0, 255).astype(np.uint8)
+
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-        cropped.convert('RGB').save(dest_path, format='JPEG')
+        Image.fromarray(unnormalized).save(dest_path, format='JPEG')
 
 
 def process_classification_images(train_df, val_df, test_df, source_path, save_path,
