@@ -2,7 +2,7 @@ import argparse
 import yaml
 
 from .merge import merge_datasets
-from .ultralytics import prepare_dataset
+from .ultralytics import prepare_dataset, prepare_classification_dataset
 from .count_samples import count_samples
 
 
@@ -22,6 +22,11 @@ def main() -> None:
         "prepare", help="Prepare dataset for Ultralytics YOLO")
     prepare_parser.add_argument("config", help="Path to YAML configuration file")
 
+    prepare_cls_parser = subparsers.add_parser(
+        "prepare-classification", help="Prepare dataset for image classification"
+    )
+    prepare_cls_parser.add_argument("config", help="Path to YAML configuration file")
+
     count_parser = subparsers.add_parser("count", help="Count class samples in YOLO dataset")
     count_parser.add_argument("root_folder", help="Root folder of the dataset")
 
@@ -32,6 +37,8 @@ def main() -> None:
         merge_datasets(**cfg)
     elif args.command == "prepare":
         prepare_dataset(args.config)
+    elif args.command == "prepare-classification":
+        prepare_classification_dataset(args.config)
     elif args.command == "count":
         counts = count_samples(args.root_folder)
         for split in ["test", "train", "val"]:

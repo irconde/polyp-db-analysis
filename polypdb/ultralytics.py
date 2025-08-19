@@ -364,6 +364,45 @@ def process_negative_samples(negative_splits, save_path):
             open(label_path, 'w').close()  # Create an empty file for YOLO
 
 
+def _save_cropped_image(image_path, bbox, dest_path):
+    """Crop ``image_path`` using ``bbox`` and save as JPEG to ``dest_path``."""
+    with Image.open(image_path) as img:
+        x_min, y_min, x_max, y_max = [int(float(v)) for v in bbox.split(',')]
+        x_min = max(0, x_min)
+        y_min = max(0, y_min)
+        x_max = min(img.width, x_max)
+        y_max = min(img.height, y_max)
+        cropped = img.crop((x_min, y_min, x_max, y_max))
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        cropped.convert('RGB').save(dest_path, format='JPEG')
+
+
+def process_classification_images(train_df, val_df, test_df, source_path, save_path,
+                                  classification_type, ng_img_src_path=None, negative_cfg=None):
+    """Create a HyperKvasir-style dataset for classification."""
+    root = os.path.join(save_path, 'labeled-images')
+    for subset, data in zip(('train', 'val', 'test'), (train_df, val_df, test_df)):
+        if data is not None and not data.empty:
+            for _, row in data.iterrows():
+                img_path = os.path.join(source_path, row['FRAME'])
+                cls = 'polyp' if classification_type == 'BINARY' else row['SHAPE']
+                dest_dir = os.path.join(root, subset, 'pathological-findings', cls)
+                dest_name = os.path.splitext(row['FRAME'])[0] + '.jpg'
+                dest_path = os.path.join(dest_dir, dest_name)
+                _save_cropped_image(img_path, row['BOUNDING BOX'], dest_path)
+
+    if classification_type == 'BINARY' and ng_img_src_path is not None and negative_cfg is not None:
+        neg_sizes = calculate_negative_split_sizes(
+            [len(train_df), len(val_df), len(test_df)], negative_cfg
+        )
+        neg_splits = split_negative_data(ng_img_src_path, neg_sizes)
+        for subset, split in zip(('train', 'val', 'test'), neg_splits):
+            dest_dir = os.path.join(root, subset, 'pathological-findings', 'negative')
+            os.makedirs(dest_dir, exist_ok=True)
+            for img_path in split:
+                copy2(img_path, os.path.join(dest_dir, os.path.basename(img_path)))
+
+
 def prepare_dataset(config_file):
     """Prepare dataset for Ultralytics YOLO training based on a YAML configuration."""
     # Load the configuration options
@@ -406,4 +445,39 @@ def prepare_dataset(config_file):
 
     # Save dataset summary in configuration file
     save_dataset_config_file(save_path, train_path, val_path, test_path, classes)
+
+
+def prepare_classification_dataset(config_file):
+    """Prepare a HyperKvasir-style dataset for classification."""
+    config = load_config(config_file)
+    src_path = config['src_path']
+
+    if config['classification_type'] == 'BINARY':
+        classes = ['polyp', 'negative']
+    else:
+        classes = ['IIa', 'IIb', 'IIc', 'III', 'Ip', 'Is', 'Isp']
+
+    img_src_path = os.path.join(src_path, 'img/')
+    ng_img_src_path = os.path.join(src_path, 'negative_img/')
+    save_path = os.path.dirname(os.path.abspath(config_file))
+
+    df = pd.read_excel(os.path.join(src_path, 'metadata.xlsx'))
+
+    train_df, val_df, test_df = split_data(df, config)
+
+    root = os.path.join(save_path, 'labeled-images')
+    for subset in ('train', 'val', 'test'):
+        for cls in classes:
+            os.makedirs(os.path.join(root, subset, 'pathological-findings', cls), exist_ok=True)
+
+    process_classification_images(
+        train_df,
+        val_df,
+        test_df,
+        img_src_path,
+        save_path,
+        config['classification_type'],
+        ng_img_src_path,
+        config.get('negative_sampling'),
+    )
 
