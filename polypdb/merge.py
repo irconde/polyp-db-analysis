@@ -217,20 +217,21 @@ def process_negative_images(source_dir, target_width, target_height):
                 standardize_and_override_image(source_file_path, target_width, target_height)
 
 
-def merge_datasets(base_path, num_elements=None, plot_images=False):
+def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_images=False):
     """Merge and standardize multiple datasets.
 
     Parameters
     ----------
     base_path : str
         Base directory where the dataset folders are located.
+    datasets : list of str
+        Names of datasets to merge.
     num_elements : int, optional
         Number of samples to include from each dataset. All samples are used if ``None``.
     plot_images : bool, optional
         If ``True``, bounding boxes are drawn on images for visual inspection.
     """
     # process_negative_images(base_path, 588, 478)
-    datasets = ['piba', 'sun', 'piccolo', 'polar']
 
     combined_df = combine_datasets(base_path, datasets, num_elements=num_elements)
     destination_folder = 'img' if num_elements is None else 'img_' + str(num_elements)

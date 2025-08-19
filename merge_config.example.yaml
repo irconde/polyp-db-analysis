@@ -1,4 +1,9 @@
 base_path: /path/to/datasets
+datasets:
+  - piba
+  - sun
+  - piccolo
+  - polar
 num_elements: null
 plot_images: false
 
