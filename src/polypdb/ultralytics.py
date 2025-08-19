@@ -366,22 +366,17 @@ def process_negative_samples(negative_splits, save_path):
             open(label_path, 'w').close()  # Create an empty file for YOLO
 
 
-def _save_cropped_image(image_path, bbox, dest_path, output_size=(224, 224)):
-    """Crop ``image_path`` using ``bbox``, resize and normalize, then save to ``dest_path``.
+def _save_full_frame_image(image_path, dest_path, output_size=(224, 224)):
+    """Resize full-frame ``image_path`` and save to ``dest_path``.
 
-    The crop is resized to ``output_size`` while preserving aspect ratio via padding.
-    ImageNet statistics are used for normalization.
+    The entire image is resized to ``output_size`` while preserving aspect ratio
+    via padding. ImageNet statistics are used for normalization.
     """
     with Image.open(image_path) as img:
-        x_min, y_min, x_max, y_max = [int(float(v)) for v in bbox.split(',')]
-        x_min = max(0, x_min)
-        y_min = max(0, y_min)
-        x_max = min(img.width, x_max)
-        y_max = min(img.height, y_max)
-        cropped = img.crop((x_min, y_min, x_max, y_max)).convert('RGB')
+        img = img.convert('RGB')
 
         # Resize with padding to maintain aspect ratio
-        resized = resize_with_padding(cropped, target_size=output_size)
+        resized = resize_with_padding(img, target_size=output_size)
 
         # Apply per-channel normalization
         normalized = normalize_image(resized)
@@ -407,7 +402,7 @@ def process_classification_images(train_df, val_df, test_df, source_path, save_p
                 dest_dir = os.path.join(root, subset, 'pathological-findings', cls)
                 dest_name = os.path.splitext(row['FRAME'])[0] + '.jpg'
                 dest_path = os.path.join(dest_dir, dest_name)
-                _save_cropped_image(img_path, row['BOUNDING BOX'], dest_path)
+                _save_full_frame_image(img_path, dest_path)
 
     if classification_type == 'BINARY' and ng_img_src_path is not None and negative_cfg is not None:
         neg_sizes = calculate_negative_split_sizes(
