@@ -27,7 +27,7 @@ def _collect_metadata(src_dir: str) -> pd.DataFrame:
     with unnecessary columns removed and key identifiers formatted.
     """
 
-    df = pd.read_csv(os.path.join(src_dir, "annotations.csv"), delimiter=";")
+    df = pd.read_csv(os.path.join(src_dir, "clinical metadata_release0.1.csv"), delimiter=";", encoding="latin1")
     df = df.replace("-", pd.NA).dropna(how="all").dropna(axis=1, how="all")
     df = df.drop(
         columns=[

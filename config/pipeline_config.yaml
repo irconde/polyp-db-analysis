@@ -1,6 +1,6 @@
 raw_sources:
-  polar: /Users/irconde/Desktop/sssl-polyps/polyp-datasets/polar
+  piccolo: /Users/irconde/Desktop/sssl-polyps/polyp-datasets/piccolo
 base_path: /Users/irconde/Desktop/sssl-polyps/polyp-datasets
-datasets: [polar]
+datasets: [piccolo]
 num_elements: null
 prepare: true
