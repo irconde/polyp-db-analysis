@@ -1,8 +1,11 @@
+"""Command-line entry point for dataset preparation utilities."""
+
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent / "src"))
 from polypdb.cli import main
+
 
 if __name__ == "__main__":
     main()

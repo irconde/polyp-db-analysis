@@ -9,11 +9,24 @@ from .count_samples import count_samples
 
 
 def load_config(path: str) -> dict:
+    """Load configuration options from a YAML file.
+
+    Parameters
+    ----------
+    path : str
+        Location of the YAML configuration file.
+
+    Returns
+    -------
+    dict
+        Parsed configuration dictionary.
+    """
     with open(path, 'r') as f:
         return yaml.safe_load(f)
 
 
 def main() -> None:
+    """Run the command-line interface for dataset utilities."""
     parser = argparse.ArgumentParser(description="Polyp dataset processing CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
