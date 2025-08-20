@@ -8,7 +8,6 @@ version = "0.1.0"
 description = "Preprocess and merge polyp detection datasets"
 authors = [{name = ""}]
 dependencies = [
-    "opencv-python",
     "pillow",
     "matplotlib",
     "pandas",

@@ -7,19 +7,18 @@ import numpy as np
 
 
 def get_image_size(image_path):
-    """
-    Returns the width and height of an image.
+    """Return the width and height of an image.
+
+    The image is opened using :mod:`PIL.Image` instead of OpenCV.
+
     Args:
         image_path: Path to the image.
-    Returns:
-        width: Width of the image.
-        height: Height of the image.
-    """
-    import cv2
-    image = cv2.imread(image_path)
-    height, width, channels = image.shape
 
-    return width, height
+    Returns:
+        Tuple ``(width, height)`` representing the size of the image.
+    """
+    with Image.open(image_path) as img:
+        return img.width, img.height
 
 
 def crop_image_padding(img_path, cropped_img_path, mask_path=None, cropped_mask_path=None, padding_color=(0, 0, 0),
