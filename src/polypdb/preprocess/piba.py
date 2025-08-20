@@ -91,7 +91,10 @@ def convert_to_standard_layout(
     os.makedirs(out_dir, exist_ok=True)
     df.to_excel(os.path.join(out_dir, "annotations.xlsx"), index=False)
     move_images_parallel(
-        os.path.join(src_dir, "media"), os.path.join(out_dir, "img"), df
+        os.path.join(src_dir, "media"),
+        os.path.join(out_dir, "img"),
+        df,
+        copy=True,
     )
     validate_conversion(out_dir, df)
     logger.info("Finished PIBA conversion with %d entries", len(df))

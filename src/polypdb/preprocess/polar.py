@@ -120,7 +120,12 @@ def convert_to_standard_layout(
     out_dir = os.path.join(dest_dir, "polar")
     out_img_dir = os.path.join(out_dir, "img")
     move_images_parallel(
-        None, out_img_dir, df, filename_col="FRAME", source_path_col="SRC_PATH"
+        None,
+        out_img_dir,
+        df,
+        filename_col="FRAME",
+        source_path_col="SRC_PATH",
+        copy=True,
     )
 
     df = df.drop(
