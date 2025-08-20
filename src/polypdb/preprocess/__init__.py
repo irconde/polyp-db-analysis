@@ -11,3 +11,4 @@ CONVERTERS = {
     "piccolo": convert_piccolo,
     "sun": convert_sun,
 }
+"""Mapping of dataset identifiers to their conversion functions."""
