@@ -117,31 +117,45 @@ def convert_to_standard_layout(
     """
 
     metadata_path = os.path.join(src_dir, metadata_filename)
-    df = pd.read_csv(metadata_path)
-    df.columns = [c.upper() for c in df.columns]
-    df["SHAPE"] = df["SHAPE"].replace("IIa(LST-NG)", "IIa")
-    df = df.drop(columns=["PATHOLOGICAL DIAGNOSIS"], errors="ignore")
+    metadata_df = pd.read_csv(metadata_path)
+    metadata_df.columns = [c.upper() for c in metadata_df.columns]
+    metadata_df["SHAPE"] = metadata_df["SHAPE"].replace("IIa(LST-NG)", "IIa")
+    metadata_df = metadata_df.drop(columns=["PATHOLOGICAL DIAGNOSIS"], errors="ignore")
 
-    annotation_txt_dir = os.path.join(src_dir, "sundatabase_positive", "annotation_txt")
-    rows = []
-    for _, row in df.iterrows():
-        case_id = row["ID"]
-        txt_file = os.path.join(annotation_txt_dir, f"case{case_id}.txt")
-        if not os.path.exists(txt_file):
-            continue
+    annotation_txt_dir = os.path.join(
+        src_dir, "sundatabase_positive", "annotation_txt"
+    )
+
+    def _parse_case_annotation(args: tuple[str, pd.Series]) -> list[dict]:
+        """Parse a single case annotation file into per-frame rows."""
+
+        txt_file, meta = args
+        case_rows: list[dict] = []
         with open(txt_file, "r") as f:
             for line in f:
                 filename, bbox = _extract_bboxes(line)
-                rows.append(
+                case_rows.append(
                     {
                         "FRAME": filename,
-                        "POLYP ID": case_id,
-                        "LOCATION": row.get("LOCATION"),
-                        "SHAPE": row.get("SHAPE"),
-                        "SIZE": row.get("SIZE"),
+                        "POLYP ID": meta["ID"],
+                        "LOCATION": meta.get("LOCATION"),
+                        "SHAPE": meta.get("SHAPE"),
+                        "SIZE": meta.get("SIZE"),
                         "BOUNDING BOX": bbox,
                     }
                 )
+        return case_rows
+
+    annotation_args: list[tuple[str, pd.Series]] = []
+    for _, row in metadata_df.iterrows():
+        case_id = row["ID"]
+        txt_file = os.path.join(annotation_txt_dir, f"case{case_id}.txt")
+        if os.path.exists(txt_file):
+            annotation_args.append((txt_file, row))
+
+    with ThreadPoolExecutor() as executor:
+        parsed_rows = executor.map(_parse_case_annotation, annotation_args)
+    rows = [r for case_rows in parsed_rows for r in case_rows]
 
     df = pd.DataFrame(rows)
 
