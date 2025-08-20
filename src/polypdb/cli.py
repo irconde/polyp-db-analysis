@@ -1,11 +1,15 @@
 import argparse
 import os
 import yaml
+import logging
 
 from .merge import merge_datasets
 from .preprocess import CONVERTERS
 from .ultralytics import prepare_dataset, prepare_classification_dataset
 from .count_samples import count_samples
+
+
+logger = logging.getLogger(__name__)
 
 
 def load_config(path: str) -> dict:
@@ -60,9 +64,9 @@ def main() -> None:
     elif args.command == "count":
         counts = count_samples(args.root_folder)
         for split in ["test", "train", "val"]:
-            print(f"\n{split.capitalize()} split:")
+            logger.info("%s split:", split.capitalize())
             for class_id, cnt in counts[split].items():
-                print(f"Class {class_id}: {cnt} samples")
+                logger.info("Class %s: %s samples", class_id, cnt)
     elif args.command == "pipeline":
         cfg = load_config(args.config)
         base_path = cfg["base_path"]

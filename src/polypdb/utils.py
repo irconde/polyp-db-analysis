@@ -1,9 +1,13 @@
 import os
 import shutil
+import logging
 
 from PIL import Image, ImageDraw
 from matplotlib import pyplot as plt
 import numpy as np
+
+
+logger = logging.getLogger(__name__)
 
 
 def get_image_size(image_path):
@@ -193,4 +197,4 @@ def move_images(source_dir, dest_dir, df, filename_col='FRAME'):
         try:
             shutil.move(source_path, destination_path)
         except IOError as e:
-            print(f"Could not move {frame_filename}. Error: {e}")
+            logger.error("Could not move %s. Error: %s", frame_filename, e)

@@ -13,8 +13,12 @@ to rely on the notebook.
 import os
 import shutil
 import pandas as pd
+import logging
 
 from ..utils import get_image_size
+
+
+logger = logging.getLogger(__name__)
 
 
 def _clip_bbox(bbox: str, width: int, height: int) -> str:
@@ -145,6 +149,6 @@ def convert_to_standard_layout(
         try:
             shutil.copy(src_img, dst_img)
         except IOError as e:
-            print(f"Could not copy {r['FRAME']}. Error: {e}")
+            logger.error("Could not copy %s. Error: %s", r['FRAME'], e)
 
     df.to_excel(os.path.join(out_dir, "annotations.xlsx"), index=False)
