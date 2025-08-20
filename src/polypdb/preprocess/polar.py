@@ -61,6 +61,7 @@ def convert_to_standard_layout(
         None
     """
 
+    logger.info("Converting POLAR dataset from %s to %s", src_dir, dest_dir)
     df = pd.read_excel(
         os.path.join(src_dir, metadata_filename),
         sheet_name="validation_set",
@@ -139,4 +140,5 @@ def convert_to_standard_layout(
 
     df.to_excel(os.path.join(out_dir, "annotations.xlsx"), index=False)
     validate_conversion(out_dir, df)
+    logger.info("Finished POLAR conversion with %d entries", len(df))
 
