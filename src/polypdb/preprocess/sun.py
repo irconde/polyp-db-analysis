@@ -77,9 +77,6 @@ def convert_to_standard_layout(
         with open(txt_file, "r") as f:
             for line in f:
                 filename, bbox = _extract_bboxes(line)
-                filename = (
-                    filename if filename.lower().endswith(".png") else f"{filename}.png"
-                )
                 rows.append(
                     {
                         "FRAME": filename,
