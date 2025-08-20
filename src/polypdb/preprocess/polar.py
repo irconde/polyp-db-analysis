@@ -18,7 +18,7 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
     the size of every image.  These steps mirror the data munging shown in
     ``polar-database-analysis.ipynb``.
     """
-    df = pd.read_excel(os.path.join(src_dir, "annotations.xlsx"), sheet_name="validation_set")
+    df = pd.read_excel(os.path.join(src_dir, "polar_annotations.xlsx"), sheet_name="validation_set")
     df = df.rename(
         columns={
             "POLYP/IMAGE_ID": "FRAME",

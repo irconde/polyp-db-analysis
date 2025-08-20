@@ -1,6 +1,6 @@
 raw_sources:
-  sun: /Users/irconde/Desktop/sssl-polyps/polyp-datasets/sun
+  polar: /Users/irconde/Desktop/sssl-polyps/polyp-datasets/polar
 base_path: /Users/irconde/Desktop/sssl-polyps/polyp-datasets
-datasets: [sun]
+datasets: [polar]
 num_elements: null
 prepare: true
