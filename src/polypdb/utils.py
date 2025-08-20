@@ -81,11 +81,14 @@ def crop_image_padding(
         raise FileNotFoundError(f"Image file not found: {img_path}")
 
     with Image.open(img_path) as img:
-        arr = np.array(img)
+        # Use an RGB representation to robustly compute the padding mask even
+        # for images with an alpha channel or a single channel. ``img`` itself
+        # is preserved so that the cropped output keeps the original mode.
+        rgb_arr = np.array(img.convert("RGB"))
 
         # Optimization: use NumPy to locate the bounding box of non-padding pixels
-        padding = np.array(padding_color, dtype=arr.dtype)
-        diff = np.abs(arr - padding)
+        padding = np.array(padding_color, dtype=rgb_arr.dtype)
+        diff = np.abs(rgb_arr - padding)
         mask = np.all(diff <= threshold, axis=-1)
         non_empty_rows = np.where(~mask.all(axis=1))[0]
         non_empty_cols = np.where(~mask.all(axis=0))[0]
