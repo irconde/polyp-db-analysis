@@ -116,6 +116,7 @@ def convert_to_standard_layout(
         None
     """
 
+    logger.info("Converting SUN dataset from %s to %s", src_dir, dest_dir)
     metadata_path = os.path.join(src_dir, metadata_filename)
     metadata_df = pd.read_csv(metadata_path)
     metadata_df.columns = [c.upper() for c in metadata_df.columns]
@@ -187,3 +188,4 @@ def convert_to_standard_layout(
     df = df.drop(columns=["SRC_PATH"], errors="ignore")
     df.to_excel(os.path.join(out_dir, "annotations.xlsx"), index=False)
     validate_conversion(out_dir, df)
+    logger.info("Finished SUN conversion with %d entries", len(df))

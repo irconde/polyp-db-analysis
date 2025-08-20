@@ -3,6 +3,8 @@ import shutil
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
+from tqdm import tqdm
+
 from PIL import Image, ImageDraw
 from matplotlib import pyplot as plt
 import numpy as np
@@ -237,7 +239,9 @@ def move_images_parallel(
 
     rows = df[cols].itertuples(index=False, name=None)
 
+    total = len(df)
     action = "copy" if copy else "move"
+    logger.info("%s %d images to %s", action.capitalize(), total, dest_dir)
 
     def _transfer(row):
         if source_path_col:
@@ -255,7 +259,8 @@ def move_images_parallel(
             logger.error("Could not %s %s. Error: %s", action, frame_filename, e)
 
     with ThreadPoolExecutor() as executor:
-        list(executor.map(_transfer, rows))
+        list(tqdm(executor.map(_transfer, rows), total=total, desc=f"{action.title()}ing images"))
+    logger.info("Finished %s images", action)
 
 
 def validate_conversion(dest_dir, df, filename_col='FRAME'):

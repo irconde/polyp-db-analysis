@@ -11,8 +11,12 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import numpy as np
+import logging
 
 from ..utils import get_image_size, move_images_parallel, validate_conversion
+
+
+logger = logging.getLogger(__name__)
 
 RENAME_COLUMNS = {
     "image_id": "FRAME",
@@ -55,6 +59,7 @@ def convert_to_standard_layout(
     Returns:
         None
     """
+    logger.info("Converting PIBA dataset from %s to %s", src_dir, dest_dir)
     df = pd.read_excel(os.path.join(src_dir, metadata_filename))
     df = df.rename(columns=RENAME_COLUMNS)
     df["IMAGE TYPE"] = np.where(df["IMAGE TYPE"].str.contains("WL"), "WL", "NBI")
@@ -89,3 +94,4 @@ def convert_to_standard_layout(
         os.path.join(src_dir, "media"), os.path.join(out_dir, "img"), df
     )
     validate_conversion(out_dir, df)
+    logger.info("Finished PIBA conversion with %d entries", len(df))

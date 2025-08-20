@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 from skimage.measure import label, regionprops
+import logging
 
 from ..utils import (
     crop_image_padding,
@@ -25,6 +26,7 @@ from ..utils import (
 )
 
 
+logger = logging.getLogger(__name__)
 def _collect_metadata(src_dir: str, metadata_filename: str = "clinical metadata_release0.1.csv") -> pd.DataFrame:
     """Load and clean the raw annotation CSV.
 
@@ -180,6 +182,7 @@ def convert_to_standard_layout(
         None
     """
 
+    logger.info("Converting PICCOLO dataset from %s to %s", src_dir, dest_dir)
     meta = _collect_metadata(src_dir, metadata_filename)
     frames = _expand_frames(src_dir, meta)
     frames = _derive_bboxes(frames, src_dir)
@@ -191,6 +194,7 @@ def convert_to_standard_layout(
         os.path.join(src_dir, "cropped_polyps"), os.path.join(out_dir, "img"), frames
     )
     validate_conversion(out_dir, frames)
+    logger.info("Finished PICCOLO conversion with %d entries", len(frames))
 
     # Cleanup intermediate folders after processing
     import shutil
