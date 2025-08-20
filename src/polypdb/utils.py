@@ -36,48 +36,20 @@ def crop_image_padding(img_path, cropped_img_path, mask_path=None, cropped_mask_
         None. Saves the cropped image and mask to the specified paths.
     """
     with Image.open(img_path) as img:
-        pixels = img.load()
+        arr = np.array(img)
 
-        def is_close_to_color(pixel, color, threshold):
-            return all(abs(p - c) <= threshold for p, c in zip(pixel, color))
+        # Optimization: use NumPy to locate the bounding box of non-padding pixels
+        padding = np.array(padding_color, dtype=arr.dtype)
+        diff = np.abs(arr - padding)
+        mask = np.all(diff <= threshold, axis=-1)
+        non_empty_rows = np.where(~mask.all(axis=1))[0]
+        non_empty_cols = np.where(~mask.all(axis=0))[0]
 
-        # Check for left padding
-        left_padding = 0
-        for x in range(img.width):
-            if all(is_close_to_color(pixels[x, y], padding_color, threshold) for y in range(img.height)):
-                left_padding += 1
-            else:
-                break
-
-        # Check for right padding
-        right_padding = 0
-        for x in range(img.width - 1, -1, -1):
-            if all(is_close_to_color(pixels[x, y], padding_color, threshold) for y in range(img.height)):
-                right_padding += 1
-            else:
-                break
-
-        # Check for top padding
-        top_padding = 0
-        for y in range(img.height):
-            if all(is_close_to_color(pixels[x, y], padding_color, threshold) for x in range(img.width)):
-                top_padding += 1
-            else:
-                break
-
-        # Check for bottom padding
-        bottom_padding = 0
-        for y in range(img.height - 1, -1, -1):
-            if all(is_close_to_color(pixels[x, y], padding_color, threshold) for x in range(img.width)):
-                bottom_padding += 1
-            else:
-                break
-
-        # Calculate the bounding box of the non-padding area
-        left = left_padding
-        upper = top_padding
-        right = img.width - right_padding
-        lower = img.height - bottom_padding
+        if len(non_empty_rows) == 0 or len(non_empty_cols) == 0:
+            left, upper, right, lower = 0, 0, img.width, img.height
+        else:
+            upper, lower = non_empty_rows[0], non_empty_rows[-1] + 1
+            left, right = non_empty_cols[0], non_empty_cols[-1] + 1
 
         # Crop the image to the bounding box to remove padding
         cropped_img = img.crop((left, upper, right, lower))
@@ -85,7 +57,7 @@ def crop_image_padding(img_path, cropped_img_path, mask_path=None, cropped_mask_
 
         if mask_path is not None:
             with Image.open(mask_path) as mask_img:
-                # Crop the mask to the bounding box to remove padding
+                # Crop the mask to the same bounding box
                 cropped_mask_img = mask_img.crop((left, upper, right, lower))
                 cropped_mask_img.save(cropped_mask_path)
 
