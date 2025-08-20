@@ -9,6 +9,7 @@ segmentation masks and records the image dimensions of the cropped samples.
 from __future__ import annotations
 
 import os
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -111,20 +112,21 @@ def _expand_frames(src_dir: str, meta_df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _derive_bboxes(df: pd.DataFrame, src_dir: str) -> pd.DataFrame:
+def _derive_bboxes(df: pd.DataFrame, src_dir: str, work_dir: str) -> pd.DataFrame:
     """Crop images, compute bounding boxes and image dimensions.
 
     Args:
         df: DataFrame produced by :func:`_expand_frames`.
         src_dir: Root directory of the PICCOLO dataset.
+        work_dir: Temporary directory for intermediate cropped files.
 
     Returns:
         DataFrame containing bounding boxes and image dimensions for each
         cropped frame. Images without masks are filtered out.
     """
 
-    cropped_frame_dir = os.path.join(src_dir, "cropped_polyps")
-    cropped_mask_dir = os.path.join(src_dir, "cropped_masks")
+    cropped_frame_dir = os.path.join(work_dir, "cropped_polyps")
+    cropped_mask_dir = os.path.join(work_dir, "cropped_masks")
     os.makedirs(cropped_frame_dir, exist_ok=True)
     os.makedirs(cropped_mask_dir, exist_ok=True)
 
@@ -192,24 +194,19 @@ def convert_to_standard_layout(
     logger.info("Converting PICCOLO dataset from %s to %s", src_dir, dest_dir)
     meta = _collect_metadata(src_dir, metadata_filename)
     frames = _expand_frames(src_dir, meta)
-    frames = _derive_bboxes(frames, src_dir)
 
-    out_dir = os.path.join(dest_dir, "piccolo")
-    os.makedirs(out_dir, exist_ok=True)
-    frames.to_excel(os.path.join(out_dir, "annotations.xlsx"), index=False)
-    move_images_parallel(
-        os.path.join(src_dir, "cropped_polyps"), os.path.join(out_dir, "img"), frames
-    )
-    validate_conversion(out_dir, frames)
-    logger.info("Finished PICCOLO conversion with %d entries", len(frames))
+    with tempfile.TemporaryDirectory() as work_dir:
+        frames = _derive_bboxes(frames, src_dir, work_dir)
 
-    # Cleanup intermediate folders after processing
-    import shutil
-    intermediate_dirs = [
-        os.path.join(src_dir, "cropped_polyps"),
-        os.path.join(src_dir, "cropped_masks"),
-    ]
-    for d in intermediate_dirs:
-        if os.path.exists(d):
-            shutil.rmtree(d)
+        out_dir = os.path.join(dest_dir, "piccolo")
+        os.makedirs(out_dir, exist_ok=True)
+        frames.to_excel(os.path.join(out_dir, "annotations.xlsx"), index=False)
+        move_images_parallel(
+            os.path.join(work_dir, "cropped_polyps"),
+            os.path.join(out_dir, "img"),
+            frames,
+        )
+        validate_conversion(out_dir, frames)
+        logger.info("Finished PICCOLO conversion with %d entries", len(frames))
 
+    # TemporaryDirectory context automatically removes intermediate files
