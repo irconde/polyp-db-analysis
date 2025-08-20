@@ -182,3 +182,13 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
     frames.to_excel(os.path.join(out_dir, "annotations.xlsx"), index=False)
     move_images(os.path.join(src_dir, "cropped_polyps"), os.path.join(out_dir, "img"), frames)
 
+    # Cleanup intermediate folders after processing
+    import shutil
+    intermediate_dirs = [
+        os.path.join(src_dir, "cropped_polyps"),
+        os.path.join(src_dir, "cropped_masks"),
+    ]
+    for d in intermediate_dirs:
+        if os.path.exists(d):
+            shutil.rmtree(d)
+
