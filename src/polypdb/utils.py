@@ -28,20 +28,44 @@ def get_image_size(image_path):
         return img.width, img.height
 
 
-def crop_image_padding(img_path, cropped_img_path, mask_path=None, cropped_mask_path=None, padding_color=(0, 0, 0),
-                       threshold=10):
+def crop_image_padding(
+    img_path,
+    cropped_img_path,
+    mask_path=None,
+    cropped_mask_path=None,
+    padding_color=(0, 0, 0),
+    threshold=10,
+):
+    """Crop an image and optional mask, stripping away padding pixels.
+
+    ``img_path`` is validated before attempting to open it.  Passing a non
+    existing path (or an invalid file descriptor) previously resulted in a
+    rather opaque ``OSError: [Errno 9] Bad file descriptor`` bubbling up from
+    :func:`PIL.Image.open`.  By explicitly checking for path existence we can
+    raise a clearer ``FileNotFoundError`` and avoid confusing descriptor
+    errors.
+
+    Parameters
+    ----------
+    img_path:
+        Location of the input image to be cropped.
+    cropped_img_path:
+        Output location where the cropped image will be written.
+    mask_path:
+        Optional path to a segmentation mask corresponding to ``img_path``.
+    cropped_mask_path:
+        Destination for the cropped mask when ``mask_path`` is provided.
+    padding_color:
+        RGB colour considered as padding and removed from the image.
+    threshold:
+        Permissible channel deviation from ``padding_color`` to still be
+        regarded as padding.
     """
-    Crops the image and mask to remove any padding.
-    Args:
-        img_path: Path to the input image.
-        cropped_img_path: Path to save the cropped image.
-        mask_path: Path to the input mask.
-        cropped_mask_path: Path to save the cropped mask.
-        padding_color: Color to check for padding.
-        threshold: Threshold for color difference.
-    Returns:
-        None. Saves the cropped image and mask to the specified paths.
-    """
+
+    img_path = os.fspath(img_path)
+    if not os.path.exists(img_path):
+        raise FileNotFoundError(f"Image file not found: {img_path}")
+
     with Image.open(img_path) as img:
         arr = np.array(img)
 
@@ -62,7 +86,9 @@ def crop_image_padding(img_path, cropped_img_path, mask_path=None, cropped_mask_
         cropped_img = img.crop((left, upper, right, lower))
         cropped_img.save(cropped_img_path)
 
-        if mask_path is not None:
+    if mask_path is not None:
+        mask_path = os.fspath(mask_path)
+        if os.path.exists(mask_path):
             with Image.open(mask_path) as mask_img:
                 # Crop the mask to the same bounding box
                 cropped_mask_img = mask_img.crop((left, upper, right, lower))
