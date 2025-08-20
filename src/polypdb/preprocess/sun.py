@@ -18,7 +18,18 @@ from ..utils import get_image_size
 
 
 def _clip_bbox(bbox: str, width: int, height: int) -> str:
-    """Clip ``bbox`` coordinates so that they lie within the image bounds."""
+    """Clip ``bbox`` coordinates so that they lie within the image bounds.
+
+    Args:
+        bbox: One or more bounding boxes separated by spaces in
+            ``x1,y1,x2,y2`` format.
+        width: Width of the image used for clipping.
+        height: Height of the image used for clipping.
+
+    Returns:
+        A space-separated string of bounding boxes with coordinates clamped
+        to the image size.
+    """
 
     boxes = []
     for bb in bbox.split(" "):
@@ -37,8 +48,15 @@ def _extract_bboxes(line: str) -> tuple[str, str]:
     """Return the filename and bounding boxes encoded in ``line``.
 
     The annotation files contain one line per image where the first token is
-    the image filename followed by ``x1,y1,x2,y2,0`` entries.  The trailing
+    the image filename followed by ``x1,y1,x2,y2,0`` entries. The trailing
     ``0`` represents the class id (polyp) and is discarded.
+
+    Args:
+        line: Raw line from an annotation text file.
+
+    Returns:
+        A tuple containing the image filename and a space-separated string of
+        bounding boxes.
     """
 
     parts = line.strip().split(" ")
@@ -57,8 +75,16 @@ def convert_to_standard_layout(
 
     ``src_dir`` should contain the ``metadata_filename`` file as well as the
     ``sundatabase_positive`` folder with ``annotation_txt`` and ``case*``
-    subdirectories.  The resulting annotations and images are written under
+    subdirectories. The resulting annotations and images are written under
     ``dest_dir/sun``.
+
+    Args:
+        src_dir: Root directory of the SUN dataset.
+        dest_dir: Directory where the converted dataset will be written.
+        metadata_filename: Name of the CSV file with polyp metadata.
+
+    Returns:
+        None
     """
 
     metadata_path = os.path.join(src_dir, metadata_filename)

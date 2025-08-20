@@ -3,7 +3,7 @@
 The routine mirrors the operations performed in
 ``piba-database-analysis.ipynb`` including column renaming, normalisation of
 image modality, mapping Paris classification codes and building bounding boxes
-from ``(x, y, w, h)`` coordinates.  Image dimensions are also recorded so the
+from ``(x, y, w, h)`` coordinates. Image dimensions are also recorded so the
 resulting ``annotations.xlsx`` closely matches the notebook output.
 """
 
@@ -43,6 +43,13 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
     Apart from renaming columns, the function normalises the light source
     labels, maps morphology descriptions to Paris codes, computes image
     dimensions and produces bounding boxes in ``x1,y1,x2,y2`` format.
+
+    Args:
+        src_dir: Directory containing the original PIBA files.
+        dest_dir: Directory where the converted dataset will be written.
+
+    Returns:
+        None
     """
     df = pd.read_excel(os.path.join(src_dir, "piba_db_dump.xlsx"))
     df = df.rename(columns=RENAME_COLUMNS)

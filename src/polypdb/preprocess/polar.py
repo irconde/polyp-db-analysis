@@ -44,6 +44,13 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
     The function loads the metadata from ``polar_annotations.xlsx``, applies
     the cleaning steps performed in the analysis notebook and saves the
     resulting annotations and images under ``dest_dir/polar``.
+
+    Args:
+        src_dir: Directory containing the original POLAR dataset files.
+        dest_dir: Directory where the converted dataset will be written.
+
+    Returns:
+        None
     """
 
     df = pd.read_excel(

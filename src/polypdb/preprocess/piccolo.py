@@ -23,8 +23,14 @@ def _collect_metadata(src_dir: str) -> pd.DataFrame:
     """Load and clean the raw annotation CSV.
 
     The original CSV uses ``;`` as a delimiter and contains a number of empty
-    columns and placeholder values.  The function returns a cleaned DataFrame
+    columns and placeholder values. The function returns a cleaned DataFrame
     with unnecessary columns removed and key identifiers formatted.
+
+    Args:
+        src_dir: Root directory of the PICCOLO dataset.
+
+    Returns:
+        ``pandas.DataFrame`` with normalised metadata columns.
     """
 
     df = pd.read_csv(os.path.join(src_dir, "clinical metadata_release0.1.csv"), delimiter=";", encoding="latin1")
@@ -48,7 +54,16 @@ def _collect_metadata(src_dir: str) -> pd.DataFrame:
 
 
 def _expand_frames(src_dir: str, meta_df: pd.DataFrame) -> pd.DataFrame:
-    """Gather frame level information from the dataset structure."""
+    """Gather frame level information from the dataset structure.
+
+    Args:
+        src_dir: Root directory of the PICCOLO dataset.
+        meta_df: DataFrame with per-lesion metadata.
+
+    Returns:
+        DataFrame with one row per image frame including dataset split and
+        key polyp descriptors.
+    """
 
     rows: List[dict] = []
     for split in ["test", "train", "validation"]:
@@ -81,7 +96,16 @@ def _expand_frames(src_dir: str, meta_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _derive_bboxes(df: pd.DataFrame, src_dir: str) -> pd.DataFrame:
-    """Crop images, compute bounding boxes and image dimensions."""
+    """Crop images, compute bounding boxes and image dimensions.
+
+    Args:
+        df: DataFrame produced by :func:`_expand_frames`.
+        src_dir: Root directory of the PICCOLO dataset.
+
+    Returns:
+        DataFrame containing bounding boxes and image dimensions for each
+        cropped frame. Images without masks are filtered out.
+    """
 
     cropped_frame_dir = os.path.join(src_dir, "cropped_polyps")
     cropped_mask_dir = os.path.join(src_dir, "cropped_masks")
@@ -139,7 +163,15 @@ def _derive_bboxes(df: pd.DataFrame, src_dir: str) -> pd.DataFrame:
 
 
 def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
-    """Convert PICCOLO dataset to the standard directory layout."""
+    """Convert PICCOLO dataset to the standard directory layout.
+
+    Args:
+        src_dir: Root directory of the PICCOLO dataset.
+        dest_dir: Directory where the converted dataset will be written.
+
+    Returns:
+        None
+    """
 
     meta = _collect_metadata(src_dir)
     frames = _expand_frames(src_dir, meta)
