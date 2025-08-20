@@ -42,23 +42,26 @@ SHAPE_MAP = {
 }
 
 
-def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
+def convert_to_standard_layout(
+    src_dir: str, dest_dir: str, metadata_filename: str = "polar_annotations.xlsx"
+) -> None:
     """Convert POLAR dataset to the standard directory layout.
 
-    The function loads the metadata from ``polar_annotations.xlsx``, applies
+    The function loads the metadata from ``metadata_filename``, applies
     the cleaning steps performed in the analysis notebook and saves the
     resulting annotations and images under ``dest_dir/polar``.
 
     Args:
         src_dir: Directory containing the original POLAR dataset files.
         dest_dir: Directory where the converted dataset will be written.
+        metadata_filename: Name of the Excel file with polyp metadata.
 
     Returns:
         None
     """
 
     df = pd.read_excel(
-        os.path.join(src_dir, "polar_annotations.xlsx"),
+        os.path.join(src_dir, metadata_filename),
         sheet_name="validation_set",
     )
 

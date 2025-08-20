@@ -71,8 +71,16 @@ def main() -> None:
         cfg = load_config(args.config)
         base_path = cfg["base_path"]
         for name in cfg["datasets"]:
-            src = cfg["raw_sources"][name]
-            CONVERTERS[name](src, base_path)
+            src_cfg = cfg["raw_sources"][name]
+            if isinstance(src_cfg, dict):
+                src = src_cfg.get("path")
+                metadata_file = src_cfg.get("metadata_file")
+                if metadata_file:
+                    CONVERTERS[name](src, base_path, metadata_filename=metadata_file)
+                else:
+                    CONVERTERS[name](src, base_path)
+            else:
+                CONVERTERS[name](src_cfg, base_path)
         merge_datasets(base_path=base_path, datasets=cfg["datasets"], num_elements=cfg.get("num_elements"))
         if cfg.get("prepare"):
             prepare_cfg = cfg.get("prepare_config", os.path.join(base_path, "ultralytics_config.yaml"))
