@@ -1,5 +1,6 @@
 import os
 import shutil
+import logging
 
 import numpy as np
 import pandas as pd
@@ -7,6 +8,9 @@ from PIL import Image
 
 from .utils import draw_bounding_boxes
 import uuid
+
+
+logger = logging.getLogger(__name__)
 
 
 def generate_standardized_id(df):
@@ -45,20 +49,22 @@ def generate_standardized_id(df):
 
     return new_ids
 
-def combine_datasets(base_path, datasets, num_elements=None):
-    """
-    Merge datasets into a single DataFrame, optionally including a specified number of elements from each dataset.
+def combine_datasets(base_path, datasets, num_elements=None, random_state=None):
+    """Merge datasets into a single DataFrame, optionally including a specified
+    number of elements from each dataset.
 
     Args:
     - base_path (str): The base path where the dataset folders are located.
     - datasets (list of str): A list of dataset names to merge.
     - num_elements (int, optional): The number of elements to include from each dataset.
-                                    If None (default), all rows are included.
+      If ``None`` (default), all rows are included.
+    - random_state (int, optional): Seed for the random number generator used when
+      sampling rows.
 
     Returns:
     - pd.DataFrame: The combined DataFrame with an 'ORIGINAL DATASET' column indicating the source dataset
-                    for each row. If num_elements is specified and is less than the number of available rows
-                    in a dataset, rows are randomly selected to meet the specified count.
+      for each row. If ``num_elements`` is specified and is less than the number of available rows
+      in a dataset, rows are randomly selected to meet the specified count.
     """
     dataframes = []
 
@@ -70,11 +76,11 @@ def combine_datasets(base_path, datasets, num_elements=None):
 
             # Randomly select 'num_elements' rows if specified and dataset is larger
             if num_elements is not None and len(df) > num_elements:
-                df = df.sample(n=num_elements)
+                df = df.sample(n=num_elements, random_state=random_state)
 
             dataframes.append(df)
         except FileNotFoundError:
-            print(f"Spreadsheet not found: {spreadsheet_path}")
+            logger.warning("Spreadsheet not found: %s", spreadsheet_path)
 
     combined_df = pd.concat(dataframes, ignore_index=True)
     return combined_df
@@ -83,7 +89,7 @@ def combine_datasets(base_path, datasets, num_elements=None):
 def save_combined_dataframe(combined_df, base_path, filename='annotations.xlsx'):
     output_path = os.path.join(base_path, filename)
     combined_df.to_excel(output_path, index=False)
-    print(f"The combined DataFrame has been saved to {output_path}")
+    logger.info("The combined DataFrame has been saved to %s", output_path)
 
 
 def copy_and_rename_images(df, base_path, dest_dir):
@@ -112,7 +118,7 @@ def copy_and_rename_images(df, base_path, dest_dir):
             # Update the DataFrame in place with the new filename
             df.at[index, 'FRAME'] = new_filename
         else:
-            print(f"File not found: {source_image_path}")
+            logger.warning("File not found: %s", source_image_path)
 
 
 def calculate_target_size(df, width_percentile=0, height_percentile=0):
@@ -231,7 +237,7 @@ def process_images_and_bboxes(df, source_dir, target_width, target_height):
                                            result_width, result_height)
             df.at[index, 'BOUNDING BOX'] = new_bbox
         else:
-            print(f"File not found: {img_path}")
+            logger.warning("File not found: %s", img_path)
 
 
 def process_negative_images(source_dir, target_width, target_height):
@@ -277,20 +283,20 @@ def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_image
     # Keep only entries with a single bounding box (no blank spaces in 'BOUNDING BOX')
     combined_df = combined_df[combined_df['BOUNDING BOX'].str.count(' ') == 0]
 
-    print(len(combined_df))
+    logger.info("Combined dataframe length: %d", len(combined_df))
 
     # Copy and rename images
 
-    print("COPYING IMAGES")
+    logger.info("COPYING IMAGES")
     copy_and_rename_images(combined_df, base_path, os.path.join(base_path, destination_folder))
 
     # Calculate target size
-    print("CALCULATING TARGET SIZE")
+    logger.info("CALCULATING TARGET SIZE")
     target_width, target_height = calculate_target_size(combined_df)
-    print('Target size: ', target_width, ' x ', target_height)
+    logger.info("Target size: %s x %s", target_width, target_height)
 
     # Standardize and adjust images and bounding boxes
-    print("STANDARDIZING IMAGES")
+    logger.info("STANDARDIZING IMAGES")
     process_images_and_bboxes(combined_df, os.path.join(base_path, destination_folder), target_width, target_height)
 
     if num_elements is None:
