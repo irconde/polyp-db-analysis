@@ -49,6 +49,10 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
         os.path.join(src_dir, "polar_annotations.xlsx"),
         sheet_name="validation_set",
     )
+
+    # Note: Morphology information is only in the validation_set tab of the spreadsheet
+    validation_dir = os.path.join(src_dir, "validation_set")
+
     df = df.rename(columns=RENAME_COLUMNS)
 
     # Drop entries with negative sizes and invalid morphology labels
@@ -67,7 +71,7 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
     widths: list[int] = []
     heights: list[int] = []
     for frame in df["FRAME"]:
-        w, h = get_image_size(os.path.join(src_dir, "img", frame))
+        w, h = get_image_size(os.path.join(validation_dir, "img", frame))
         widths.append(w)
         heights.append(h)
     df["WIDTH"] = widths
