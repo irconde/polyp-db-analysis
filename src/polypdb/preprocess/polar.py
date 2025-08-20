@@ -13,8 +13,12 @@ from __future__ import annotations
 import os
 import shutil
 import pandas as pd
+import logging
 
 from ..utils import get_image_size
+
+
+logger = logging.getLogger(__name__)
 
 # Column renaming performed prior to normalisation
 RENAME_COLUMNS = {
@@ -122,7 +126,7 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
         try:
             shutil.move(src_img, dst_img)
         except OSError as e:
-            print(f"Could not move {src_img}. Error: {e}")
+            logger.error("Could not move %s. Error: %s", src_img, e)
 
     df = df.drop(
         columns=[

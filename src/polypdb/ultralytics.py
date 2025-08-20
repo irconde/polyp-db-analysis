@@ -7,8 +7,12 @@ from PIL import Image
 import numpy as np
 import yaml
 from sklearn.model_selection import train_test_split
+import logging
 
 from .utils import resize_with_padding, normalize_image
+
+
+logger = logging.getLogger(__name__)
 
 
 def load_config(config_path):
@@ -449,9 +453,9 @@ def prepare_dataset(config_file):
     # Split the data according to the configuration
     train_df, val_df, test_df = split_data(df, config)
 
-    print(train_df.groupby('SHAPE')['POLYP ID'].count())
-    print(val_df.groupby('SHAPE')['POLYP ID'].count())
-    print(test_df.groupby('SHAPE')['POLYP ID'].count())
+    logger.info("Train distribution:\n%s", train_df.groupby('SHAPE')['POLYP ID'].count())
+    logger.info("Validation distribution:\n%s", val_df.groupby('SHAPE')['POLYP ID'].count())
+    logger.info("Test distribution:\n%s", test_df.groupby('SHAPE')['POLYP ID'].count())
 
     # Create folder hierarchy
     train_path, val_path, test_path = create_folder_hierarchy(save_path, len(test_df.index) > 0)
