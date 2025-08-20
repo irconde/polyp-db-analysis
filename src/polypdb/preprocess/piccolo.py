@@ -17,7 +17,12 @@ import pandas as pd
 from PIL import Image
 from skimage.measure import label, regionprops
 
-from ..utils import crop_image_padding, get_image_size, move_images, validate_conversion
+from ..utils import (
+    crop_image_padding,
+    get_image_size,
+    move_images_parallel,
+    validate_conversion,
+)
 
 
 def _collect_metadata(src_dir: str, metadata_filename: str = "clinical metadata_release0.1.csv") -> pd.DataFrame:
@@ -182,7 +187,9 @@ def convert_to_standard_layout(
     out_dir = os.path.join(dest_dir, "piccolo")
     os.makedirs(out_dir, exist_ok=True)
     frames.to_excel(os.path.join(out_dir, "annotations.xlsx"), index=False)
-    move_images(os.path.join(src_dir, "cropped_polyps"), os.path.join(out_dir, "img"), frames)
+    move_images_parallel(
+        os.path.join(src_dir, "cropped_polyps"), os.path.join(out_dir, "img"), frames
+    )
     validate_conversion(out_dir, frames)
 
     # Cleanup intermediate folders after processing
