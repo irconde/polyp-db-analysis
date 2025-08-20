@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import List
 
 import numpy as np
 import pandas as pd
@@ -27,6 +26,8 @@ from ..utils import (
 
 
 logger = logging.getLogger(__name__)
+
+
 def _collect_metadata(src_dir: str, metadata_filename: str = "clinical metadata_release0.1.csv") -> pd.DataFrame:
     """Load and clean the raw annotation CSV.
 
@@ -53,7 +54,13 @@ def _collect_metadata(src_dir: str, metadata_filename: str = "clinical metadata_
         ],
         errors="ignore",
     )
-    df["CODE - LESION"] = df["CODE - LESION"].fillna(0).apply(lambda x: f"{int(x):03d}")
+    df["CODE - LESION"] = (
+        df["CODE - LESION"]
+        .fillna(0)
+        .astype(int)
+        .astype(str)
+        .str.zfill(3)
+    )
     if "CODE - VIDEO" in df.columns:
         df["CODE - VIDEO"] = df["CODE - VIDEO"].astype(str).str.zfill(2)
     df["NUMBER OF POLYPS OF INTEREST (N)"] = df[
@@ -74,25 +81,25 @@ def _expand_frames(src_dir: str, meta_df: pd.DataFrame) -> pd.DataFrame:
         key polyp descriptors.
     """
 
-    rows: List[dict] = []
+    frames = []
     for split in ["test", "train", "validation"]:
         polyp_dir = os.path.join(src_dir, split, "polyps")
         if not os.path.isdir(polyp_dir):
             continue
-        for fname in os.listdir(polyp_dir):
-            if not fname.endswith(".png"):
-                continue
-            lesion, video, _ = fname.split("_")
-            match = meta_df[
-                (meta_df["CODE - LESION"] == lesion)
-                & (meta_df["CODE - VIDEO"] == video)
-            ]
-            if match.empty:
-                continue
-            row = match.iloc[0].to_dict()
-            row.update({"FRAME": fname, "SET": split})
-            rows.append(row)
-    df = pd.DataFrame(rows)
+        files = [f for f in os.listdir(polyp_dir) if f.endswith(".png")]
+        if not files:
+            continue
+        frame_df = pd.DataFrame({"FRAME": files, "SET": split})
+        parts = frame_df["FRAME"].str.split("_", expand=True)
+        frame_df["CODE - LESION"] = parts[0]
+        frame_df["CODE - VIDEO"] = parts[1]
+        frames.append(frame_df)
+    if not frames:
+        return pd.DataFrame(columns=list(meta_df.columns) + ["FRAME", "SET"])
+
+    frame_df = pd.concat(frames, ignore_index=True)
+    meta_unique = meta_df.drop_duplicates(subset=["CODE - LESION", "CODE - VIDEO"])
+    df = frame_df.merge(meta_unique, on=["CODE - LESION", "CODE - VIDEO"], how="left")
     df = df.dropna(subset=["PARIS CLASSIFICATION"])
     df = df.rename(columns={"PARIS CLASSIFICATION": "SHAPE", "POLYP SIZE (mm)": "SIZE"})
     df["SHAPE"] = (
