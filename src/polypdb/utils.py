@@ -63,6 +63,7 @@ def crop_image_padding(
     """
 
     img_path = os.fspath(img_path)
+    cropped_img_path = os.fspath(cropped_img_path)
     if not os.path.exists(img_path):
         raise FileNotFoundError(f"Image file not found: {img_path}")
 
@@ -84,15 +85,20 @@ def crop_image_padding(
 
         # Crop the image to the bounding box to remove padding
         cropped_img = img.crop((left, upper, right, lower))
-        cropped_img.save(cropped_img_path)
+        os.makedirs(os.path.dirname(cropped_img_path) or ".", exist_ok=True)
+        with open(cropped_img_path, "wb") as f:
+            cropped_img.save(f)
 
     if mask_path is not None:
         mask_path = os.fspath(mask_path)
+        cropped_mask_path = os.fspath(cropped_mask_path)
         if os.path.exists(mask_path):
             with Image.open(mask_path) as mask_img:
                 # Crop the mask to the same bounding box
                 cropped_mask_img = mask_img.crop((left, upper, right, lower))
-                cropped_mask_img.save(cropped_mask_path)
+                os.makedirs(os.path.dirname(cropped_mask_path) or ".", exist_ok=True)
+                with open(cropped_mask_path, "wb") as f:
+                    cropped_mask_img.save(f)
 
 
 def resize_and_maintain_aspect(img_path, output_path, target_size=(854, 480), fill_color=(0, 0, 0)):
