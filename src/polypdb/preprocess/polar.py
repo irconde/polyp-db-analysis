@@ -11,9 +11,10 @@ other datasets in the project.
 from __future__ import annotations
 
 import os
+import shutil
 import pandas as pd
 
-from ..utils import get_image_size, move_images
+from ..utils import get_image_size
 
 # Column renaming performed prior to normalisation
 RENAME_COLUMNS = {
@@ -64,18 +65,24 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
 
     # Preserve polyp identifier before renaming the image id to FRAME
     df["POLYP ID"] = df["FRAME"].astype(str)
-    df["FRAME"] = df["FRAME"].astype(str) + ".png"
-    df["IMAGE TYPE"] = "NBI"
 
-    # Determine image dimensions for each frame
+    # Determine image dimensions for each frame.  Images are organised in
+    # sub-folders per patient, so construct the path accordingly.
     widths: list[int] = []
     heights: list[int] = []
-    for frame in df["FRAME"]:
-        w, h = get_image_size(os.path.join(validation_dir, "img", frame))
+    for _, row in df.iterrows():
+        image_path = os.path.join(
+            validation_dir, str(row["PATIENT_ID"]), row["POLYP ID"] + ".png"
+        )
+        w, h = get_image_size(image_path)
         widths.append(w)
         heights.append(h)
     df["WIDTH"] = widths
     df["HEIGHT"] = heights
+
+    # Append the image extension after dimensions are collected
+    df["FRAME"] = df["POLYP ID"].astype(str) + ".png"
+    df["IMAGE TYPE"] = "NBI"
 
     # Parse bounding box values and adjust them to stay inside image bounds
     coords = df["BOUNDING BOX"].str.strip("[]").str.split(",", expand=True).astype(int)
@@ -94,6 +101,22 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
         axis=1,
     )
 
+    out_dir = os.path.join(dest_dir, "polar")
+    out_img_dir = os.path.join(out_dir, "img")
+    os.makedirs(out_img_dir, exist_ok=True)
+
+    # Move images into the destination directory, flattening the original
+    # patient-based structure.
+    for _, row in df.iterrows():
+        src_img = os.path.join(
+            validation_dir, str(row["PATIENT_ID"]), row["POLYP ID"] + ".png"
+        )
+        dst_img = os.path.join(out_img_dir, row["FRAME"])
+        try:
+            shutil.move(src_img, dst_img)
+        except OSError as e:
+            print(f"Could not move {src_img}. Error: {e}")
+
     df = df.drop(
         columns=[
             "PATIENT_ID",
@@ -108,8 +131,5 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
         errors="ignore",
     )
 
-    out_dir = os.path.join(dest_dir, "polar")
-    os.makedirs(out_dir, exist_ok=True)
     df.to_excel(os.path.join(out_dir, "annotations.xlsx"), index=False)
-    move_images(os.path.join(src_dir, "img"), os.path.join(out_dir, "img"), df)
 
