@@ -92,6 +92,44 @@ def save_combined_dataframe(combined_df, base_path, filename='annotations.xlsx')
     logger.info("The combined DataFrame has been saved to %s", output_path)
 
 
+def validate_combined_dataframe(df: pd.DataFrame, image_dir: str) -> None:
+    """Validate merged dataframe integrity.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame to validate.
+    image_dir : str
+        Directory containing the merged image files.
+
+    Raises
+    ------
+    ValueError
+        If required columns are missing or contain null values, or if ``POLYP ID``
+        values are not unique.
+    FileNotFoundError
+        If any ``FRAME`` file referenced in the DataFrame does not exist within
+        ``image_dir``.
+    """
+
+    required_columns = ["FRAME", "POLYP ID", "BOUNDING BOX"]
+
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Missing required columns: {missing_columns}")
+
+    if df[required_columns].isnull().any().any():
+        raise ValueError("Null values found in required columns")
+
+    if not df["POLYP ID"].is_unique:
+        raise ValueError("Duplicate POLYP ID values detected")
+
+    for frame in df["FRAME"]:
+        frame_path = os.path.join(image_dir, frame)
+        if not os.path.exists(frame_path):
+            raise FileNotFoundError(f"Referenced image not found: {frame_path}")
+
+
 def copy_and_rename_images(df, base_path, dest_dir):
     """Copy images from source datasets and assign new unique names.
 
@@ -260,6 +298,30 @@ def process_negative_images(source_dir, target_width, target_height):
                 standardize_and_override_image(source_file_path, target_width, target_height)
 
 
+def cleanup_temp_artifacts(base_path: str, destination_folder: str) -> None:
+    """Remove temporary directories created during dataset merging.
+
+    Parameters
+    ----------
+    base_path : str
+        Root directory for dataset processing.
+    destination_folder : str
+        Folder where processed images were stored. Temporary artifacts
+        may exist alongside or within this directory.
+    """
+
+    temp_dirs = [
+        os.path.join(base_path, 'img_bbox'),
+        os.path.join(base_path, destination_folder, 'resized'),
+        os.path.join(base_path, destination_folder, 'bbox_preview'),
+    ]
+
+    for temp_dir in temp_dirs:
+        if os.path.isdir(temp_dir):
+            shutil.rmtree(temp_dir)
+            logger.info("Removed temporary directory %s", temp_dir)
+
+
 def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_images=False):
     """Merge and standardize multiple datasets.
 
@@ -308,6 +370,8 @@ def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_image
     # Standardize polyp ids
     combined_df['POLYP ID'] = generate_standardized_id(combined_df)
 
+    validate_combined_dataframe(combined_df, os.path.join(base_path, destination_folder))
+
     # Save the combined DataFrame to a spreadsheet
     save_combined_dataframe(combined_df, base_path, output_filename)
 
@@ -321,3 +385,5 @@ def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_image
             input_frame_path = os.path.join(os.path.join(base_path, destination_folder), image_filename)
             output_frame_path = os.path.join(bbox_dest_dir, image_filename)
             draw_bounding_boxes(row['BOUNDING BOX'], input_frame_path, output_frame_path)
+
+    cleanup_temp_artifacts(base_path, destination_folder)
