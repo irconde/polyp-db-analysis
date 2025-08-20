@@ -8,9 +8,22 @@ from tqdm import tqdm
 from PIL import Image, ImageDraw
 from matplotlib import pyplot as plt
 import numpy as np
+import tifffile
 
 
 logger = logging.getLogger(__name__)
+
+
+def _save_image(img, path):
+    """Save ``img`` to ``path`` with TIFF fallback using ``tifffile``."""
+    path = os.fspath(path)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    ext = os.path.splitext(path)[1].lower()
+    if ext in {".tif", ".tiff"}:
+        tifffile.imwrite(path, np.array(img))
+    else:
+        with open(path, "wb") as f:
+            img.save(f)
 
 
 def get_image_size(image_path):
@@ -35,7 +48,7 @@ def crop_image_padding(
     cropped_mask_path=None,
     padding_color=(0, 0, 0),
     threshold=10,
-):
+): 
     """Crop an image and optional mask, stripping away padding pixels.
 
     ``img_path`` is validated before attempting to open it.  Passing a non
@@ -85,9 +98,7 @@ def crop_image_padding(
 
         # Crop the image to the bounding box to remove padding
         cropped_img = img.crop((left, upper, right, lower))
-        os.makedirs(os.path.dirname(cropped_img_path) or ".", exist_ok=True)
-        with open(cropped_img_path, "wb") as f:
-            cropped_img.save(f)
+        _save_image(cropped_img, cropped_img_path)
 
     if mask_path is not None:
         mask_path = os.fspath(mask_path)
@@ -96,9 +107,7 @@ def crop_image_padding(
             with Image.open(mask_path) as mask_img:
                 # Crop the mask to the same bounding box
                 cropped_mask_img = mask_img.crop((left, upper, right, lower))
-                os.makedirs(os.path.dirname(cropped_mask_path) or ".", exist_ok=True)
-                with open(cropped_mask_path, "wb") as f:
-                    cropped_mask_img.save(f)
+                _save_image(cropped_mask_img, cropped_mask_path)
 
 
 def resize_and_maintain_aspect(img_path, output_path, target_size=(854, 480), fill_color=(0, 0, 0)):
