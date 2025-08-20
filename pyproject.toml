@@ -15,7 +15,8 @@ dependencies = [
     "scikit-learn",
     "pyyaml",
     "tqdm",
-    "scikit-image"
+    "scikit-image",
+    "tifffile"
 ]
 
 [project.scripts]
