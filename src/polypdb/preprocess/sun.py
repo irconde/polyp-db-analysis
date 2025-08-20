@@ -14,6 +14,7 @@ import os
 import shutil
 import pandas as pd
 import logging
+import numpy as np
 
 from ..utils import get_image_size, validate_conversion
 
@@ -46,6 +47,30 @@ def _clip_bbox(bbox: str, width: int, height: int) -> str:
         y2 = min(height, y2)
         boxes.append(f"{x1},{y1},{x2},{y2}")
     return " ".join(boxes)
+
+
+def _clip_bboxes(bboxes: pd.Series, widths: pd.Series, heights: pd.Series) -> pd.Series:
+    """Vectorised clipping of bounding boxes to image dimensions.
+
+    Args:
+        bboxes: Series of space-separated ``x1,y1,x2,y2`` bounding boxes.
+        widths: Series with corresponding image widths.
+        heights: Series with corresponding image heights.
+
+    Returns:
+        Series with bounding boxes clamped to the image size.
+    """
+
+    result = []
+    for bbox, w, h in zip(bboxes, widths, heights):
+        if not bbox:
+            result.append("")
+            continue
+        coords = np.fromstring(bbox.replace(" ", ","), sep=",", dtype=int).reshape(-1, 4)
+        coords[:, [0, 2]] = coords[:, [0, 2]].clip(0, w)
+        coords[:, [1, 3]] = coords[:, [1, 3]].clip(0, h)
+        result.append(" ".join(",".join(map(str, c)) for c in coords))
+    return pd.Series(result, index=bboxes.index)
 
 
 def _extract_bboxes(line: str) -> tuple[str, str]:
@@ -132,9 +157,7 @@ def convert_to_standard_layout(
     df["WIDTH"] = widths
     df["HEIGHT"] = heights
 
-    df["BOUNDING BOX"] = df.apply(
-        lambda r: _clip_bbox(r["BOUNDING BOX"], r["WIDTH"], r["HEIGHT"]), axis=1
-    )
+    df["BOUNDING BOX"] = _clip_bboxes(df["BOUNDING BOX"], df["WIDTH"], df["HEIGHT"])
     df["IMAGE TYPE"] = "WL"
 
     out_dir = os.path.join(dest_dir, "sun")

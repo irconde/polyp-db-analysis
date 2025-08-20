@@ -14,6 +14,7 @@ import os
 import shutil
 import pandas as pd
 import logging
+import numpy as np
 
 from ..utils import get_image_size, validate_conversion
 
@@ -106,14 +107,17 @@ def convert_to_standard_layout(
     df["h"] = coords[3]
 
     # Clamp width/height so the box does not overflow the image
-    df["w"] = df.apply(lambda r: min(r["w"], r["WIDTH"] - r["x"]), axis=1)
-    df["h"] = df.apply(lambda r: min(r["h"], r["HEIGHT"] - r["y"]), axis=1)
+    df["w"] = np.minimum(df["w"], df["WIDTH"] - df["x"])
+    df["h"] = np.minimum(df["h"], df["HEIGHT"] - df["y"])
     df = df[(df["x"] >= 0) & (df["y"] >= 0) & (df["w"] >= 0) & (df["h"] >= 0)]
 
-    df["BOUNDING BOX"] = df.apply(
-        lambda r: f"{r['x']},{r['y']},{r['x'] + r['w']},{r['y'] + r['h']}",
-        axis=1,
+    bbox_strings = (
+        df.assign(x2=df["x"] + df["w"], y2=df["y"] + df["h"])[["x", "y", "x2", "y2"]]
+        .astype(int)
+        .astype(str)
+        .agg(",".join, axis=1)
     )
+    df = df.assign(**{"BOUNDING BOX": bbox_strings})
 
     out_dir = os.path.join(dest_dir, "polar")
     out_img_dir = os.path.join(out_dir, "img")

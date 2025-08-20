@@ -70,12 +70,18 @@ def convert_to_standard_layout(
         heights.append(h)
     df["WIDTH"] = widths
     df["HEIGHT"] = heights
-
-    df["BOUNDING BOX"] = df.apply(
-        lambda r: f"{r['X']},{r['Y']},{r['X'] + r['BBOX WIDTH']},{r['Y'] + r['BBOX HEIGHT']}",
-        axis=1,
+    bbox_strings = (
+        df.assign(
+            x2=df["X"] + df["BBOX WIDTH"],
+            y2=df["Y"] + df["BBOX HEIGHT"],
+        )[["X", "Y", "x2", "y2"]]
+        .astype("Int64")
+        .astype(str)
+        .agg(",".join, axis=1)
     )
-    df = df.drop(columns=["X", "Y", "BBOX WIDTH", "BBOX HEIGHT", "MANUAL SELECTION"])
+    df = df.assign(**{"BOUNDING BOX": bbox_strings}).drop(
+        columns=["X", "Y", "BBOX WIDTH", "BBOX HEIGHT", "MANUAL SELECTION"]
+    )
 
     out_dir = os.path.join(dest_dir, "piba")
     os.makedirs(out_dir, exist_ok=True)
