@@ -84,8 +84,12 @@ paths:
 
 ```yaml
 raw_sources:
-  piba: /path/to/raw/piba
-  polar: /path/to/raw/polar
+  piba:
+    path: /path/to/raw/piba
+    metadata_file: piba_db_dump.xlsx
+  polar:
+    path: /path/to/raw/polar
+    metadata_file: polar_annotations.xlsx
 base_path: /path/to/standardized
 datasets: [piba, polar]
 num_elements: null

@@ -19,7 +19,7 @@ import scipy.ndimage as ndi
 from ..utils import crop_image_padding, get_image_size, move_images
 
 
-def _collect_metadata(src_dir: str) -> pd.DataFrame:
+def _collect_metadata(src_dir: str, metadata_filename: str = "clinical metadata_release0.1.csv") -> pd.DataFrame:
     """Load and clean the raw annotation CSV.
 
     The original CSV uses ``;`` as a delimiter and contains a number of empty
@@ -28,12 +28,13 @@ def _collect_metadata(src_dir: str) -> pd.DataFrame:
 
     Args:
         src_dir: Root directory of the PICCOLO dataset.
+        metadata_filename: Name of the CSV file with polyp metadata.
 
     Returns:
         ``pandas.DataFrame`` with normalised metadata columns.
     """
 
-    df = pd.read_csv(os.path.join(src_dir, "clinical metadata_release0.1.csv"), delimiter=";", encoding="latin1")
+    df = pd.read_csv(os.path.join(src_dir, metadata_filename), delimiter=";", encoding="latin1")
     df = df.replace("-", pd.NA).dropna(how="all").dropna(axis=1, how="all")
     df = df.drop(
         columns=[
@@ -162,18 +163,21 @@ def _derive_bboxes(df: pd.DataFrame, src_dir: str) -> pd.DataFrame:
     return df.drop(columns=["SET"])
 
 
-def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
+def convert_to_standard_layout(
+    src_dir: str, dest_dir: str, metadata_filename: str = "clinical metadata_release0.1.csv"
+) -> None:
     """Convert PICCOLO dataset to the standard directory layout.
 
     Args:
         src_dir: Root directory of the PICCOLO dataset.
         dest_dir: Directory where the converted dataset will be written.
+        metadata_filename: Name of the CSV file with polyp metadata.
 
     Returns:
         None
     """
 
-    meta = _collect_metadata(src_dir)
+    meta = _collect_metadata(src_dir, metadata_filename)
     frames = _expand_frames(src_dir, meta)
     frames = _derive_bboxes(frames, src_dir)
 

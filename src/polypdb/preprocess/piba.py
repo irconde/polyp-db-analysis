@@ -37,7 +37,9 @@ SHAPE_MAP = {
 }
 
 
-def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
+def convert_to_standard_layout(
+    src_dir: str, dest_dir: str, metadata_filename: str = "piba_db_dump.xlsx"
+) -> None:
     """Convert PIBA dataset to the standard directory layout.
 
     Apart from renaming columns, the function normalises the light source
@@ -47,11 +49,12 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
     Args:
         src_dir: Directory containing the original PIBA files.
         dest_dir: Directory where the converted dataset will be written.
+        metadata_filename: Name of the Excel file with polyp metadata.
 
     Returns:
         None
     """
-    df = pd.read_excel(os.path.join(src_dir, "piba_db_dump.xlsx"))
+    df = pd.read_excel(os.path.join(src_dir, metadata_filename))
     df = df.rename(columns=RENAME_COLUMNS)
     df["IMAGE TYPE"] = np.where(df["IMAGE TYPE"].str.contains("WL"), "WL", "NBI")
     df["SIZE"] = df["SIZE"].astype("Int64")
