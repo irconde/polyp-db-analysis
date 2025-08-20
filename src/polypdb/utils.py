@@ -198,3 +198,56 @@ def move_images(source_dir, dest_dir, df, filename_col='FRAME'):
             shutil.move(source_path, destination_path)
         except IOError as e:
             logger.error("Could not move %s. Error: %s", frame_filename, e)
+
+
+def validate_conversion(dest_dir, df, filename_col='FRAME'):
+    """Validate that moved images match entries in ``df``.
+
+    The function counts the rows in ``df`` and compares them against the
+    number of image files located in ``dest_dir/img``. If the counts do not
+    match, detailed diagnostics about missing, unexpected or duplicated file
+    names are logged and a :class:`ValueError` is raised.
+
+    Parameters
+    ----------
+    dest_dir:
+        Root directory of the converted dataset. An ``img`` sub-directory is
+        expected to contain the image files.
+    df:
+        DataFrame describing the dataset.
+    filename_col:
+        Name of the column in ``df`` containing the image filenames.
+    """
+
+    img_dir = os.path.join(dest_dir, 'img')
+    try:
+        files = [f for f in os.listdir(img_dir) if os.path.isfile(os.path.join(img_dir, f))]
+    except FileNotFoundError:
+        logger.error("Image directory %s does not exist", img_dir)
+        raise
+
+    df_count = len(df)
+    file_count = len(files)
+
+    duplicates = df[df[filename_col].duplicated()][filename_col].tolist()
+    if duplicates:
+        logger.error("Duplicated filenames in metadata: %s", ", ".join(sorted(duplicates)))
+
+    if df_count != file_count:
+        df_filenames = set(df[filename_col].astype(str))
+        file_set = set(files)
+        missing = sorted(df_filenames - file_set)
+        extra = sorted(file_set - df_filenames)
+        if missing:
+            logger.error("Missing images: %s", ", ".join(missing))
+        if extra:
+            logger.error("Unexpected images: %s", ", ".join(extra))
+        error_msg = (
+            f"{df_count} rows in annotations but found {file_count} images in {img_dir}"
+        )
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    logger.info(
+        "Validated conversion for %s: %d rows match %d images", dest_dir, df_count, file_count
+    )

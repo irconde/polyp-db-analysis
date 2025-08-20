@@ -11,7 +11,7 @@ import os
 import pandas as pd
 import numpy as np
 
-from ..utils import get_image_size, move_images
+from ..utils import get_image_size, move_images, validate_conversion
 
 RENAME_COLUMNS = {
     "image_id": "FRAME",
@@ -81,3 +81,4 @@ def convert_to_standard_layout(
     os.makedirs(out_dir, exist_ok=True)
     df.to_excel(os.path.join(out_dir, "annotations.xlsx"), index=False)
     move_images(os.path.join(src_dir, "media"), os.path.join(out_dir, "img"), df)
+    validate_conversion(out_dir, df)

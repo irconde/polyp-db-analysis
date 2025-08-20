@@ -15,7 +15,7 @@ import shutil
 import pandas as pd
 import logging
 
-from ..utils import get_image_size
+from ..utils import get_image_size, validate_conversion
 
 
 logger = logging.getLogger(__name__)
@@ -146,4 +146,5 @@ def convert_to_standard_layout(
     )
 
     df.to_excel(os.path.join(out_dir, "annotations.xlsx"), index=False)
+    validate_conversion(out_dir, df)
 
