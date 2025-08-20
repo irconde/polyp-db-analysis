@@ -62,3 +62,32 @@ def test_crop_image_padding_rgba(tmp_path):
     cropped = tifffile.imread(out_mask)
     assert cropped.shape == (6, 6)
 
+
+def test_crop_image_padding_white_padding(tmp_path):
+    """Ensure padding detection works when padding is non-black."""
+    arr = np.ones((10, 10, 3), dtype=np.uint8) * 255
+    arr[2:8, 2:8] = 0
+    img = Image.fromarray(arr)
+    mask = Image.fromarray(arr[:, :, 0])
+
+    img_path = tmp_path / "img.png"
+    mask_path = tmp_path / "mask.tif"
+    img.save(img_path)
+    tifffile.imwrite(mask_path, np.array(mask))
+
+    out_img = tmp_path / "cropped.png"
+    out_mask = tmp_path / "cropped.tif"
+
+    crop_image_padding(
+        img_path,
+        out_img,
+        mask_path=mask_path,
+        cropped_mask_path=out_mask,
+        padding_color=(255, 255, 255),
+        threshold=0,
+    )
+
+    assert Image.open(out_img).size == (6, 6)
+    cropped = tifffile.imread(out_mask)
+    assert cropped.shape == (6, 6)
+

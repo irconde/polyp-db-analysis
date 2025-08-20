@@ -81,23 +81,68 @@ def crop_image_padding(
         raise FileNotFoundError(f"Image file not found: {img_path}")
 
     with Image.open(img_path) as img:
-        # Use an RGB representation to robustly compute the padding mask even
-        # for images with an alpha channel or a single channel. ``img`` itself
-        # is preserved so that the cropped output keeps the original mode.
-        rgb_arr = np.array(img.convert("RGB"))
+        # Convert to RGB to consistently evaluate padding colour even when the
+        # source image has an alpha channel or a single channel.  The original
+        # ``img`` object is preserved so that the cropped output retains its
+        # initial mode.
+        rgb_img = img.convert("RGB")
+        pixels = rgb_img.load()
 
-        # Optimization: use NumPy to locate the bounding box of non-padding pixels
-        padding = np.array(padding_color, dtype=rgb_arr.dtype)
-        diff = np.abs(rgb_arr - padding)
-        mask = np.all(diff <= threshold, axis=-1)
-        non_empty_rows = np.where(~mask.all(axis=1))[0]
-        non_empty_cols = np.where(~mask.all(axis=0))[0]
+        def is_close_to_color(pixel, color, threshold):
+            return all(abs(int(p) - c) <= threshold for p, c in zip(pixel, color))
 
-        if len(non_empty_rows) == 0 or len(non_empty_cols) == 0:
+        # Determine the number of padding columns on each side
+        left_padding = 0
+        for x in range(rgb_img.width):
+            if all(
+                is_close_to_color(pixels[x, y], padding_color, threshold)
+                for y in range(rgb_img.height)
+            ):
+                left_padding += 1
+            else:
+                break
+
+        right_padding = 0
+        for x in range(rgb_img.width - 1, -1, -1):
+            if all(
+                is_close_to_color(pixels[x, y], padding_color, threshold)
+                for y in range(rgb_img.height)
+            ):
+                right_padding += 1
+            else:
+                break
+
+        # Determine the number of padding rows on each side
+        top_padding = 0
+        for y in range(rgb_img.height):
+            if all(
+                is_close_to_color(pixels[x, y], padding_color, threshold)
+                for x in range(rgb_img.width)
+            ):
+                top_padding += 1
+            else:
+                break
+
+        bottom_padding = 0
+        for y in range(rgb_img.height - 1, -1, -1):
+            if all(
+                is_close_to_color(pixels[x, y], padding_color, threshold)
+                for x in range(rgb_img.width)
+            ):
+                bottom_padding += 1
+            else:
+                break
+
+        if (
+            left_padding + right_padding >= rgb_img.width
+            or top_padding + bottom_padding >= rgb_img.height
+        ):
             left, upper, right, lower = 0, 0, img.width, img.height
         else:
-            upper, lower = non_empty_rows[0], non_empty_rows[-1] + 1
-            left, right = non_empty_cols[0], non_empty_cols[-1] + 1
+            left = left_padding
+            upper = top_padding
+            right = rgb_img.width - right_padding
+            lower = rgb_img.height - bottom_padding
 
         # Crop the image to the bounding box to remove padding
         cropped_img = img.crop((left, upper, right, lower))
