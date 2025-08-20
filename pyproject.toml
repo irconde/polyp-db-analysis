@@ -14,7 +14,8 @@ dependencies = [
     "numpy",
     "scikit-learn",
     "pyyaml",
-    "tqdm"
+    "tqdm",
+    "scikit-image"
 ]
 
 [project.scripts]

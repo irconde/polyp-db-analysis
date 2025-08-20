@@ -9,12 +9,13 @@ segmentation masks and records the image dimensions of the cropped samples.
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import List
 
 import numpy as np
 import pandas as pd
 from PIL import Image
-import scipy.ndimage as ndi
+from skimage.measure import label, regionprops
 
 from ..utils import crop_image_padding, get_image_size, move_images, validate_conversion
 
@@ -113,17 +114,14 @@ def _derive_bboxes(df: pd.DataFrame, src_dir: str) -> pd.DataFrame:
     os.makedirs(cropped_frame_dir, exist_ok=True)
     os.makedirs(cropped_mask_dir, exist_ok=True)
 
-    bboxes: List[str] = []
-    widths: List[int] = []
-    heights: List[int] = []
-
-    for _, row in df.iterrows():
-        frame_path = os.path.join(src_dir, row["SET"], "polyps", row["FRAME"])
+    def _process(row) -> tuple[str, int, int]:
+        frame_path = os.path.join(src_dir, row.SET, "polyps", row.FRAME)
         mask_path = os.path.join(
-            src_dir, row["SET"], "masks", row["FRAME"].replace(".png", "_Corrected.tif")
+            src_dir, row.SET, "masks", row.FRAME.replace(".png", "_Corrected.tif")
         )
-        cropped_frame_path = os.path.join(cropped_frame_dir, row["FRAME"])
-        cropped_mask_path = os.path.join(cropped_mask_dir, row["FRAME"].replace(".png", ".tif"))
+        cropped_frame_path = os.path.join(cropped_frame_dir, row.FRAME)
+        cropped_mask_path = os.path.join(cropped_mask_dir, row.FRAME.replace(".png", ".tif"))
+
         crop_image_padding(
             frame_path,
             cropped_frame_path,
@@ -134,31 +132,31 @@ def _derive_bboxes(df: pd.DataFrame, src_dir: str) -> pd.DataFrame:
         )
 
         w, h = get_image_size(cropped_frame_path)
-        widths.append(w)
-        heights.append(h)
 
         try:
             with Image.open(cropped_mask_path) as mask_img:
                 mask = np.array(mask_img) > 0
         except FileNotFoundError:
-            bboxes.append("")
-            continue
+            return "", w, h
 
-        labeled, num_labels = ndi.label(mask)
-        boxes = []
-        for label in range(1, num_labels + 1):
-            coords = np.argwhere(labeled == label)
-            if coords.size == 0:
-                continue
-            y_min, x_min = coords.min(axis=0)
-            y_max, x_max = coords.max(axis=0) + 1
-            boxes.append(f"{x_min},{y_min},{x_max},{y_max}")
-        bboxes.append(" ".join(boxes))
+        props = regionprops(label(mask))
+        boxes = [
+            f"{p.bbox[1]},{p.bbox[0]},{p.bbox[3]},{p.bbox[2]}" for p in props
+        ]
+        return " ".join(boxes), w, h
+
+    with ThreadPoolExecutor() as executor:
+        results = list(executor.map(_process, df.itertuples(index=False)))
+
+    if results:
+        bboxes, widths, heights = zip(*results)
+    else:
+        bboxes, widths, heights = [], [], []
 
     df = df.copy()
-    df["BOUNDING BOX"] = bboxes
-    df["WIDTH"] = widths
-    df["HEIGHT"] = heights
+    df["BOUNDING BOX"] = list(bboxes)
+    df["WIDTH"] = list(widths)
+    df["HEIGHT"] = list(heights)
     df = df[df["BOUNDING BOX"] != ""]
     return df.drop(columns=["SET"])
 
