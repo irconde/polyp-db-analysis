@@ -11,12 +11,12 @@ other datasets in the project.
 from __future__ import annotations
 
 import os
-import shutil
 import pandas as pd
 import logging
 import numpy as np
+from concurrent.futures import ThreadPoolExecutor
 
-from ..utils import get_image_size, validate_conversion
+from ..utils import get_image_size, move_images_parallel, validate_conversion
 
 
 logger = logging.getLogger(__name__)
@@ -81,19 +81,16 @@ def convert_to_standard_layout(
     # Preserve polyp identifier before renaming the image id to FRAME
     df["POLYP ID"] = df["FRAME"].astype(str)
 
-    # Determine image dimensions for each frame.  Images are organised in
+    # Determine image dimensions for each frame. Images are organised in
     # sub-folders per patient, so construct the path accordingly.
-    widths: list[int] = []
-    heights: list[int] = []
-    for _, row in df.iterrows():
-        image_path = os.path.join(
-            validation_dir, str(row["PATIENT_ID"]), row["POLYP ID"] + ".png"
-        )
-        w, h = get_image_size(image_path)
-        widths.append(w)
-        heights.append(h)
-    df["WIDTH"] = widths
-    df["HEIGHT"] = heights
+    df["SRC_PATH"] = [
+        os.path.join(validation_dir, str(pid), polyp_id + ".png")
+        for pid, polyp_id in zip(df["PATIENT_ID"], df["POLYP ID"].astype(str))
+    ]
+
+    with ThreadPoolExecutor() as executor:
+        sizes = list(executor.map(get_image_size, df["SRC_PATH"]))
+    df["WIDTH"], df["HEIGHT"] = zip(*sizes)
 
     # Append the image extension after dimensions are collected
     df["FRAME"] = df["POLYP ID"].astype(str) + ".png"
@@ -121,19 +118,9 @@ def convert_to_standard_layout(
 
     out_dir = os.path.join(dest_dir, "polar")
     out_img_dir = os.path.join(out_dir, "img")
-    os.makedirs(out_img_dir, exist_ok=True)
-
-    # Move images into the destination directory, flattening the original
-    # patient-based structure.
-    for _, row in df.iterrows():
-        src_img = os.path.join(
-            validation_dir, str(row["PATIENT_ID"]), row["POLYP ID"] + ".png"
-        )
-        dst_img = os.path.join(out_img_dir, row["FRAME"])
-        try:
-            shutil.move(src_img, dst_img)
-        except OSError as e:
-            logger.error("Could not move %s. Error: %s", src_img, e)
+    move_images_parallel(
+        None, out_img_dir, df, filename_col="FRAME", source_path_col="SRC_PATH"
+    )
 
     df = df.drop(
         columns=[
@@ -145,6 +132,7 @@ def convert_to_standard_layout(
             "y",
             "w",
             "h",
+            "SRC_PATH",
         ],
         errors="ignore",
     )

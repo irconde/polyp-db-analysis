@@ -1,6 +1,7 @@
 import os
 import shutil
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from PIL import Image, ImageDraw
 from matplotlib import pyplot as plt
@@ -198,6 +199,63 @@ def move_images(source_dir, dest_dir, df, filename_col='FRAME'):
             shutil.move(source_path, destination_path)
         except IOError as e:
             logger.error("Could not move %s. Error: %s", frame_filename, e)
+
+
+def move_images_parallel(
+    source_dir,
+    dest_dir,
+    df,
+    filename_col="FRAME",
+    source_path_col=None,
+    copy=False,
+):
+    """Move images concurrently using :class:`ThreadPoolExecutor`.
+
+    Parameters
+    ----------
+    source_dir:
+        Base directory where images are stored when ``source_path_col`` is
+        ``None``.
+    dest_dir:
+        Directory where images will be placed.
+    df:
+        DataFrame containing image file information.
+    filename_col:
+        Column in ``df`` with the destination image filename.
+    source_path_col:
+        Optional column in ``df`` with full source paths. When provided,
+        ``source_dir`` is ignored for that row.
+    copy:
+        If ``True``, copy images instead of moving them.
+    """
+
+    os.makedirs(dest_dir, exist_ok=True)
+
+    cols = [filename_col]
+    if source_path_col:
+        cols.append(source_path_col)
+
+    rows = df[cols].itertuples(index=False, name=None)
+
+    action = "copy" if copy else "move"
+
+    def _transfer(row):
+        if source_path_col:
+            frame_filename, source_path = row
+        else:
+            (frame_filename,) = row
+            source_path = os.path.join(source_dir, frame_filename)
+        destination_path = os.path.join(dest_dir, frame_filename)
+        try:
+            if copy:
+                shutil.copy(source_path, destination_path)
+            else:
+                shutil.move(source_path, destination_path)
+        except IOError as e:
+            logger.error("Could not %s %s. Error: %s", action, frame_filename, e)
+
+    with ThreadPoolExecutor() as executor:
+        list(executor.map(_transfer, rows))
 
 
 def validate_conversion(dest_dir, df, filename_col='FRAME'):

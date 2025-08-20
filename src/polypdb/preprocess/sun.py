@@ -11,12 +11,12 @@ to rely on the notebook.
 """
 
 import os
-import shutil
 import pandas as pd
 import logging
 import numpy as np
+from concurrent.futures import ThreadPoolExecutor
 
-from ..utils import get_image_size, validate_conversion
+from ..utils import get_image_size, move_images_parallel, validate_conversion
 
 
 logger = logging.getLogger(__name__)
@@ -145,34 +145,31 @@ def convert_to_standard_layout(
 
     df = pd.DataFrame(rows)
 
-    widths = []
-    heights = []
-    for _, r in df.iterrows():
-        img_path = os.path.join(
+    df["SRC_PATH"] = df.apply(
+        lambda r: os.path.join(
             src_dir, "sundatabase_positive", f"case{r['POLYP ID']}", r["FRAME"]
-        )
-        w, h = get_image_size(img_path)
-        widths.append(w)
-        heights.append(h)
-    df["WIDTH"] = widths
-    df["HEIGHT"] = heights
+        ),
+        axis=1,
+    )
+
+    with ThreadPoolExecutor() as executor:
+        sizes = list(executor.map(get_image_size, df["SRC_PATH"]))
+    df["WIDTH"], df["HEIGHT"] = zip(*sizes)
 
     df["BOUNDING BOX"] = _clip_bboxes(df["BOUNDING BOX"], df["WIDTH"], df["HEIGHT"])
     df["IMAGE TYPE"] = "WL"
 
     out_dir = os.path.join(dest_dir, "sun")
     img_dest_dir = os.path.join(out_dir, "img")
-    os.makedirs(img_dest_dir, exist_ok=True)
+    move_images_parallel(
+        None,
+        img_dest_dir,
+        df,
+        filename_col="FRAME",
+        source_path_col="SRC_PATH",
+        copy=True,
+    )
 
-    for _, r in df.iterrows():
-        src_img = os.path.join(
-            src_dir, "sundatabase_positive", f"case{r['POLYP ID']}", r["FRAME"]
-        )
-        dst_img = os.path.join(img_dest_dir, r["FRAME"])
-        try:
-            shutil.copy(src_img, dst_img)
-        except IOError as e:
-            logger.error("Could not copy %s. Error: %s", r['FRAME'], e)
-
+    df = df.drop(columns=["SRC_PATH"], errors="ignore")
     df.to_excel(os.path.join(out_dir, "annotations.xlsx"), index=False)
     validate_conversion(out_dir, df)

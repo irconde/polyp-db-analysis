@@ -8,10 +8,11 @@ resulting ``annotations.xlsx`` closely matches the notebook output.
 """
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import numpy as np
 
-from ..utils import get_image_size, move_images, validate_conversion
+from ..utils import get_image_size, move_images_parallel, validate_conversion
 
 RENAME_COLUMNS = {
     "image_id": "FRAME",
@@ -62,14 +63,12 @@ def convert_to_standard_layout(
     df["SHAPE"] = df["SHAPE"].replace(SHAPE_MAP)
     df["FRAME"] = df["FRAME"].apply(lambda x: f"{x}.png")
 
-    widths = []
-    heights = []
-    for frame in df["FRAME"]:
-        w, h = get_image_size(os.path.join(src_dir, "media", frame))
-        widths.append(w)
-        heights.append(h)
-    df["WIDTH"] = widths
-    df["HEIGHT"] = heights
+    def _size(frame: str) -> tuple[int, int]:
+        return get_image_size(os.path.join(src_dir, "media", frame))
+
+    with ThreadPoolExecutor() as executor:
+        sizes = list(executor.map(_size, df["FRAME"]))
+    df["WIDTH"], df["HEIGHT"] = zip(*sizes)
     bbox_strings = (
         df.assign(
             x2=df["X"] + df["BBOX WIDTH"],
@@ -86,5 +85,7 @@ def convert_to_standard_layout(
     out_dir = os.path.join(dest_dir, "piba")
     os.makedirs(out_dir, exist_ok=True)
     df.to_excel(os.path.join(out_dir, "annotations.xlsx"), index=False)
-    move_images(os.path.join(src_dir, "media"), os.path.join(out_dir, "img"), df)
+    move_images_parallel(
+        os.path.join(src_dir, "media"), os.path.join(out_dir, "img"), df
+    )
     validate_conversion(out_dir, df)
