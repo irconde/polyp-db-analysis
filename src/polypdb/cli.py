@@ -32,6 +32,12 @@ def load_config(path: str) -> dict:
 def main() -> None:
     """Run the command-line interface for dataset utilities."""
     parser = argparse.ArgumentParser(description="Polyp dataset processing CLI")
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
+        help="Set the logging level (default: INFO)",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     merge_parser = subparsers.add_parser("merge", help="Merge datasets into a unified dataset")
@@ -53,6 +59,11 @@ def main() -> None:
     pipeline_parser.add_argument("config", help="Path to YAML configuration file")
 
     args = parser.parse_args()
+
+    logging.basicConfig(
+        level=getattr(logging, args.log_level.upper()),
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
 
     if args.command == "merge":
         cfg = load_config(args.config)

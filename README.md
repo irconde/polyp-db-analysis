@@ -17,6 +17,15 @@ This exposes the `polypdb` command line interface.
 Each command expects a YAML configuration file. Example configs are provided in
 `merge_config.example.yaml` and `ultralytics_config.example.yaml`.
 
+The CLI also accepts a global ``--log-level`` option to control verbosity. Place
+it before the subcommand:
+
+```bash
+polypdb --log-level DEBUG pipeline pipeline_config.yaml
+```
+
+By default the log level is ``INFO``.
+
 ### Merge datasets
 
 Merge multiple dataset folders into a unified dataset described by a metadata
