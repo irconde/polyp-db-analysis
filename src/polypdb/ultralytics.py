@@ -10,6 +10,7 @@ from sklearn.model_selection import train_test_split
 import logging
 
 from .utils import resize_with_padding, normalize_image
+from tqdm import tqdm
 
 
 logger = logging.getLogger(__name__)
@@ -266,7 +267,7 @@ def process_img(train_df, val_df, test_df, classes, source_path, save_path):
     for subset, data in zip(('train', 'val', 'test'), (train_df, val_df, test_df)):
         if data is not None and not data.empty:
             dest_dir = os.path.join(save_path, f'images/{subset}/')
-            for index, row in data.iterrows():
+            for index, row in tqdm(data.iterrows(), total=len(data), desc=f"{subset} images"):
                 image_path = os.path.join(source_path, row['FRAME'])
                 dest_image_path = os.path.join(dest_dir, row['FRAME'])
                 dest_label_path = dest_image_path.replace('images', 'labels').replace('.png', '.txt')

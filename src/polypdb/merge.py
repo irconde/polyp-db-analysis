@@ -8,6 +8,7 @@ from PIL import Image
 
 from .utils import draw_bounding_boxes
 import uuid
+from tqdm import tqdm
 
 
 logger = logging.getLogger(__name__)
@@ -144,7 +145,7 @@ def copy_and_rename_images(df, base_path, dest_dir):
     """
     os.makedirs(dest_dir, exist_ok=True)  # Ensure the destination directory exists
 
-    for index, row in df.iterrows():
+    for index, row in tqdm(df.iterrows(), total=len(df), desc="Copying images"):
         # Construct the path to the source image
         source_image_path = os.path.join(base_path, row['ORIGINAL DATASET'], 'img', row['FRAME'])
 
@@ -265,7 +266,7 @@ def process_images_and_bboxes(df, source_dir, target_width, target_height):
     :param target_width: Desired width of the standardized images.
     :param target_height: Desired height of the standardized images.
     """
-    for index, row in df.iterrows():
+    for index, row in tqdm(df.iterrows(), total=len(df), desc="Standardizing images"):
         img_path = os.path.join(source_dir, row['FRAME'])
         if os.path.exists(img_path):
             orig_width, orig_height, result_width, result_height = standardize_and_override_image(img_path,
@@ -292,7 +293,7 @@ def process_negative_images(source_dir, target_width, target_height):
     """
     if os.path.exists(source_dir):
         files = os.listdir(source_dir)
-        for file in files:
+        for file in tqdm(files, desc="Processing negatives", total=len(files)):
             source_file_path = os.path.join(source_dir, file)
             if os.path.isfile(source_file_path):
                 standardize_and_override_image(source_file_path, target_width, target_height)
@@ -380,7 +381,7 @@ def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_image
         # Create the destination directory if it doesn't exist
         bbox_dest_dir = os.path.join(base_path, 'img_bbox')
         os.makedirs(bbox_dest_dir, exist_ok=True)
-        for index, row in combined_df.iterrows():
+        for index, row in tqdm(combined_df.iterrows(), total=len(combined_df), desc="Drawing bounding boxes"):
             image_filename = row['FRAME']
             input_frame_path = os.path.join(os.path.join(base_path, destination_folder), image_filename)
             output_frame_path = os.path.join(bbox_dest_dir, image_filename)
