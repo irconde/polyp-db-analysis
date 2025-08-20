@@ -13,7 +13,8 @@ dependencies = [
     "pandas",
     "numpy",
     "scikit-learn",
-    "pyyaml"
+    "pyyaml",
+    "tqdm"
 ]
 
 [project.scripts]
