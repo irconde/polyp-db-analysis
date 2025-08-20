@@ -1,3 +1,5 @@
+"""Dataset preparation helpers for Ultralytics and classification experiments."""
+
 import pandas as pd
 import os
 from shutil import copy2
@@ -9,14 +11,14 @@ from sklearn.model_selection import train_test_split
 from .utils import resize_with_padding, normalize_image
 
 
-# Function to load configuration params from yaml figuration file
 def load_config(config_path):
+    """Load and parse a YAML configuration file."""
     with open(config_path, 'r') as file:
         return yaml.safe_load(file)
 
 
-# Function to split data according to a given configuration
 def split_data(df, config):
+    """Split ``df`` into train/val/test sets based on ``config`` options."""
     # Extract splitting options for easier access
     splitting_options = config['splitting_options']
     train_ratio = splitting_options['train_ratio']
@@ -37,8 +39,8 @@ def split_data(df, config):
         raise ValueError("Unsupported split level provided in configuration.")
 
 
-# id_col='POLYP ID', stratify_col='SHAPE', ratios=(0.7, 0.2, 0.1)
 def stratified_split_if_possible(df, id_col, stratify_col, ratios, random_state=42):
+    """Attempt stratified splitting; fall back to even distribution if needed."""
     # Compute the minimum number of samples needed to split according to the smallest ratio
     min_samples = int(1 / min(ratios))
     # Determine the number of splits based on non-zero ratios
@@ -96,6 +98,7 @@ def stratified_split_if_possible(df, id_col, stratify_col, ratios, random_state=
 
 
 def _evenly_distribute_polyps(df, polyps, id_col, ratios, num_splits, random_state):
+    """Distribute ``polyps`` across splits while respecting ``ratios``."""
     np.random.seed(random_state)
     np.random.shuffle(polyps)
 
@@ -106,7 +109,7 @@ def _evenly_distribute_polyps(df, polyps, id_col, ratios, num_splits, random_sta
     n_val = max(1, round(total_polyps * ratios[1]))
     n_test = max(1, total_polyps - n_train - n_val) if ratios[2] > 0 else 0
 
-    min_test = 0 if  ratios[2] == 0 else 1
+    min_test = 0 if ratios[2] == 0 else 1
 
     # Adjust if the sum exceeds the available polyps
     while n_train + n_val + n_test > total_polyps:
@@ -132,6 +135,7 @@ def _evenly_distribute_polyps(df, polyps, id_col, ratios, num_splits, random_sta
 
 
 def split_by_field(df, group_field, ratios, random_state=42):
+    """Split ``df`` by unique values in ``group_field``."""
     # Group data by the specified field
     train_ratio, validation_ratio, test_ratio = ratios
     grouped = df.groupby(group_field)
@@ -238,6 +242,7 @@ def convert_bbox_to_yolo_format(bbox, image_width, image_height):
 
 
 def create_folder_hierarchy(save_path, create_test_dir=False):
+    """Create YOLO-style folder structure under ``save_path``."""
     train_dir = os.path.join(save_path, 'images/train/')
     val_dir = os.path.join(save_path, 'images/val/')
     os.makedirs(train_dir, exist_ok=True)
@@ -253,7 +258,7 @@ def create_folder_hierarchy(save_path, create_test_dir=False):
 
 
 def process_img(train_df, val_df, test_df, classes, source_path, save_path):
-    # Process and split dataset into directories
+    """Copy images and create YOLO labels for each dataset split."""
     for subset, data in zip(('train', 'val', 'test'), (train_df, val_df, test_df)):
         if data is not None and not data.empty:
             dest_dir = os.path.join(save_path, f'images/{subset}/')
@@ -284,6 +289,7 @@ def process_img(train_df, val_df, test_df, classes, source_path, save_path):
 
 
 def save_dataset_config_file(save_path, train_path, val_path, test_path, classes):
+    """Write a Ultralytics ``data.yaml`` description file."""
     # Path for the YAML configuration file to be used in training
     yaml_path = os.path.join(save_path, 'data.yaml')
     # data for yaml dataset configuration file
@@ -302,6 +308,7 @@ def save_dataset_config_file(save_path, train_path, val_path, test_path, classes
 
 
 def calculate_negative_split_sizes(sizes, config):
+    """Determine how many negative samples to allocate to each split."""
     negative_ratio = config['ratio']
     distribution = config['distribution']
     total_positives = sum(sizes)
@@ -330,6 +337,7 @@ def calculate_negative_split_sizes(sizes, config):
 
 
 def split_negative_data(negative_sample_path, split_sizes):
+    """Split negative images into train/val/test lists."""
     negative_img_paths = [os.path.join(negative_sample_path, f) for f in os.listdir(negative_sample_path) if
                           f.endswith('.jpg')]
     total_samples = sum(split_sizes)
@@ -350,6 +358,7 @@ def split_negative_data(negative_sample_path, split_sizes):
 
 
 def process_negative_samples(negative_splits, save_path):
+    """Copy negative images into dataset structure and create empty labels."""
     split_types = ['train', 'val', 'test']
     for index, split in enumerate(negative_splits):
         # Corresponding folder for the split

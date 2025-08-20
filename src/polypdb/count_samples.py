@@ -1,7 +1,23 @@
+"""Utilities for counting class occurrences in YOLO-style datasets."""
+
 import os
 from collections import defaultdict
 
+
 def count_samples(root_folder):
+    """Count samples per class in YOLO label files.
+
+    Parameters
+    ----------
+    root_folder : str
+        Path to the dataset containing ``train``, ``val`` and ``test``
+        subdirectories with label files.
+
+    Returns
+    -------
+    dict[str, dict[str, int]]
+        Mapping of split names to class counts.
+    """
     # Initialize a dictionary to keep track of the class counts for each split
     class_counts = {
         'test': defaultdict(int),

@@ -8,8 +8,23 @@ from PIL import Image
 from .utils import draw_bounding_boxes
 import uuid
 
-# Function to generate standardized polyp_id
+
 def generate_standardized_id(df):
+    """Create unique polyp identifiers for merged datasets.
+
+    The function constructs sequential IDs per original dataset and returns a
+    list of new identifiers in ``<dataset>-<number>`` format.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame containing ``ORIGINAL DATASET`` and ``POLYP ID`` columns.
+
+    Returns
+    -------
+    list[str]
+        Newly generated polyp identifiers corresponding to each row of ``df``.
+    """
     # Mapping dictionary for [original_dataset][polyp_id] to numeric identifier
     id_mapping = {}
     new_ids = []
@@ -72,6 +87,17 @@ def save_combined_dataframe(combined_df, base_path, filename='annotations.xlsx')
 
 
 def copy_and_rename_images(df, base_path, dest_dir):
+    """Copy images from source datasets and assign new unique names.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame containing ``ORIGINAL DATASET`` and ``FRAME`` columns.
+    base_path : str
+        Root directory containing the dataset folders.
+    dest_dir : str
+        Destination directory where renamed images will be stored.
+    """
     os.makedirs(dest_dir, exist_ok=True)  # Ensure the destination directory exists
 
     for index, row in df.iterrows():
@@ -209,6 +235,17 @@ def process_images_and_bboxes(df, source_dir, target_width, target_height):
 
 
 def process_negative_images(source_dir, target_width, target_height):
+    """Standardize images in ``source_dir`` without bounding boxes.
+
+    Parameters
+    ----------
+    source_dir : str
+        Directory containing images to be resized.
+    target_width : int
+        Desired output width.
+    target_height : int
+        Desired output height.
+    """
     if os.path.exists(source_dir):
         files = os.listdir(source_dir)
         for file in files:

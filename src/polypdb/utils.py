@@ -177,8 +177,18 @@ def adjust_bounding_box(original_box, original_size, resized_size, padding):
     return x1_adjusted, y1_adjusted, x2_adjusted, y2_adjusted
 
 
-# Function to draw bounding boxes on an image and save it
 def draw_bounding_boxes(bounding_boxes, image_path, save_path):
+    """Overlay ``bounding_boxes`` on ``image_path`` and save to ``save_path``.
+
+    Parameters
+    ----------
+    bounding_boxes : str
+        Comma-separated bounding box coordinates in ``x1,y1,x2,y2`` format.
+    image_path : str
+        Path to the input image.
+    save_path : str
+        Location where the annotated image will be written.
+    """
     # Open the image
     with Image.open(image_path) as img:
         draw = ImageDraw.Draw(img)
