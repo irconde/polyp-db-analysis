@@ -38,15 +38,49 @@ def _rank_key(path: str, width: int, height: int, filesize: int) -> tuple:
     return (-height * width, -filesize, path)
 
 
-def _drop_duplicate_frames(df: pd.DataFrame) -> pd.DataFrame:
-    """Return ``df`` without duplicate frames based on pixel content."""
+def _drop_duplicate_frames(df: pd.DataFrame, cache_file: str | None = None) -> pd.DataFrame:
+    """Return ``df`` without duplicate frames based on pixel content.
+
+    If ``cache_file`` is provided, pixel hashes and file sizes are stored in and
+    loaded from this cache to avoid recomputing them on subsequent runs.
+    """
 
     if df.empty:
         return df
 
     df = df.copy()
-    df["_pixel_hash"] = df["SRC_PATH"].apply(_pixel_hash)
-    df["_filesize"] = df["SRC_PATH"].apply(lambda p: os.path.getsize(p))
+
+    if cache_file and os.path.exists(cache_file):
+        try:
+            cache_df = pd.read_csv(cache_file)
+        except Exception:
+            cache_df = pd.DataFrame(columns=["SRC_PATH", "_pixel_hash", "_filesize"])
+    else:
+        cache_df = pd.DataFrame(columns=["SRC_PATH", "_pixel_hash", "_filesize"])
+
+    rows_to_update: list[dict] = []
+    for path in df["SRC_PATH"]:
+        filesize = os.path.getsize(path)
+        cached = cache_df[cache_df["SRC_PATH"] == path]
+        if cached.empty or int(cached["_filesize"].iloc[0]) != filesize:
+            rows_to_update.append(
+                {
+                    "SRC_PATH": path,
+                    "_pixel_hash": _pixel_hash(path),
+                    "_filesize": filesize,
+                }
+            )
+
+    if rows_to_update:
+        update_df = pd.DataFrame(rows_to_update)
+        cache_df = pd.concat(
+            [cache_df[~cache_df["SRC_PATH"].isin(update_df["SRC_PATH"])], update_df],
+            ignore_index=True,
+        )
+        if cache_file:
+            cache_df.to_csv(cache_file, index=False)
+
+    df = df.merge(cache_df, on="SRC_PATH", how="left")
 
     duplicates: list[str] = []
     for _, group in df.groupby("_pixel_hash"):
@@ -54,7 +88,12 @@ def _drop_duplicate_frames(df: pd.DataFrame) -> pd.DataFrame:
             continue
         ranked = sorted(
             group.itertuples(),
-            key=lambda r: _rank_key(r.SRC_PATH, r.WIDTH, r.HEIGHT, getattr(r, '_filesize', os.path.getsize(r.SRC_PATH))),
+            key=lambda r: _rank_key(
+                r.SRC_PATH,
+                r.WIDTH,
+                r.HEIGHT,
+                getattr(r, "_filesize", os.path.getsize(r.SRC_PATH)),
+            ),
         )
         duplicates.extend(r.SRC_PATH for r in ranked[1:])
 
@@ -214,7 +253,8 @@ def convert_to_standard_layout(
         sizes = list(executor.map(get_image_size, df["SRC_PATH"]))
     df["WIDTH"], df["HEIGHT"] = zip(*sizes)
 
-    df = _drop_duplicate_frames(df)
+    cache_path = os.path.join(src_dir, "sun_hash_cache.csv")
+    df = _drop_duplicate_frames(df, cache_file=cache_path)
     df["BOUNDING BOX"] = _clip_bboxes(df["BOUNDING BOX"], df["WIDTH"], df["HEIGHT"])
     df["IMAGE TYPE"] = "WL"
 
