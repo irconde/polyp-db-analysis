@@ -197,27 +197,34 @@ def harmonize_metadata(df: pd.DataFrame, image_dir: str) -> pd.DataFrame:
     return df[core_cols + other_cols]
 
 
-def validate_combined_dataframe(df: pd.DataFrame, image_dir: str) -> None:
-    """Validate merged dataframe integrity.
+def validate_harmonised_dataframe(df: pd.DataFrame, image_dir: str) -> None:
+    """Validate integrity of a harmonised dataframe.
 
     Parameters
     ----------
     df : pandas.DataFrame
-        DataFrame to validate.
+        DataFrame produced by :func:`harmonize_metadata`.
     image_dir : str
-        Directory containing the merged image files.
+        Directory containing the harmonised image files.
 
     Raises
     ------
     ValueError
-        If required columns are missing or contain null values, or if ``POLYP ID``
-        values are not unique.
+        If required columns are missing, contain null values or duplicate
+        ``global_lesion_id`` values are detected.
     FileNotFoundError
-        If any ``FRAME`` file referenced in the DataFrame does not exist within
-        ``image_dir``.
+        If any path in ``image_paths`` does not exist inside ``image_dir``.
     """
 
-    required_columns = ["FRAME", "POLYP ID", "BOUNDING BOX"]
+    required_columns = [
+        "global_lesion_id",
+        "frame",
+        "original_frame",
+        "image_paths",
+        "bounding_boxes",
+        "dataset",
+        "lesion_id",
+    ]
 
     missing_columns = [col for col in required_columns if col not in df.columns]
     if missing_columns:
@@ -226,13 +233,23 @@ def validate_combined_dataframe(df: pd.DataFrame, image_dir: str) -> None:
     if df[required_columns].isnull().any().any():
         raise ValueError("Null values found in required columns")
 
-    if not df["POLYP ID"].is_unique:
-        raise ValueError("Duplicate POLYP ID values detected")
+    abs_image_dir = os.path.abspath(image_dir)
+    for paths in df["image_paths"]:
+        for path in paths:
+            abs_path = os.path.abspath(path)
+            if os.path.commonpath([abs_path, abs_image_dir]) != abs_image_dir:
+                raise ValueError(f"Image path outside destination directory: {path}")
+            if not os.path.exists(abs_path):
+                raise FileNotFoundError(f"Referenced image not found: {path}")
 
-    for frame in df["FRAME"]:
-        frame_path = os.path.join(image_dir, frame)
-        if not os.path.exists(frame_path):
-            raise FileNotFoundError(f"Referenced image not found: {frame_path}")
+    for bboxes in df["bounding_boxes"]:
+        for box in bboxes:
+            if not (
+                isinstance(box, (list, tuple))
+                and len(box) == 4
+                and all(isinstance(c, int) for c in box)
+            ):
+                raise ValueError(f"Invalid bounding box format: {box}")
 
 
 def copy_and_rename_images(df, base_path, dest_dir):
@@ -478,10 +495,10 @@ def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_image
 
     combined_df.drop(columns=['WIDTH', 'HEIGHT'], inplace=True)
 
-    validate_combined_dataframe(combined_df, os.path.join(base_path, destination_folder))
-
     # Harmonise column names and add derived metadata
     combined_df = harmonize_metadata(combined_df, os.path.join(base_path, destination_folder))
+
+    validate_harmonised_dataframe(combined_df, os.path.join(base_path, destination_folder))
 
     # Save the combined DataFrame to a spreadsheet
     save_combined_dataframe(combined_df, base_path, output_filename)
