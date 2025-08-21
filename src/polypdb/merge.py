@@ -81,10 +81,19 @@ def combine_datasets(base_path, datasets, num_elements=None, random_state=None):
     dataframes = []
 
     for dataset in datasets:
-        spreadsheet_path = os.path.join(base_path, 'raw', dataset, 'annotations.xlsx')
+        # Datasets converted to the standard layout may either reside directly
+        # under ``base_path`` or within a ``raw`` sub-directory.  Prefer the
+        # latter for backwards compatibility but fall back to the former when
+        # needed.
+        candidates = [
+            os.path.join(base_path, "raw", dataset, "annotations.xlsx"),
+            os.path.join(base_path, dataset, "annotations.xlsx"),
+        ]
+        spreadsheet_path = next((p for p in candidates if os.path.exists(p)), candidates[0])
+
         try:
             df = pd.read_excel(spreadsheet_path)
-            df['ORIGINAL DATASET'] = dataset
+            df["ORIGINAL DATASET"] = dataset
 
             # Randomly select 'num_elements' rows if specified and dataset is larger
             if num_elements is not None and len(df) > num_elements:
@@ -268,25 +277,32 @@ def copy_and_rename_images(df, base_path, dest_dir):
     counters: defaultdict[str, int] = defaultdict(int)
 
     for index, row in tqdm(df.iterrows(), total=len(df), desc="Copying images"):
-        dataset_name = str(row['ORIGINAL DATASET'])
+        dataset_name = str(row["ORIGINAL DATASET"])
         dataset = dataset_name.lower()
-        source_image_path = os.path.join(base_path, 'raw', dataset_name, 'img', row['FRAME'])
 
-        if os.path.exists(source_image_path):
-            global_id = row['POLYP ID']
+        # Look for the preprocessed images either in ``base_path/raw`` or
+        # directly under ``base_path`` to support different directory layouts.
+        candidates = [
+            os.path.join(base_path, "raw", dataset_name, "img", row["FRAME"]),
+            os.path.join(base_path, dataset_name, "img", row["FRAME"]),
+        ]
+        source_image_path = next((p for p in candidates if os.path.exists(p)), None)
+
+        if source_image_path is not None:
+            global_id = row["POLYP ID"]
             counters[global_id] += 1
             frame_idx = counters[global_id]
-            ext = os.path.splitext(row['FRAME'])[1].lower()
+            ext = os.path.splitext(row["FRAME"])[1].lower()
             global_frame_id = f"{dataset}.{global_id}.{frame_idx:06d}"
             new_filename = f"{global_frame_id}{ext}"
             dest_file_path = os.path.join(dest_dir, new_filename)
             shutil.copy(source_image_path, dest_file_path)
-            df.at[index, 'ORIGINAL FRAME'] = row['FRAME']
-            df.at[index, 'FRAME'] = new_filename
-            df.at[index, 'global_frame_id'] = global_frame_id
-            df.at[index, 'raw_path'] = source_image_path
+            df.at[index, "ORIGINAL FRAME"] = row["FRAME"]
+            df.at[index, "FRAME"] = new_filename
+            df.at[index, "global_frame_id"] = global_frame_id
+            df.at[index, "raw_path"] = source_image_path
         else:
-            logger.warning("File not found: %s", source_image_path)
+            logger.warning("File not found: %s", candidates[0])
 
 
 def calculate_target_size(df, width_percentile=0, height_percentile=0):

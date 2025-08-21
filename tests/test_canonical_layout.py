@@ -7,7 +7,7 @@ from polypdb.merge import copy_and_rename_images
 def test_copy_and_rename_images_canonical_naming(tmp_path):
     base_path = tmp_path
 
-    # create raw image
+    # create raw image using the standard layout under ``raw``
     raw_dir = base_path / "raw" / "sun" / "img"
     raw_dir.mkdir(parents=True)
     img_path = raw_dir / "frame1.JPG"
