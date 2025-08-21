@@ -81,7 +81,7 @@ def combine_datasets(base_path, datasets, num_elements=None, random_state=None):
     dataframes = []
 
     for dataset in datasets:
-        spreadsheet_path = os.path.join(base_path, dataset, 'annotations.xlsx')
+        spreadsheet_path = os.path.join(base_path, 'raw', dataset, 'annotations.xlsx')
         try:
             df = pd.read_excel(spreadsheet_path)
             df['ORIGINAL DATASET'] = dataset
@@ -268,17 +268,23 @@ def copy_and_rename_images(df, base_path, dest_dir):
     counters: defaultdict[str, int] = defaultdict(int)
 
     for index, row in tqdm(df.iterrows(), total=len(df), desc="Copying images"):
-        source_image_path = os.path.join(base_path, row['ORIGINAL DATASET'], 'img', row['FRAME'])
+        dataset_name = str(row['ORIGINAL DATASET'])
+        dataset = dataset_name.lower()
+        source_image_path = os.path.join(base_path, 'raw', dataset_name, 'img', row['FRAME'])
 
         if os.path.exists(source_image_path):
             global_id = row['POLYP ID']
             counters[global_id] += 1
-            ext = os.path.splitext(row['FRAME'])[1]
-            new_filename = f"{global_id}.{counters[global_id]:06d}{ext}"
+            frame_idx = counters[global_id]
+            ext = os.path.splitext(row['FRAME'])[1].lower()
+            global_frame_id = f"{dataset}.{global_id}.{frame_idx:06d}"
+            new_filename = f"{global_frame_id}{ext}"
             dest_file_path = os.path.join(dest_dir, new_filename)
             shutil.copy(source_image_path, dest_file_path)
             df.at[index, 'ORIGINAL FRAME'] = row['FRAME']
             df.at[index, 'FRAME'] = new_filename
+            df.at[index, 'global_frame_id'] = global_frame_id
+            df.at[index, 'raw_path'] = source_image_path
         else:
             logger.warning("File not found: %s", source_image_path)
 
@@ -446,6 +452,86 @@ def cleanup_temp_artifacts(base_path: str, destination_folder: str) -> None:
             logger.info("Removed temporary directory %s", temp_dir)
 
 
+def export_parquet_metadata(df: pd.DataFrame, canonical_base: str) -> None:
+    """Write canonical metadata tables to Parquet files.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Harmonised metadata produced by :func:`harmonize_metadata`.
+    canonical_base : str
+        Base directory for the canonical dataset. ``images`` and ``manifests``
+        sub-directories are expected beneath this path.
+    """
+
+    images_dir = os.path.join(canonical_base, 'images')
+    manifests_dir = os.path.join(canonical_base, 'manifests')
+    os.makedirs(manifests_dir, exist_ok=True)
+
+    timestamp = pd.Timestamp.utcnow()
+    ingest_version = "v1"
+
+    frame_records = []
+    for _, row in df.iterrows():
+        canonical_path = os.path.join(images_dir, row['frame'])
+        with Image.open(canonical_path) as img:
+            width, height = img.size
+        frame_records.append({
+            'global_frame_id': row.get('global_frame_id'),
+            'global_lesion_id': row['global_lesion_id'],
+            'dataset': row['dataset'],
+            'source_frame_id': row['original_frame'],
+            'img_width': width,
+            'img_height': height,
+            'filename_ext': os.path.splitext(row['frame'])[1].lower(),
+            'canonical_path': canonical_path,
+            'raw_path': row.get('raw_path'),
+            'modality': row.get('image_type'),
+            'ingest_version': ingest_version,
+            'ingest_timestamp': timestamp,
+        })
+    pd.DataFrame(frame_records).to_parquet(
+        os.path.join(manifests_dir, 'frames.parquet'), index=False
+    )
+
+    lesion_records = []
+    for lesion_id, group in df.groupby('global_lesion_id'):
+        first = group.iloc[0]
+        lesion_records.append({
+            'global_lesion_id': lesion_id,
+            'dataset': first['dataset'],
+            'shape': first.get('morphology_shape'),
+            'size_mm': first.get('morphology_size'),
+            'location': first.get('morphology_location'),
+            'n_frames': int(first['n_frames']),
+            'source_lesion_id': first['lesion_id'],
+            'ingest_version': ingest_version,
+            'ingest_timestamp': timestamp,
+        })
+    pd.DataFrame(lesion_records).to_parquet(
+        os.path.join(manifests_dir, 'lesions.parquet'), index=False
+    )
+
+    ann_records = []
+    for _, row in df.iterrows():
+        for idx, bbox in enumerate(row['bounding_boxes']):
+            x1, y1, x2, y2 = bbox
+            ann_records.append({
+                'ann_id': f"{row.get('global_frame_id')}.{idx:02d}",
+                'global_frame_id': row.get('global_frame_id'),
+                'global_lesion_id': row['global_lesion_id'],
+                'bbox_x': float(x1),
+                'bbox_y': float(y1),
+                'bbox_w': float(x2 - x1),
+                'bbox_h': float(y2 - y1),
+                'bbox_format': 'xywh',
+                'bbox_normalized': False,
+            })
+    pd.DataFrame(ann_records).to_parquet(
+        os.path.join(manifests_dir, 'annotations.parquet'), index=False
+    )
+
+
 def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_images=False):
     """Merge and standardize multiple datasets.
 
@@ -463,7 +549,6 @@ def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_image
     # process_negative_images(base_path, 588, 478)
 
     combined_df = combine_datasets(base_path, datasets, num_elements=num_elements)
-    destination_folder = 'img' if num_elements is None else 'img_' + str(num_elements)
     output_filename = 'metadata.xlsx' if num_elements is None else 'output_' + str(num_elements) + '.xlsx'
 
     # Keep only entries with a single bounding box (no blank spaces in 'BOUNDING BOX')
@@ -476,9 +561,11 @@ def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_image
     combined_df['global_lesion_id'] = generate_global_lesion_ids(combined_df)
     combined_df['POLYP ID'] = combined_df['global_lesion_id']
 
-    # Copy and rename images
+    # Copy and rename images into canonical layout
     logger.info("COPYING IMAGES")
-    copy_and_rename_images(combined_df, base_path, os.path.join(base_path, destination_folder))
+    canonical_base = os.path.join(base_path, 'canonical')
+    images_dir = os.path.join(canonical_base, 'images')
+    copy_and_rename_images(combined_df, base_path, images_dir)
 
     # Calculate target size
     logger.info("CALCULATING TARGET SIZE")
@@ -487,7 +574,7 @@ def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_image
 
     # Standardize and adjust images and bounding boxes
     logger.info("STANDARDIZING IMAGES")
-    process_images_and_bboxes(combined_df, os.path.join(base_path, destination_folder), target_width, target_height)
+    process_images_and_bboxes(combined_df, images_dir, target_width, target_height)
 
     if num_elements is None:
         negative_destination_folder = 'negative_img'
@@ -496,12 +583,13 @@ def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_image
     combined_df.drop(columns=['WIDTH', 'HEIGHT'], inplace=True)
 
     # Harmonise column names and add derived metadata
-    combined_df = harmonize_metadata(combined_df, os.path.join(base_path, destination_folder))
+    combined_df = harmonize_metadata(combined_df, images_dir)
 
-    validate_harmonised_dataframe(combined_df, os.path.join(base_path, destination_folder))
+    validate_harmonised_dataframe(combined_df, images_dir)
 
-    # Save the combined DataFrame to a spreadsheet
+    # Save the combined DataFrame to a spreadsheet and Parquet manifests
     save_combined_dataframe(combined_df, base_path, output_filename)
+    export_parquet_metadata(combined_df, canonical_base)
 
     # Loop through the DataFrame and draw bounding boxes on each image
     if plot_images:
@@ -510,8 +598,8 @@ def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_image
         os.makedirs(bbox_dest_dir, exist_ok=True)
         for index, row in tqdm(combined_df.iterrows(), total=len(combined_df), desc="Drawing bounding boxes"):
             image_filename = row['frame']
-            input_frame_path = os.path.join(os.path.join(base_path, destination_folder), image_filename)
+            input_frame_path = os.path.join(images_dir, image_filename)
             output_frame_path = os.path.join(bbox_dest_dir, image_filename)
             draw_bounding_boxes(row['BOUNDING BOX'], input_frame_path, output_frame_path)
 
-    cleanup_temp_artifacts(base_path, destination_folder)
+    cleanup_temp_artifacts(base_path, os.path.join('canonical', 'images'))
