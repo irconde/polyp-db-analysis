@@ -6,4 +6,6 @@ datasets:
   - polar
 num_elements: null
 plot_images: false
+negative_sources:
+  sun: sun/sundatabase_negative
 

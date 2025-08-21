@@ -51,6 +51,23 @@ All associated frames are then renamed deterministically using
 This ensures collision‑free filenames and preserves the link to the source
 dataset.
 
+Negative frames are supported alongside positives. Configure their locations
+via the ``negative_sources`` mapping in ``merge_config.yaml``:
+
+```yaml
+negative_sources:
+  sun: sun/sundatabase_negative
+```
+
+Each directory may contain subfolders named after a deterministic group such as
+the source video or acquisition date, **or** images can live directly inside the
+directory. In the latter case the directory name itself acts as the group
+identifier. During merging every image is copied to ``canonical/images`` and
+renamed using the synthetic lesion key ``NEG_<DATASET>_<GROUP>`` resulting in
+filenames like ``NEG_SUN_clipA.000123.jpg`` or ``NEG_POLAR_negatives.000045.png``.
+Negative entries appear in ``frames.parquet`` with ``has_polyp`` set to ``False``
+and ``global_lesion_id`` left ``NULL``.
+
 ### Prepare Ultralytics YOLO dataset
 
 Convert a merged dataset into a YOLO‐style directory structure. The configuration
@@ -99,7 +116,8 @@ Run conversion, merging and optional dataset preparation in a single step. The
 pipeline reads a configuration describing raw dataset locations and output
 paths. If the ``prepare`` step is enabled, include a ``prepare_config`` entry
 pointing to the Ultralytics configuration file (absolute or relative to
-``base_path``):
+``base_path``). When negatives exist, define their sources under
+``negative_sources``:
 
 ```yaml
 raw_sources:
@@ -114,6 +132,9 @@ datasets: [piba, polar]
 num_elements: null
 prepare: true
 prepare_config: ultralytics_config.yaml
+negative_sources:
+  piba: piba/negatives
+  polar: polar/negatives
 ```
 
 Execute the pipeline:

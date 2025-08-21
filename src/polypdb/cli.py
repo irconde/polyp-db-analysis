@@ -95,7 +95,12 @@ def main() -> None:
                 CONVERTERS[name](src_cfg, base_path)
             logger.info("Finished converting %s", name)
         logger.info("Merging datasets")
-        merge_datasets(base_path=base_path, datasets=datasets, num_elements=cfg.get("num_elements"))
+        merge_datasets(
+            base_path=base_path,
+            datasets=datasets,
+            num_elements=cfg.get("num_elements"),
+            negative_sources=cfg.get("negative_sources"),
+        )
         if cfg.get("prepare"):
             prepare_cfg = cfg.get("prepare_config")
             if not prepare_cfg:
