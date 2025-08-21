@@ -293,7 +293,7 @@ def copy_and_rename_images(df, base_path, dest_dir):
             counters[global_id] += 1
             frame_idx = counters[global_id]
             ext = os.path.splitext(row["FRAME"])[1].lower()
-            global_frame_id = f"{dataset}.{global_id}.{frame_idx:06d}"
+            global_frame_id = f"{global_id}.{frame_idx:06d}"
             new_filename = f"{global_frame_id}{ext}"
             dest_file_path = os.path.join(dest_dir, new_filename)
             shutil.copy(source_image_path, dest_file_path)
@@ -301,8 +301,114 @@ def copy_and_rename_images(df, base_path, dest_dir):
             df.at[index, "FRAME"] = new_filename
             df.at[index, "global_frame_id"] = global_frame_id
             df.at[index, "raw_path"] = source_image_path
+            df.at[index, "dataset"] = dataset
         else:
             logger.warning("File not found: %s", candidates[0])
+
+
+def copy_and_rename_negative_images(
+    source_dir: str, dest_dir: str, dataset_name: str | None = None
+) -> list[dict]:
+    """Copy negative frames into the canonical image directory.
+
+    Negative sources may either contain subdirectories that represent
+    deterministic *groups* (e.g., video IDs) or store images directly under the
+    dataset directory. When images live at the root, the directory name itself
+    is used as the group label.
+
+    Two directory layouts are therefore supported:
+
+    - ``source_dir/<dataset>/<group>`` where ``<group>`` is a deterministic
+      identifier such as a clip or acquisition date. The dataset name is read
+      from the directory structure.
+    - ``source_dir/<group>`` while explicitly providing ``dataset_name``. Images
+      may be directly inside ``source_dir``; in that case ``<group>`` defaults to
+      the basename of ``source_dir``.
+
+    Each image is renamed using ``NEG_<DATASET>_<GROUP>.<frame_idx>.<ext>`` and
+    copied to ``dest_dir``. Metadata records for the copied frames are returned
+    to be included in ``frames.parquet``.
+
+    Parameters
+    ----------
+    source_dir:
+        Root directory containing negative images organised by dataset and
+        optionally by group, or only by group when ``dataset_name`` is given.
+    dest_dir:
+        Canonical images directory.
+    dataset_name:
+        Optional dataset identifier when ``source_dir`` already points to a
+        dataset‑specific directory.
+
+    Returns
+    -------
+    list[dict]
+        Metadata records describing the copied frames.
+    """
+
+    records: list[dict] = []
+    if not os.path.isdir(source_dir):
+        return records
+
+    os.makedirs(dest_dir, exist_ok=True)
+
+    if dataset_name is not None:
+        dataset_entries = [(dataset_name, source_dir)]
+    else:
+        dataset_entries = [
+            (name, os.path.join(source_dir, name))
+            for name in sorted(os.listdir(source_dir))
+            if os.path.isdir(os.path.join(source_dir, name))
+        ]
+
+    for ds_name, dataset_path in dataset_entries:
+        entries = sorted(os.listdir(dataset_path))
+        subdirs = [e for e in entries if os.path.isdir(os.path.join(dataset_path, e))]
+        root_files = [e for e in entries if os.path.isfile(os.path.join(dataset_path, e))]
+        groups: list[str | None] = subdirs
+        if root_files:
+            groups.append(None)  # represents files at dataset root
+
+        for group in groups:
+            if group is None:
+                group_path = dataset_path
+                group_name = os.path.basename(dataset_path)
+                files = root_files
+            else:
+                group_path = os.path.join(dataset_path, group)
+                group_name = group
+                files = [
+                    f for f in sorted(os.listdir(group_path))
+                    if os.path.isfile(os.path.join(group_path, f))
+                ]
+
+            lesion_key = f"NEG_{ds_name.upper()}_{group_name}"
+            frame_idx = 0
+            for fname in files:
+                src = os.path.join(group_path, fname)
+                frame_idx += 1
+                ext = os.path.splitext(fname)[1].lower()
+                global_frame_id = f"{lesion_key}.{frame_idx:06d}"
+                dest_name = f"{global_frame_id}{ext}"
+                dest_path = os.path.join(dest_dir, dest_name)
+                shutil.copy(src, dest_path)
+                with Image.open(dest_path) as img:
+                    width, height = img.size
+                records.append(
+                    {
+                        "global_frame_id": global_frame_id,
+                        "global_lesion_id": None,
+                        "dataset": ds_name.lower(),
+                        "source_frame_id": fname,
+                        "img_width": width,
+                        "img_height": height,
+                        "filename_ext": ext,
+                        "canonical_path": dest_path,
+                        "raw_path": src,
+                        "modality": None,
+                    }
+                )
+    return records
 
 
 def calculate_target_size(df, width_percentile=0, height_percentile=0):
@@ -427,6 +533,9 @@ def process_images_and_bboxes(df, source_dir, target_width, target_height):
 def process_negative_images(source_dir, target_width, target_height):
     """Standardize images in ``source_dir`` without bounding boxes.
 
+    The function walks the directory tree recursively so negatives may be
+    organised in arbitrary subfolders.
+
     Parameters
     ----------
     source_dir : str
@@ -437,11 +546,12 @@ def process_negative_images(source_dir, target_width, target_height):
         Desired output height.
     """
     if os.path.exists(source_dir):
-        files = os.listdir(source_dir)
-        for file in tqdm(files, desc="Processing negatives", total=len(files)):
-            source_file_path = os.path.join(source_dir, file)
-            if os.path.isfile(source_file_path):
-                standardize_and_override_image(source_file_path, target_width, target_height)
+        file_paths: list[str] = []
+        for root, _, files in os.walk(source_dir):
+            for file in files:
+                file_paths.append(os.path.join(root, file))
+        for source_file_path in tqdm(file_paths, desc="Processing negatives", total=len(file_paths)):
+            standardize_and_override_image(source_file_path, target_width, target_height)
 
 
 def cleanup_temp_artifacts(base_path: str, destination_folder: str) -> None:
@@ -468,7 +578,9 @@ def cleanup_temp_artifacts(base_path: str, destination_folder: str) -> None:
             logger.info("Removed temporary directory %s", temp_dir)
 
 
-def export_parquet_metadata(df: pd.DataFrame, canonical_base: str) -> None:
+def export_parquet_metadata(
+    df: pd.DataFrame, canonical_base: str, negative_frames: list[dict] | None = None
+) -> None:
     """Write canonical metadata tables to Parquet files.
 
     Parameters
@@ -505,7 +617,18 @@ def export_parquet_metadata(df: pd.DataFrame, canonical_base: str) -> None:
             'modality': row.get('image_type'),
             'ingest_version': ingest_version,
             'ingest_timestamp': timestamp,
+            'has_polyp': True,
         })
+
+    if negative_frames:
+        for rec in negative_frames:
+            rec = rec.copy()
+            rec.update({
+                'ingest_version': ingest_version,
+                'ingest_timestamp': timestamp,
+                'has_polyp': False,
+            })
+            frame_records.append(rec)
     pd.DataFrame(frame_records).to_parquet(
         os.path.join(manifests_dir, 'frames.parquet'), index=False
     )
@@ -548,7 +671,13 @@ def export_parquet_metadata(df: pd.DataFrame, canonical_base: str) -> None:
     )
 
 
-def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_images=False):
+def merge_datasets(
+    base_path,
+    datasets: list[str],
+    num_elements=None,
+    plot_images=False,
+    negative_sources: dict[str, str] | None = None,
+):
     """Merge and standardize multiple datasets.
 
     Parameters
@@ -561,6 +690,10 @@ def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_image
         Number of samples to include from each dataset. All samples are used if ``None``.
     plot_images : bool, optional
         If ``True``, bounding boxes are drawn on images for visual inspection.
+    negative_sources : dict, optional
+        Mapping of dataset names to directories containing negative frames. Paths
+        may be absolute or relative to ``base_path`` and must contain
+        sub‑directories for deterministic groups (e.g. video ids).
     """
     # process_negative_images(base_path, 588, 478)
 
@@ -592,9 +725,16 @@ def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_image
     logger.info("STANDARDIZING IMAGES")
     process_images_and_bboxes(combined_df, images_dir, target_width, target_height)
 
-    if num_elements is None:
-        negative_destination_folder = 'negative_img'
-        process_negative_images(os.path.join(base_path, negative_destination_folder), target_width, target_height)
+    negative_records: list[dict] = []
+    if num_elements is None and negative_sources:
+        for ds_name, src in negative_sources.items():
+            src_dir = os.path.expanduser(src)
+            if not os.path.isabs(src_dir):
+                src_dir = os.path.join(base_path, src_dir)
+            process_negative_images(src_dir, target_width, target_height)
+            negative_records.extend(
+                copy_and_rename_negative_images(src_dir, images_dir, dataset_name=ds_name)
+            )
 
     combined_df.drop(columns=['WIDTH', 'HEIGHT'], inplace=True)
 
@@ -605,7 +745,7 @@ def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_image
 
     # Save the combined DataFrame to a spreadsheet and Parquet manifests
     save_combined_dataframe(combined_df, base_path, output_filename)
-    export_parquet_metadata(combined_df, canonical_base)
+    export_parquet_metadata(combined_df, canonical_base, negative_records)
 
     # Loop through the DataFrame and draw bounding boxes on each image
     if plot_images:

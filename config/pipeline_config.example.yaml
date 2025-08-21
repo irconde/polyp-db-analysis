@@ -9,3 +9,6 @@ base_path: /path/to/standardized
 datasets: [piba, polar]
 num_elements: null
 prepare: true
+negative_sources:
+  piba: piba/negatives
+  polar: polar/negatives

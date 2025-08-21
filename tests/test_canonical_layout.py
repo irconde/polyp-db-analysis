@@ -22,8 +22,8 @@ def test_copy_and_rename_images_canonical_naming(tmp_path):
     canonical_dir = base_path / "canonical" / "images"
     copy_and_rename_images(df, str(base_path), str(canonical_dir))
 
-    expected_name = "sun.SUN_0001.000001.jpg"
+    expected_name = "SUN_0001.000001.jpg"
     assert df.loc[0, "FRAME"] == expected_name
-    assert df.loc[0, "global_frame_id"] == "sun.SUN_0001.000001"
+    assert df.loc[0, "global_frame_id"] == "SUN_0001.000001"
     assert df.loc[0, "raw_path"] == str(img_path)
     assert (canonical_dir / expected_name).exists()
