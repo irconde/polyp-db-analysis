@@ -25,9 +25,6 @@ from ..utils import get_image_size, move_images_parallel, validate_conversion
 logger = logging.getLogger(__name__)
 
 
-LOSSLESS_EXT = {".png", ".tif", ".tiff"}
-
-
 def _pixel_hash(path: str) -> str:
     """Return a hash of the RGB pixel data found at ``path``."""
     with Image.open(path).convert("RGB") as im:
@@ -37,9 +34,8 @@ def _pixel_hash(path: str) -> str:
 
 def _rank_key(path: str, width: int, height: int, filesize: int) -> tuple:
     """Ranking key used to pick the canonical frame within duplicates."""
-    ext = os.path.splitext(path)[1].lower()
-    lossless_rank = 0 if ext in LOSSLESS_EXT else 1
-    return (-height * width, lossless_rank, -filesize, path)
+    # Simplified: only resolution, file size, and path
+    return (-height * width, -filesize, path)
 
 
 def _drop_duplicate_frames(df: pd.DataFrame) -> pd.DataFrame:
@@ -58,7 +54,7 @@ def _drop_duplicate_frames(df: pd.DataFrame) -> pd.DataFrame:
             continue
         ranked = sorted(
             group.itertuples(),
-            key=lambda r: _rank_key(r.SRC_PATH, r.WIDTH, r.HEIGHT, r._filesize),
+            key=lambda r: _rank_key(r.SRC_PATH, r.WIDTH, r.HEIGHT, getattr(r, '_filesize', os.path.getsize(r.SRC_PATH))),
         )
         duplicates.extend(r.SRC_PATH for r in ranked[1:])
 
