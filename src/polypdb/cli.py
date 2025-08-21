@@ -98,7 +98,12 @@ def main() -> None:
         logger.info("Merging datasets")
         merge_datasets(base_path=base_path, datasets=datasets, num_elements=cfg.get("num_elements"))
         if cfg.get("prepare"):
-            prepare_cfg = cfg.get("prepare_config", os.path.join(base_path, "ultralytics_config.yaml"))
+            prepare_cfg = cfg.get("prepare_config")
+            if not prepare_cfg:
+                raise ValueError("Missing 'prepare_config' in pipeline configuration")
+            prepare_cfg = os.path.expanduser(prepare_cfg)
+            if not os.path.isabs(prepare_cfg):
+                prepare_cfg = os.path.join(base_path, prepare_cfg)
             if cfg.get("classification"):
                 logger.info("Preparing classification dataset")
                 prepare_classification_dataset(prepare_cfg)
