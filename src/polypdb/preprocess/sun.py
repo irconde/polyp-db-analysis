@@ -11,15 +11,62 @@ to rely on the notebook.
 """
 
 import os
-import pandas as pd
 import logging
-import numpy as np
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
+
+import numpy as np
+import pandas as pd
+from PIL import Image
 
 from ..utils import get_image_size, move_images_parallel, validate_conversion
 
 
 logger = logging.getLogger(__name__)
+
+
+LOSSLESS_EXT = {".png", ".tif", ".tiff"}
+
+
+def _pixel_hash(path: str) -> str:
+    """Return a hash of the RGB pixel data found at ``path``."""
+    with Image.open(path).convert("RGB") as im:
+        arr = np.asarray(im)
+    return hashlib.blake2b(arr.tobytes(), digest_size=16).hexdigest()
+
+
+def _rank_key(path: str, width: int, height: int, filesize: int) -> tuple:
+    """Ranking key used to pick the canonical frame within duplicates."""
+    ext = os.path.splitext(path)[1].lower()
+    lossless_rank = 0 if ext in LOSSLESS_EXT else 1
+    return (-height * width, lossless_rank, -filesize, path)
+
+
+def _drop_duplicate_frames(df: pd.DataFrame) -> pd.DataFrame:
+    """Return ``df`` without duplicate frames based on pixel content."""
+
+    if df.empty:
+        return df
+
+    df = df.copy()
+    df["_pixel_hash"] = df["SRC_PATH"].apply(_pixel_hash)
+    df["_filesize"] = df["SRC_PATH"].apply(lambda p: os.path.getsize(p))
+
+    duplicates: list[str] = []
+    for _, group in df.groupby("_pixel_hash"):
+        if len(group) <= 1:
+            continue
+        ranked = sorted(
+            group.itertuples(),
+            key=lambda r: _rank_key(r.SRC_PATH, r.WIDTH, r.HEIGHT, r._filesize),
+        )
+        duplicates.extend(r.SRC_PATH for r in ranked[1:])
+
+    if duplicates:
+        logger.info("Omitting %d duplicate frames", len(duplicates))
+        df = df[~df["SRC_PATH"].isin(duplicates)]
+
+    return df.drop(columns=["_pixel_hash", "_filesize"])
 
 
 def _clip_bbox(bbox: str, width: int, height: int) -> str:
@@ -171,6 +218,7 @@ def convert_to_standard_layout(
         sizes = list(executor.map(get_image_size, df["SRC_PATH"]))
     df["WIDTH"], df["HEIGHT"] = zip(*sizes)
 
+    df = _drop_duplicate_frames(df)
     df["BOUNDING BOX"] = _clip_bboxes(df["BOUNDING BOX"], df["WIDTH"], df["HEIGHT"])
     df["IMAGE TYPE"] = "WL"
 
