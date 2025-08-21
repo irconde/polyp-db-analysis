@@ -16,7 +16,8 @@ dependencies = [
     "pyyaml",
     "tqdm",
     "scikit-image",
-    "tifffile"
+    "tifffile",
+    "opencv-python-headless"
 ]
 
 [project.scripts]
