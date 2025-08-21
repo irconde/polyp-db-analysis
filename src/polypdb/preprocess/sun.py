@@ -308,6 +308,11 @@ def convert_to_standard_layout(
     metadata_df.columns = [c.upper() for c in metadata_df.columns]
     metadata_df["SHAPE"] = metadata_df["SHAPE"].replace("IIa(LST-NG)", "IIa")
     metadata_df = metadata_df.drop(columns=["PATHOLOGICAL DIAGNOSIS"], errors="ignore")
+    if "SIZE" in metadata_df.columns:
+        metadata_df["SIZE"] = pd.to_numeric(
+            metadata_df["SIZE"].astype(str).str.replace(r"[^0-9.]", "", regex=True),
+            errors="coerce",
+        )
 
     annotation_txt_dir = os.path.join(
         src_dir, "sundatabase_positive", "annotation_txt"
