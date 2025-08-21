@@ -166,8 +166,16 @@ def _drop_duplicate_frames(
 
         for i in range(len(indices)):
             for j in range(i + 1, len(indices)):
+                if (
+                    df.at[indices[i], "WIDTH"] != df.at[indices[j], "WIDTH"]
+                    or df.at[indices[i], "HEIGHT"] != df.at[indices[j], "HEIGHT"]
+                ):
+                    continue
                 if hashes[i] - hashes[j] <= hamming_threshold:
-                    if not use_ssim or _ssim(df.at[indices[i], "SRC_PATH"], df.at[indices[j], "SRC_PATH"]) >= ssim_threshold:
+                    if not use_ssim or _ssim(
+                        df.at[indices[i], "SRC_PATH"],
+                        df.at[indices[j], "SRC_PATH"],
+                    ) >= ssim_threshold:
                         union(indices[i], indices[j])
 
         clusters: dict[int, list[int]] = {}
