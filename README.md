@@ -97,7 +97,9 @@ polypdb count path/to/dataset
 
 Run conversion, merging and optional dataset preparation in a single step. The
 pipeline reads a configuration describing raw dataset locations and output
-paths:
+paths. If the ``prepare`` step is enabled, include a ``prepare_config`` entry
+pointing to the Ultralytics configuration file (absolute or relative to
+``base_path``):
 
 ```yaml
 raw_sources:
@@ -111,6 +113,7 @@ base_path: /path/to/standardized
 datasets: [piba, polar]
 num_elements: null
 prepare: true
+prepare_config: ultralytics_config.yaml
 ```
 
 Execute the pipeline:
