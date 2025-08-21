@@ -87,11 +87,10 @@ def main() -> None:
             src_cfg = cfg["raw_sources"][name]
             if isinstance(src_cfg, dict):
                 src = src_cfg.get("path")
-                metadata_file = src_cfg.get("metadata_file")
-                if metadata_file:
-                    CONVERTERS[name](src, base_path, metadata_filename=metadata_file)
-                else:
-                    CONVERTERS[name](src, base_path)
+                kwargs = {k: v for k, v in src_cfg.items() if k != "path"}
+                if "metadata_file" in kwargs:
+                    kwargs["metadata_filename"] = kwargs.pop("metadata_file")
+                CONVERTERS[name](src, base_path, **kwargs)
             else:
                 CONVERTERS[name](src_cfg, base_path)
             logger.info("Finished converting %s", name)

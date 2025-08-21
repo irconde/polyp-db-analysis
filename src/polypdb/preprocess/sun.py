@@ -34,10 +34,25 @@ def _pixel_hash(path: str) -> str:
     return hashlib.blake2b(arr.tobytes(), digest_size=16).hexdigest()
 
 
-def _perceptual_hash(path: str, hash_func) -> str:
-    """Return perceptual hash of image at ``path`` using ``hash_func``."""
+def _perceptual_hash(
+    path: str, hash_func, hash_type: str, hash_size: int | None = None
+) -> str:
+    """Return perceptual hash of image at ``path`` using ``hash_func``.
+
+    ``hash_size`` is forwarded to ``hash_func`` when provided. For the ``phash``
+    algorithm the default hash size is increased to 16 to improve sensitivity,
+    unless an explicit ``hash_size`` is supplied.
+    """
     with Image.open(path).convert("RGB") as im:
-        return str(hash_func(im))
+        kwargs = {}
+        if hash_type == "phash":
+            kwargs["hash_size"] = hash_size if hash_size is not None else 16
+        elif hash_size is not None:
+            kwargs["hash_size"] = hash_size
+        try:
+            return str(hash_func(im, **kwargs))
+        except TypeError:
+            return str(hash_func(im))
 
 
 def _ssim(path1: str, path2: str) -> float:
@@ -62,7 +77,8 @@ def _drop_duplicate_frames(
     df: pd.DataFrame,
     cache_file: str | None = None,
     hash_type: str = "phash",
-    hamming_threshold: int = 8,
+    hash_size: int = 16,
+    hamming_threshold: int = 4,
     use_ssim: bool = False,
     ssim_threshold: float = 0.99,
 ) -> pd.DataFrame:
@@ -70,6 +86,9 @@ def _drop_duplicate_frames(
 
     If ``cache_file`` is provided, hashes and file sizes are stored in and
     loaded from this cache to avoid recomputing them on subsequent runs.
+    ``hash_size`` controls the size used for perceptual hashing (16 for
+    ``phash`` by default) while ``hamming_threshold`` determines the maximum
+    distance for near-duplicate detection.
     """
 
     if df.empty:
@@ -111,7 +130,9 @@ def _drop_duplicate_frames(
                 {
                     "SRC_PATH": path,
                     "_pixel_hash": _pixel_hash(path),
-                    "_perceptual_hash": _perceptual_hash(path, hash_func),
+                    "_perceptual_hash": _perceptual_hash(
+                        path, hash_func, hash_type, hash_size
+                    ),
                     "_filesize": filesize,
                 }
             )
@@ -278,7 +299,8 @@ def convert_to_standard_layout(
     dest_dir: str,
     metadata_filename: str = "metadata.csv",
     hash_type: str = "phash",
-    hamming_threshold: int = 8,
+    hash_size: int = 16,
+    hamming_threshold: int = 4,
     use_ssim: bool = False,
     ssim_threshold: float = 0.99,
 ) -> None:
@@ -294,6 +316,7 @@ def convert_to_standard_layout(
         dest_dir: Directory where the converted dataset will be written.
         metadata_filename: Name of the CSV file with polyp metadata.
         hash_type: Perceptual hash function from ``imagehash`` to use.
+        hash_size: Size parameter for the perceptual hash function.
         hamming_threshold: Maximum Hamming distance to consider frames duplicates.
         use_ssim: Whether to confirm perceptual duplicates with SSIM.
         ssim_threshold: SSIM threshold when ``use_ssim`` is ``True``.
@@ -367,6 +390,7 @@ def convert_to_standard_layout(
         df,
         cache_file=cache_path,
         hash_type=hash_type,
+        hash_size=hash_size,
         hamming_threshold=hamming_threshold,
         use_ssim=use_ssim,
         ssim_threshold=ssim_threshold,
