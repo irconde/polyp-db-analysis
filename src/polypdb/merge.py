@@ -14,6 +14,21 @@ from tqdm import tqdm
 logger = logging.getLogger(__name__)
 
 
+# Mapping of dataset specific morphology descriptions to a common taxonomy
+MORPHOLOGY_SHAPE_MAP: dict[str, str] = {
+    "is": "sessile",
+    "sessile": "sessile",
+    "iia": "flat",
+    "iib": "flat",
+    "flat": "flat",
+    "flat elevated": "flat",
+    "ip": "pedunculated",
+    "pedunculated": "pedunculated",
+    "iic": "depressed",
+    "depressed": "depressed",
+}
+
+
 def generate_global_lesion_ids(df: pd.DataFrame) -> list[str]:
     """Generate collision-proof lesion identifiers across datasets.
 
@@ -89,6 +104,99 @@ def save_combined_dataframe(combined_df, base_path, filename='annotations.xlsx')
     logger.info("The combined DataFrame has been saved to %s", output_path)
 
 
+def harmonize_metadata(df: pd.DataFrame, image_dir: str) -> pd.DataFrame:
+    """Convert raw merged annotations to the unified schema.
+
+    Parameters
+    ----------
+    df:
+        DataFrame produced by :func:`merge_datasets` prior to harmonisation.
+        It must contain ``global_lesion_id``, ``lesion_id``, ``FRAME`` and
+        ``ORIGINAL FRAME`` columns.
+    image_dir:
+        Directory where the copied images reside.  File paths are constructed by
+        joining this directory with the frame filenames.
+
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame with columns following the unified schema described in
+        :mod:`polypdb.schema`.
+    """
+
+    df = df.copy()
+
+    df['dataset'] = df['ORIGINAL DATASET'].str.lower()
+    df['frame'] = df['FRAME']
+    df['original_frame'] = df.get('ORIGINAL FRAME', df['FRAME'])
+    df['n_frames'] = df.groupby('global_lesion_id')['frame'].transform('count').astype(int)
+    df['image_paths'] = [
+        [os.path.join(image_dir, fname)] for fname in df['frame']
+    ]
+
+    if 'BOUNDING BOX' in df.columns:
+        def _parse_bbox(val: str) -> list[list[int]]:
+            if pd.isna(val):
+                return []
+            boxes = []
+            for part in str(val).split(';'):
+                coords = [int(float(c)) for c in part.split(',') if c]
+                if len(coords) == 4:
+                    boxes.append(coords)
+            return boxes
+
+        df['bounding_boxes'] = df['BOUNDING BOX'].apply(_parse_bbox)
+    else:
+        df['bounding_boxes'] = [[] for _ in range(len(df))]
+
+    if 'SHAPE' in df.columns:
+        shapes = df['SHAPE'].str.strip().str.lower()
+        df['morphology_shape'] = shapes.map(MORPHOLOGY_SHAPE_MAP).fillna(shapes)
+    else:
+        df['morphology_shape'] = None
+
+    df['morphology_size'] = df.get('SIZE')
+
+    if 'IMAGE TYPE' in df.columns:
+        df['image_type'] = df['IMAGE TYPE'].str.lower()
+    else:
+        df['image_type'] = None
+
+    df['morphology_location'] = df.get('LOCATION')
+
+    # Drop legacy columns now represented in the unified schema
+    drop_cols = [
+        'ORIGINAL DATASET',
+        'FRAME',
+        'ORIGINAL FRAME',
+        'SHAPE',
+        'SIZE',
+        'LOCATION',
+        'IMAGE TYPE',
+        'BOUNDING BOX',
+        'POLYP ID',  # global id used for naming during processing
+    ]
+    df = df.drop(columns=[c for c in drop_cols if c in df.columns])
+
+    core_cols = [
+        'global_lesion_id',
+        'dataset',
+        'lesion_id',
+        'n_frames',
+        'frame',
+        'original_frame',
+        'image_paths',
+        'bounding_boxes',
+        'morphology_shape',
+        'morphology_size',
+        'image_type',
+        'morphology_location',
+    ]
+
+    other_cols = [c for c in df.columns if c not in core_cols]
+    return df[core_cols + other_cols]
+
+
 def validate_combined_dataframe(df: pd.DataFrame, image_dir: str) -> None:
     """Validate merged dataframe integrity.
 
@@ -152,6 +260,7 @@ def copy_and_rename_images(df, base_path, dest_dir):
             new_filename = f"{global_id}.{counters[global_id]:06d}{ext}"
             dest_file_path = os.path.join(dest_dir, new_filename)
             shutil.copy(source_image_path, dest_file_path)
+            df.at[index, 'ORIGINAL FRAME'] = row['FRAME']
             df.at[index, 'FRAME'] = new_filename
         else:
             logger.warning("File not found: %s", source_image_path)
@@ -345,8 +454,10 @@ def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_image
 
     logger.info("Combined dataframe length: %d", len(combined_df))
 
-    # Create global lesion identifiers
-    combined_df['POLYP ID'] = generate_global_lesion_ids(combined_df)
+    # Preserve original lesion identifiers and create global ids used across datasets
+    combined_df['lesion_id'] = combined_df['POLYP ID'].astype(str)
+    combined_df['global_lesion_id'] = generate_global_lesion_ids(combined_df)
+    combined_df['POLYP ID'] = combined_df['global_lesion_id']
 
     # Copy and rename images
     logger.info("COPYING IMAGES")
@@ -369,6 +480,9 @@ def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_image
 
     validate_combined_dataframe(combined_df, os.path.join(base_path, destination_folder))
 
+    # Harmonise column names and add derived metadata
+    combined_df = harmonize_metadata(combined_df, os.path.join(base_path, destination_folder))
+
     # Save the combined DataFrame to a spreadsheet
     save_combined_dataframe(combined_df, base_path, output_filename)
 
@@ -378,7 +492,7 @@ def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_image
         bbox_dest_dir = os.path.join(base_path, 'img_bbox')
         os.makedirs(bbox_dest_dir, exist_ok=True)
         for index, row in tqdm(combined_df.iterrows(), total=len(combined_df), desc="Drawing bounding boxes"):
-            image_filename = row['FRAME']
+            image_filename = row['frame']
             input_frame_path = os.path.join(os.path.join(base_path, destination_folder), image_filename)
             output_frame_path = os.path.join(bbox_dest_dir, image_filename)
             draw_bounding_boxes(row['BOUNDING BOX'], input_frame_path, output_frame_path)
