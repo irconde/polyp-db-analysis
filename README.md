@@ -43,6 +43,14 @@ Run the merge step with:
 polypdb merge merge_config.yaml
 ```
 
+During the merge step each lesion receives a global identifier in the
+``<DATASET>_<LESION_ID>`` format (e.g. ``SUN_0034`` or ``PICCOLO_00017``).
+All associated frames are then renamed deterministically using
+``<global_lesion_id>.<frame_idx>.<ext>`` where ``frame_idx`` starts at
+``000001`` for every lesion and ``ext`` keeps the original file extension.
+This ensures collision‑free filenames and preserves the link to the source
+dataset.
+
 ### Prepare Ultralytics YOLO dataset
 
 Convert a merged dataset into a YOLO‐style directory structure. The configuration

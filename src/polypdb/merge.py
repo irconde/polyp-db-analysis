@@ -1,24 +1,24 @@
 import os
 import shutil
 import logging
+from collections import defaultdict
 
 import numpy as np
 import pandas as pd
 from PIL import Image
 
 from .utils import draw_bounding_boxes
-import uuid
 from tqdm import tqdm
 
 
 logger = logging.getLogger(__name__)
 
 
-def generate_standardized_id(df):
-    """Create unique polyp identifiers for merged datasets.
+def generate_global_lesion_ids(df: pd.DataFrame) -> list[str]:
+    """Generate collision-proof lesion identifiers across datasets.
 
-    The function constructs sequential IDs per original dataset and returns a
-    list of new identifiers in ``<dataset>-<number>`` format.
+    The resulting identifiers keep the original lesion numbers while
+    prefixing them with the dataset name to avoid clashes.
 
     Parameters
     ----------
@@ -28,25 +28,21 @@ def generate_standardized_id(df):
     Returns
     -------
     list[str]
-        Newly generated polyp identifiers corresponding to each row of ``df``.
+        Identifiers in ``<DATASET>_<LESION_ID>`` format. ``LESION_ID`` is
+        zero-padded per dataset to preserve a consistent length.
     """
-    # Mapping dictionary for [original_dataset][polyp_id] to numeric identifier
-    id_mapping = {}
-    new_ids = []
 
-    for idx, row in df.iterrows():
-        dataset = row['ORIGINAL DATASET']
-        old_polyp_id = row['POLYP ID']
+    pad_width = {"SUN": 4, "POLAR": 5, "PICCOLO": 5}
+    new_ids: list[str] = []
 
-        if dataset not in id_mapping:
-            id_mapping[dataset] = {}
+    for _, row in df.iterrows():
+        dataset = str(row["ORIGINAL DATASET"]).upper()
+        lesion_id = str(row["POLYP ID"])
 
-        if old_polyp_id not in id_mapping[dataset]:
-            id_mapping[dataset][old_polyp_id] = len(id_mapping[dataset]) + 1
+        if lesion_id.isdigit():
+            lesion_id = lesion_id.zfill(pad_width.get(dataset, 5))
 
-        # New polyp_id with dataset prefix and sequential number
-        new_polyp_id = f"{dataset}-{id_mapping[dataset][old_polyp_id]:04d}"
-        new_ids.append(new_polyp_id)
+        new_ids.append(f"{dataset}_{lesion_id}")
 
     return new_ids
 
@@ -132,29 +128,30 @@ def validate_combined_dataframe(df: pd.DataFrame, image_dir: str) -> None:
 
 
 def copy_and_rename_images(df, base_path, dest_dir):
-    """Copy images from source datasets and assign new unique names.
+    """Copy images from source datasets and assign deterministic names.
 
     Parameters
     ----------
     df : pandas.DataFrame
-        DataFrame containing ``ORIGINAL DATASET`` and ``FRAME`` columns.
+        DataFrame containing ``ORIGINAL DATASET``, ``POLYP ID`` and ``FRAME`` columns.
     base_path : str
         Root directory containing the dataset folders.
     dest_dir : str
         Destination directory where renamed images will be stored.
     """
     os.makedirs(dest_dir, exist_ok=True)  # Ensure the destination directory exists
+    counters: defaultdict[str, int] = defaultdict(int)
 
     for index, row in tqdm(df.iterrows(), total=len(df), desc="Copying images"):
-        # Construct the path to the source image
         source_image_path = os.path.join(base_path, row['ORIGINAL DATASET'], 'img', row['FRAME'])
 
         if os.path.exists(source_image_path):
-            # Copy the file to the destination directory with its original filename
-            new_filename = uuid.uuid4().hex + '.png'
+            global_id = row['POLYP ID']
+            counters[global_id] += 1
+            ext = os.path.splitext(row['FRAME'])[1]
+            new_filename = f"{global_id}.{counters[global_id]:06d}{ext}"
             dest_file_path = os.path.join(dest_dir, new_filename)
             shutil.copy(source_image_path, dest_file_path)
-            # Update the DataFrame in place with the new filename
             df.at[index, 'FRAME'] = new_filename
         else:
             logger.warning("File not found: %s", source_image_path)
@@ -348,8 +345,10 @@ def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_image
 
     logger.info("Combined dataframe length: %d", len(combined_df))
 
-    # Copy and rename images
+    # Create global lesion identifiers
+    combined_df['POLYP ID'] = generate_global_lesion_ids(combined_df)
 
+    # Copy and rename images
     logger.info("COPYING IMAGES")
     copy_and_rename_images(combined_df, base_path, os.path.join(base_path, destination_folder))
 
@@ -367,9 +366,6 @@ def merge_datasets(base_path, datasets: list[str], num_elements=None, plot_image
         process_negative_images(os.path.join(base_path, negative_destination_folder), target_width, target_height)
 
     combined_df.drop(columns=['WIDTH', 'HEIGHT'], inplace=True)
-
-    # Standardize polyp ids
-    combined_df['POLYP ID'] = generate_standardized_id(combined_df)
 
     validate_combined_dataframe(combined_df, os.path.join(base_path, destination_folder))
 
