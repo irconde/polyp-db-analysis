@@ -16,6 +16,8 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 from skimage.measure import label, regionprops
+from sklearn.cluster import KMeans
+import cv2
 import logging
 
 from ..utils import (
@@ -177,6 +179,74 @@ def _derive_bboxes(df: pd.DataFrame, src_dir: str, work_dir: str) -> pd.DataFram
     return df.drop(columns=["SET"])
 
 
+def _infer_image_type(img_dir: str, df: pd.DataFrame) -> pd.Series:
+    """Infer whether each frame is captured using WL or NBI.
+
+    A simple unsupervised approach based on colour histogram clustering is
+    employed. The implementation mirrors the logic originally used in the
+    ``piccolo-database-analysis`` notebook. Images are loaded, an RGB colour
+    histogram is extracted and K-means with two clusters is used to separate
+    white light (WL) from narrow band imaging (NBI) frames. The cluster with
+    label ``0`` is assumed to correspond to NBI as observed empirically.
+
+    Parameters
+    ----------
+    img_dir:
+        Directory containing cropped polyp images.
+    df:
+        DataFrame with a ``FRAME`` column identifying the images.
+
+    Returns
+    -------
+    pandas.Series
+        Series aligned with ``df`` containing the inferred image type for
+        each frame (``'WL'`` or ``'NBI'``). Missing or unreadable images are
+        reported as ``pd.NA``.
+    """
+
+    features: list[np.ndarray] = []
+    indices: list[int] = []
+    for idx, frame in enumerate(df["FRAME"]):
+        path = os.path.join(img_dir, frame)
+        try:
+            img = cv2.imread(path)
+            if img is None:
+                continue
+            hist = cv2.calcHist([img], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
+            hist = cv2.normalize(hist, hist).flatten()
+            features.append(hist)
+            indices.append(idx)
+        except Exception as exc:  # pragma: no cover - diagnostic only
+            logger.debug("Failed to process %s: %s", frame, exc)
+
+    series = pd.Series(pd.NA, index=range(len(df)), dtype="object")
+    if not features:
+        return series
+
+    kmeans = KMeans(n_clusters=2, random_state=0, n_init=10).fit(features)
+    for i, label in zip(indices, kmeans.labels_):
+        series.iat[i] = "NBI" if label == 0 else "WL"
+    return series
+
+
+def _finalise_metadata(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop redundant columns, rename fields and ensure numeric types."""
+
+    df = df.rename(columns={"CODE - LESION": "POLYP ID"})
+    df = df.drop(
+        columns=[
+            "CODE - VIDEO",
+            "NUMBER OF POLYPS OF INTEREST (N)",
+            "CURRENT POLYP ID (X/N)",
+        ],
+        errors="ignore",
+    )
+    for col in ["SIZE", "WIDTH", "HEIGHT"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
+    return df
+
+
 def convert_to_standard_layout(
     src_dir: str, dest_dir: str, metadata_filename: str = "clinical metadata_release0.1.csv"
 ) -> None:
@@ -198,14 +268,14 @@ def convert_to_standard_layout(
     with tempfile.TemporaryDirectory() as work_dir:
         frames = _derive_bboxes(frames, src_dir, work_dir)
 
+        img_dir = os.path.join(work_dir, "cropped_polyps")
+        frames["IMAGE TYPE"] = _infer_image_type(img_dir, frames)
+        frames = _finalise_metadata(frames)
+
         out_dir = os.path.join(dest_dir, "piccolo")
         os.makedirs(out_dir, exist_ok=True)
         frames.to_excel(os.path.join(out_dir, "annotations.xlsx"), index=False)
-        move_images_parallel(
-            os.path.join(work_dir, "cropped_polyps"),
-            os.path.join(out_dir, "img"),
-            frames,
-        )
+        move_images_parallel(img_dir, os.path.join(out_dir, "img"), frames)
         validate_conversion(out_dir, frames)
         logger.info("Finished PICCOLO conversion with %d entries", len(frames))
 
