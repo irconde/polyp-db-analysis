@@ -547,11 +547,14 @@ def process_negative_images(source_dir, target_width, target_height):
     target_height : int
         Desired output height.
     """
+    IMG_EXT = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif"}
     if os.path.exists(source_dir):
         file_paths: list[str] = []
         for root, _, files in os.walk(source_dir):
             for file in files:
-                file_paths.append(os.path.join(root, file))
+                ext = os.path.splitext(file)[1].lower()
+                if ext in IMG_EXT:
+                    file_paths.append(os.path.join(root, file))
         for source_file_path in tqdm(file_paths, desc="Processing negatives", total=len(file_paths)):
             standardize_and_override_image(source_file_path, target_width, target_height)
 
