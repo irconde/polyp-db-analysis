@@ -248,6 +248,72 @@ def _drop_duplicate_frames(
     return df.drop(columns=["_pixel_hash", "_perceptual_hash", "_filesize", "_drop"])
 
 
+def drop_duplicate_negative_images(
+    src_dir: str,
+    cache_file: str | None = None,
+    hash_type: str = "phash",
+    hash_size: int = 16,
+    hamming_threshold: int = 4,
+    use_ssim: bool = False,
+    ssim_threshold: float = 0.99,
+) -> int:
+    """Remove duplicate negative images in ``src_dir``.
+
+    The directory tree is traversed recursively and images with identical or
+    near-identical content are deleted in-place using :func:`_drop_duplicate_frames`.
+
+    Parameters
+    ----------
+    src_dir:
+        Root directory containing negative images.
+    cache_file:
+        Optional CSV cache path used to store hashes. When ``None`` a cache
+        file named ``sun_neg_hash_cache.csv`` is created inside ``src_dir``.
+    hash_type, hash_size, hamming_threshold, use_ssim, ssim_threshold:
+        Forwarded to :func:`_drop_duplicate_frames`.
+
+    Returns
+    -------
+    int
+        Number of files deleted as duplicates.
+    """
+
+    file_paths: list[str] = []
+    for root, _, files in os.walk(src_dir):
+        for fname in files:
+            file_paths.append(os.path.join(root, fname))
+
+    if not file_paths:
+        return 0
+
+    df = pd.DataFrame({"SRC_PATH": file_paths})
+    with ThreadPoolExecutor() as executor:
+        sizes = list(executor.map(get_image_size, df["SRC_PATH"]))
+    df["WIDTH"], df["HEIGHT"] = zip(*sizes)
+
+    if cache_file is None:
+        cache_file = os.path.join(src_dir, "sun_neg_hash_cache.csv")
+
+    filtered_df = _drop_duplicate_frames(
+        df,
+        cache_file=cache_file,
+        hash_type=hash_type,
+        hash_size=hash_size,
+        hamming_threshold=hamming_threshold,
+        use_ssim=use_ssim,
+        ssim_threshold=ssim_threshold,
+    )
+
+    keep: set[str] = set(filtered_df["SRC_PATH"])
+    removed = 0
+    for path in file_paths:
+        if path not in keep:
+            os.remove(path)
+            removed += 1
+
+    return removed
+
+
 def _clip_bbox(bbox: str, width: int, height: int) -> str:
     """Clip ``bbox`` coordinates so that they lie within the image bounds.
 
