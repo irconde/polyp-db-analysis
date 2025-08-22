@@ -1,5 +1,6 @@
 import pandas as pd
 from PIL import Image, PngImagePlugin
+import imagehash
 from polypdb.preprocess.sun import _drop_duplicate_frames
 
 
@@ -37,3 +38,39 @@ def test_drop_duplicate_frames_uses_cache(monkeypatch, tmp_path):
     result2 = _drop_duplicate_frames(df, cache_file=str(cache_file))
     assert len(result2) == 1
     assert calls == 0
+
+
+def test_drop_duplicate_frames_skips_clustering(monkeypatch, tmp_path):
+    img = Image.new("RGB", (10, 10), color="red")
+    path1 = tmp_path / "a.png"
+    path2 = tmp_path / "b.png"
+    img.save(path1)
+    img.save(path2)
+
+    df = pd.DataFrame(
+        {
+            "SRC_PATH": [str(path1), str(path2)],
+            "WIDTH": [10, 10],
+            "HEIGHT": [10, 10],
+        }
+    )
+
+    cache_file = tmp_path / "cache.csv"
+
+    calls = 0
+    original = imagehash.hex_to_hash
+
+    def counting_hex_to_hash(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(imagehash, "hex_to_hash", counting_hex_to_hash)
+
+    _drop_duplicate_frames(df, cache_file=str(cache_file))
+    first_calls = calls
+
+    calls = 0
+    _drop_duplicate_frames(df, cache_file=str(cache_file))
+    assert calls == 0
+    assert first_calls > 0

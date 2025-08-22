@@ -101,7 +101,7 @@ def _drop_duplicate_frames(
     except AttributeError as exc:
         raise ValueError(f"Unknown hash type: {hash_type}") from exc
 
-    cache_cols = ["SRC_PATH", "_pixel_hash", "_perceptual_hash", "_filesize"]
+    cache_cols = ["SRC_PATH", "_pixel_hash", "_perceptual_hash", "_filesize", "_drop"]
     if cache_file and os.path.exists(cache_file):
         try:
             cache_df = pd.read_csv(cache_file)
@@ -115,11 +115,20 @@ def _drop_duplicate_frames(
     for col in cache_cols:
         if col not in cache_df.columns:
             cache_df[col] = pd.Series(dtype=object)
+    cache_df["_drop"] = cache_df["_drop"].fillna(False).astype(bool)
 
     rows_to_update: list[dict] = []
+    drop_paths: set[str] = set()
     for path in df["SRC_PATH"]:
         filesize = os.path.getsize(path)
         cached = cache_df[cache_df["SRC_PATH"] == path]
+        if (
+            not cached.empty
+            and bool(cached["_drop"].iloc[0])
+            and int(cached["_filesize"].iloc[0]) == filesize
+        ):
+            drop_paths.add(path)
+            continue
         needs_update = (
             cached.empty
             or int(cached["_filesize"].iloc[0]) != filesize
@@ -134,8 +143,12 @@ def _drop_duplicate_frames(
                         path, hash_func, hash_type, hash_size
                     ),
                     "_filesize": filesize,
+                    "_drop": False,
                 }
             )
+
+    if drop_paths:
+        df = df[~df["SRC_PATH"].isin(drop_paths)]
 
     if rows_to_update:
         update_df = pd.DataFrame(rows_to_update)
@@ -147,6 +160,9 @@ def _drop_duplicate_frames(
             cache_df.to_csv(cache_file, index=False)
 
     df = df.merge(cache_df, on="SRC_PATH", how="left")
+
+    if not rows_to_update:
+        return df.drop(columns=["_pixel_hash", "_perceptual_hash", "_filesize", "_drop"])
 
     # Collapse exact pixel duplicates first
     duplicates: list[str] = []
@@ -167,6 +183,7 @@ def _drop_duplicate_frames(
     if duplicates:
         logger.info("Omitting %d duplicate frames", len(duplicates))
         df = df[~df["SRC_PATH"].isin(duplicates)]
+        cache_df.loc[cache_df["SRC_PATH"].isin(duplicates), "_drop"] = True
 
     # Cluster by perceptual hash for near duplicates
     if hamming_threshold is not None and hamming_threshold >= 0:
@@ -223,8 +240,12 @@ def _drop_duplicate_frames(
         if near_dupes:
             logger.info("Omitting %d near-duplicate frames", len(near_dupes))
             df = df[~df["SRC_PATH"].isin(near_dupes)]
+            cache_df.loc[cache_df["SRC_PATH"].isin(near_dupes), "_drop"] = True
 
-    return df.drop(columns=["_pixel_hash", "_perceptual_hash", "_filesize"])
+    if cache_file:
+        cache_df.to_csv(cache_file, index=False)
+
+    return df.drop(columns=["_pixel_hash", "_perceptual_hash", "_filesize", "_drop"])
 
 
 def _clip_bbox(bbox: str, width: int, height: int) -> str:
