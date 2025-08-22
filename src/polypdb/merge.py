@@ -10,6 +10,8 @@ from PIL import Image
 from .utils import draw_bounding_boxes
 from tqdm import tqdm
 
+from .preprocess.sun import drop_duplicate_negative_images
+
 
 logger = logging.getLogger(__name__)
 
@@ -731,6 +733,8 @@ def merge_datasets(
             src_dir = os.path.expanduser(src)
             if not os.path.isabs(src_dir):
                 src_dir = os.path.join(base_path, src_dir)
+            if ds_name.lower() == "sun":
+                drop_duplicate_negative_images(src_dir)
             process_negative_images(src_dir, target_width, target_height)
             negative_records.extend(
                 copy_and_rename_negative_images(src_dir, images_dir, dataset_name=ds_name)
