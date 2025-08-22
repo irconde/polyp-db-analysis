@@ -64,6 +64,7 @@ def _ssim(path1: str, path2: str) -> float:
 
 
 LOSSLESS_EXTS = {".png", ".bmp", ".tiff", ".tif"}
+IMG_EXT = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif"}
 
 
 def _rank_key(path: str, width: int, height: int, filesize: int) -> tuple:
@@ -281,7 +282,9 @@ def drop_duplicate_negative_images(
     file_paths: list[str] = []
     for root, _, files in os.walk(src_dir):
         for fname in files:
-            file_paths.append(os.path.join(root, fname))
+            ext = os.path.splitext(fname)[1].lower()
+            if ext in IMG_EXT:
+                file_paths.append(os.path.join(root, fname))
 
     if not file_paths:
         return 0
