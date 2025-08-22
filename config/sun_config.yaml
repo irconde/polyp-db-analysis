@@ -5,4 +5,4 @@ raw_sources:
 base_path: /Users/irconde/Desktop/sssl-polyps/polyp-datasets
 datasets: [sun]
 num_elements: null
-prepare: true
+prepare: false
