@@ -184,10 +184,11 @@ def _infer_image_type(img_dir: str, df: pd.DataFrame) -> pd.Series:
 
     A simple unsupervised approach based on colour histogram clustering is
     employed. The implementation mirrors the logic originally used in the
-    ``piccolo-database-analysis`` notebook. Images are loaded, an RGB colour
-    histogram is extracted and K-means with two clusters is used to separate
-    white light (WL) from narrow band imaging (NBI) frames. The cluster with
-    label ``0`` is assumed to correspond to NBI as observed empirically.
+    ``piccolo-database-analysis`` notebook. Images are loaded, converted from
+    OpenCV's default BGR ordering to RGB and an RGB colour histogram is
+    extracted. K-means with two clusters is then used to separate white light
+    (WL) from narrow band imaging (NBI) frames. The cluster with label ``0`` is
+    assumed to correspond to NBI as observed empirically.
 
     Parameters
     ----------
@@ -212,7 +213,16 @@ def _infer_image_type(img_dir: str, df: pd.DataFrame) -> pd.Series:
             img = cv2.imread(path)
             if img is None:
                 continue
-            hist = cv2.calcHist([img], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
+            # OpenCV loads images in BGR format; convert to RGB so that the
+            # histogram reflects the expected colour channels.
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            hist = cv2.calcHist(
+                [img],
+                [0, 1, 2],
+                None,
+                [8, 8, 8],
+                [0, 256, 0, 256, 0, 256],
+            )
             hist = cv2.normalize(hist, hist).flatten()
             features.append(hist)
             indices.append(idx)
