@@ -315,7 +315,7 @@ def copy_and_rename_images(df, base_path, dest_dir):
 
 def copy_and_rename_negative_images(
     source_dir: str, dest_dir: str, dataset_name: str | None = None
-) -> list[dict]:
+) -> tuple[list[dict], int]:
     """Copy negative frames into the canonical image directory.
 
     Negative sources may either contain subdirectories that represent
@@ -349,13 +349,15 @@ def copy_and_rename_negative_images(
 
     Returns
     -------
-    list[dict]
-        Metadata records describing the copied frames.
+    tuple[list[dict], int]
+        Tuple of (records, original_count) where ``records`` describes the
+        copied frames and ``original_count`` indicates how many candidate images
+        were seen before dropping duplicates.
     """
 
     records: list[dict] = []
     if not os.path.isdir(source_dir):
-        return records
+        return records, 0
 
     os.makedirs(dest_dir, exist_ok=True)
 
@@ -407,20 +409,24 @@ def copy_and_rename_negative_images(
                 )
 
     if not candidates:
-        return records
+        return records, 0
 
     df = pd.DataFrame(candidates)
     with ThreadPoolExecutor() as executor:
         sizes = list(executor.map(get_image_size, df["SRC_PATH"]))
     df["WIDTH"], df["HEIGHT"] = zip(*sizes)
 
+    original_count = len(df)
     logger.info(
-        "Found %d negative images before dropping duplicates", len(df)
+        "Found %d negative images before dropping duplicates", original_count
     )
 
     cache_file = os.path.join(source_dir, "neg_hash_cache.csv")
     filtered_df = _drop_duplicate_frames(df, cache_file=cache_file)
     filtered_df = filtered_df.sort_values(["dataset", "group", "filename"])
+    logger.info(
+        "Retained %d negative images after dropping duplicates", len(filtered_df)
+    )
 
     for (ds_name, group_name), group_df in filtered_df.groupby(["dataset", "group"]):
         lesion_key = f"NEG_{ds_name.upper()}_{group_name}"
@@ -449,7 +455,7 @@ def copy_and_rename_negative_images(
                 }
             )
 
-    return records
+    return records, original_count
 
 
 def calculate_target_size(df, width_percentile=0, height_percentile=0):
@@ -715,6 +721,73 @@ def export_parquet_metadata(
     )
 
 
+def dataset_statistics(
+    df: pd.DataFrame, negative_frames: list[dict], negative_original_count: int
+) -> dict:
+    """Compute and log summary statistics for the fused dataset."""
+    total_positive = len(df)
+    total_negative = len(negative_frames)
+    original_total = total_positive + negative_original_count
+    total_after = total_positive + total_negative
+
+    positive_cases = df["global_lesion_id"].nunique()
+    neg_case_ids = [rec["global_frame_id"].split(".")[0] for rec in negative_frames]
+    negative_cases = len(set(neg_case_ids))
+    total_cases = positive_cases + negative_cases
+
+    case_distribution = {"positive": positive_cases, "negative": negative_cases}
+
+    morph_counts = (
+        df.drop_duplicates("global_lesion_id")["morphology_shape"]
+        .fillna("unknown")
+        .value_counts()
+        .to_dict()
+    )
+
+    pos_dataset_counts = (
+        df.drop_duplicates("global_lesion_id")["dataset"].value_counts().to_dict()
+    )
+    from collections import Counter
+    neg_case_map: dict[str, str] = {}
+    for rec in negative_frames:
+        cid = rec["global_frame_id"].split(".")[0]
+        neg_case_map[cid] = rec["dataset"]
+    neg_dataset_counts = Counter(neg_case_map.values())
+    dataset_counts = Counter(pos_dataset_counts)
+    dataset_counts.update(neg_dataset_counts)
+    dataset_counts = dict(dataset_counts)
+
+    pos_frame_counts = df.groupby("global_lesion_id").size()
+    neg_frame_counts = Counter(neg_case_ids)
+    all_frame_counts = pd.concat([pos_frame_counts, pd.Series(neg_frame_counts)])
+    frame_summary = {
+        "min": int(all_frame_counts.min()),
+        "max": int(all_frame_counts.max()),
+        "mean": float(all_frame_counts.mean()),
+        "median": float(all_frame_counts.median()),
+    }
+
+    stats = {
+        "original_total_samples": original_total,
+        "total_samples": total_after,
+        "total_cases": total_cases,
+        "case_distribution": case_distribution,
+        "morphology_distribution": morph_counts,
+        "dataset_distribution": dataset_counts,
+        "frames_per_case_summary": frame_summary,
+    }
+
+    logger.info("Original total samples: %d", original_total)
+    logger.info("Total samples after dropping duplicates: %d", total_after)
+    logger.info("Total cases: %d", total_cases)
+    logger.info("Case distribution: %s", case_distribution)
+    logger.info("Morphology distribution: %s", morph_counts)
+    logger.info("Dataset distribution: %s", dataset_counts)
+    logger.info("Frames per case summary: %s", frame_summary)
+
+    return stats
+
+
 def merge_datasets(
     base_path,
     datasets: list[str],
@@ -770,15 +843,18 @@ def merge_datasets(
     process_images_and_bboxes(combined_df, images_dir, target_width, target_height)
 
     negative_records: list[dict] = []
+    negative_original_count = 0
     if num_elements is None and negative_sources:
         for ds_name, src in negative_sources.items():
             src_dir = os.path.expanduser(src)
             if not os.path.isabs(src_dir):
                 src_dir = os.path.join(base_path, src_dir)
             process_negative_images(src_dir, target_width, target_height)
-            negative_records.extend(
-                copy_and_rename_negative_images(src_dir, images_dir, dataset_name=ds_name)
+            recs, orig_count = copy_and_rename_negative_images(
+                src_dir, images_dir, dataset_name=ds_name
             )
+            negative_records.extend(recs)
+            negative_original_count += orig_count
 
     combined_df.drop(columns=['WIDTH', 'HEIGHT'], inplace=True)
 
@@ -790,6 +866,8 @@ def merge_datasets(
     # Save the combined DataFrame to a spreadsheet and Parquet manifests
     save_combined_dataframe(combined_df, base_path, output_filename)
     export_parquet_metadata(combined_df, canonical_base, negative_records)
+
+    dataset_statistics(combined_df, negative_records, negative_original_count)
 
     # Loop through the DataFrame and draw bounding boxes on each image
     if plot_images:

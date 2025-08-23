@@ -13,12 +13,13 @@ def test_copy_and_rename_negative_images_with_explicit_dataset(tmp_path):
     Image.new("RGB", (20, 30)).save(img_path)
 
     dest_dir = tmp_path / "canonical" / "images"
-    records = copy_and_rename_negative_images(
+    records, original = copy_and_rename_negative_images(
         str(source_dir), str(dest_dir), dataset_name="sun"
     )
 
     expected_name = "NEG_SUN_clipA.000001.png"
     assert (dest_dir / expected_name).exists()
+    assert original == 1
     assert records == [
         {
             "global_frame_id": "NEG_SUN_clipA.000001",
@@ -42,12 +43,13 @@ def test_copy_and_rename_negative_images_without_groups(tmp_path):
     Image.new("RGB", (10, 15)).save(img_path)
 
     dest_dir = tmp_path / "canonical" / "images"
-    records = copy_and_rename_negative_images(
+    records, original = copy_and_rename_negative_images(
         str(source_dir), str(dest_dir), dataset_name="polar"
     )
 
     expected_name = "NEG_POLAR_polar_negatives.000001.jpg"
     assert (dest_dir / expected_name).exists()
+    assert original == 1
     assert records == [
         {
             "global_frame_id": "NEG_POLAR_polar_negatives.000001",
