@@ -414,7 +414,12 @@ def copy_and_rename_negative_images(
         sizes = list(executor.map(get_image_size, df["SRC_PATH"]))
     df["WIDTH"], df["HEIGHT"] = zip(*sizes)
 
-    filtered_df = _drop_duplicate_frames(df)
+    logger.info(
+        "Found %d negative images before dropping duplicates", len(df)
+    )
+
+    cache_file = os.path.join(source_dir, "neg_hash_cache.csv")
+    filtered_df = _drop_duplicate_frames(df, cache_file=cache_file)
     filtered_df = filtered_df.sort_values(["dataset", "group", "filename"])
 
     for (ds_name, group_name), group_df in filtered_df.groupby(["dataset", "group"]):

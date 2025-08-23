@@ -1,12 +1,13 @@
 import shutil
 from pathlib import Path
+import logging
 
 from PIL import Image
 
 from polypdb.merge import copy_and_rename_negative_images
 
 
-def test_negative_copy_deduplicates(tmp_path):
+def test_negative_copy_deduplicates(tmp_path, caplog):
     src_dir = tmp_path / "sun_negatives" / "clip1"
     src_dir.mkdir(parents=True)
     img1 = src_dir / "a.png"
@@ -15,14 +16,18 @@ def test_negative_copy_deduplicates(tmp_path):
     shutil.copy(img1, img2)
 
     dest_dir = tmp_path / "canonical" / "images"
-    records = copy_and_rename_negative_images(
-        str(src_dir.parent), str(dest_dir), dataset_name="sun"
-    )
+    with caplog.at_level(logging.INFO):
+        records = copy_and_rename_negative_images(
+            str(src_dir.parent), str(dest_dir), dataset_name="sun"
+        )
 
     # destination should only have one image
     assert len(list(Path(dest_dir).glob("*.png"))) == 1
     assert len(records) == 1
+    assert "Found 2 negative images before dropping duplicates" in caplog.text
+    assert (src_dir.parent / "neg_hash_cache.csv").exists()
 
     # originals remain untouched
     assert img1.exists()
     assert img2.exists()
+
