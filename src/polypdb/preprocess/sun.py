@@ -150,6 +150,9 @@ def _drop_duplicate_frames(
             )
 
     if drop_paths:
+        logger.info("Skipping %d cached duplicate frames", len(drop_paths))
+        for path in drop_paths:
+            logger.debug("Skipping cached duplicate frame: %s", path)
         df = df[~df["SRC_PATH"].isin(drop_paths)]
 
     if rows_to_update:
@@ -184,6 +187,8 @@ def _drop_duplicate_frames(
 
     if duplicates:
         logger.info("Omitting %d duplicate frames", len(duplicates))
+        for path in duplicates:
+            logger.debug("Dropped duplicate frame: %s", path)
         df = df[~df["SRC_PATH"].isin(duplicates)]
         cache_df.loc[cache_df["SRC_PATH"].isin(duplicates), "_drop"] = True
 
@@ -241,6 +246,8 @@ def _drop_duplicate_frames(
 
         if near_dupes:
             logger.info("Omitting %d near-duplicate frames", len(near_dupes))
+            for path in near_dupes:
+                logger.debug("Dropped near-duplicate frame: %s", path)
             df = df[~df["SRC_PATH"].isin(near_dupes)]
             cache_df.loc[cache_df["SRC_PATH"].isin(near_dupes), "_drop"] = True
 

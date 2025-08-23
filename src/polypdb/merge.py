@@ -100,11 +100,22 @@ def combine_datasets(base_path, datasets, num_elements=None, random_state=None):
 
         try:
             df = pd.read_excel(spreadsheet_path)
+            original_len = len(df)
             df["ORIGINAL DATASET"] = dataset
 
+            logger.info(
+                "Loaded %d rows from %s", original_len, spreadsheet_path
+            )
+
             # Randomly select 'num_elements' rows if specified and dataset is larger
-            if num_elements is not None and len(df) > num_elements:
+            if num_elements is not None and original_len > num_elements:
                 df = df.sample(n=num_elements, random_state=random_state)
+                logger.info(
+                    "Dataset %s truncated to %d rows (dropped %d)",
+                    dataset,
+                    num_elements,
+                    original_len - num_elements,
+                )
 
             dataframes.append(df)
         except FileNotFoundError:
@@ -282,6 +293,7 @@ def copy_and_rename_images(df, base_path, dest_dir):
     """
     os.makedirs(dest_dir, exist_ok=True)  # Ensure the destination directory exists
     counters: defaultdict[str, int] = defaultdict(int)
+    missing_files = 0
 
     for index, row in tqdm(df.iterrows(), total=len(df), desc="Copying images"):
         dataset_name = str(row["ORIGINAL DATASET"])
@@ -310,7 +322,11 @@ def copy_and_rename_images(df, base_path, dest_dir):
             df.at[index, "raw_path"] = source_image_path
             df.at[index, "dataset"] = dataset
         else:
+            missing_files += 1
             logger.warning("File not found: %s", candidates[0])
+
+    if missing_files:
+        logger.info("Skipped %d images due to missing files", missing_files)
 
 
 def copy_and_rename_negative_images(
@@ -818,7 +834,13 @@ def merge_datasets(
     output_filename = 'metadata.xlsx' if num_elements is None else 'output_' + str(num_elements) + '.xlsx'
 
     # Keep only entries with a single bounding box (no blank spaces in 'BOUNDING BOX')
+    before_bb_filter = len(combined_df)
     combined_df = combined_df[combined_df['BOUNDING BOX'].str.count(' ') == 0]
+    dropped_bb = before_bb_filter - len(combined_df)
+    if dropped_bb:
+        logger.info(
+            "Dropped %d rows with multiple bounding boxes", dropped_bb
+        )
 
     logger.info("Combined dataframe length: %d", len(combined_df))
 
