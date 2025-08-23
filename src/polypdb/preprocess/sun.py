@@ -14,6 +14,7 @@ import os
 import logging
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -258,10 +259,11 @@ def drop_duplicate_negative_images(
     use_ssim: bool = False,
     ssim_threshold: float = 0.99,
 ) -> int:
-    """Remove duplicate negative images in ``src_dir``.
+    """DEPRECATED: remove duplicate negative images in ``src_dir``.
 
-    The directory tree is traversed recursively and images with identical or
-    near-identical content are deleted in-place using :func:`_drop_duplicate_frames`.
+    This function mutates ``src_dir`` in-place and will be removed in a future
+    release. Use :func:`copy_and_rename_negative_images` which performs
+    de-duplication without deleting the originals.
 
     Parameters
     ----------
@@ -278,6 +280,12 @@ def drop_duplicate_negative_images(
     int
         Number of files deleted as duplicates.
     """
+
+    warnings.warn(
+        "drop_duplicate_negative_images is deprecated and will be removed in a future release",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     file_paths: list[str] = []
     for root, _, files in os.walk(src_dir):
