@@ -17,6 +17,10 @@ from .preprocess.sun import _drop_duplicate_frames
 logger = logging.getLogger(__name__)
 
 
+# Supported image extensions for negative frame processing
+IMG_EXT = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif"}
+
+
 # Mapping of dataset specific morphology descriptions to a common taxonomy
 MORPHOLOGY_SHAPE_MAP: dict[str, str] = {
     "is": "sessile",
@@ -369,7 +373,11 @@ def copy_and_rename_negative_images(
     for ds_name, dataset_path in dataset_entries:
         entries = sorted(os.listdir(dataset_path))
         subdirs = [e for e in entries if os.path.isdir(os.path.join(dataset_path, e))]
-        root_files = [e for e in entries if os.path.isfile(os.path.join(dataset_path, e))]
+        root_files = [
+            e for e in entries
+            if os.path.isfile(os.path.join(dataset_path, e))
+            and os.path.splitext(e)[1].lower() in IMG_EXT
+        ]
         groups: list[str | None] = list(subdirs)
         if root_files:
             groups.append(None)
@@ -385,6 +393,7 @@ def copy_and_rename_negative_images(
                 files = [
                     f for f in sorted(os.listdir(group_path))
                     if os.path.isfile(os.path.join(group_path, f))
+                    and os.path.splitext(f)[1].lower() in IMG_EXT
                 ]
 
             for fname in files:
