@@ -2,15 +2,16 @@ import os
 import shutil
 import logging
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
 from PIL import Image
 
-from .utils import draw_bounding_boxes
+from .utils import draw_bounding_boxes, get_image_size
 from tqdm import tqdm
 
-from .preprocess.sun import drop_duplicate_negative_images
+from .preprocess.sun import _drop_duplicate_frames
 
 
 logger = logging.getLogger(__name__)
@@ -363,13 +364,15 @@ def copy_and_rename_negative_images(
             if os.path.isdir(os.path.join(source_dir, name))
         ]
 
+    # gather candidate file paths
+    candidates: list[dict] = []
     for ds_name, dataset_path in dataset_entries:
         entries = sorted(os.listdir(dataset_path))
         subdirs = [e for e in entries if os.path.isdir(os.path.join(dataset_path, e))]
         root_files = [e for e in entries if os.path.isfile(os.path.join(dataset_path, e))]
-        groups: list[str | None] = subdirs
+        groups: list[str | None] = list(subdirs)
         if root_files:
-            groups.append(None)  # represents files at dataset root
+            groups.append(None)
 
         for group in groups:
             if group is None:
@@ -384,32 +387,54 @@ def copy_and_rename_negative_images(
                     if os.path.isfile(os.path.join(group_path, f))
                 ]
 
-            lesion_key = f"NEG_{ds_name.upper()}_{group_name}"
-            frame_idx = 0
             for fname in files:
-                src = os.path.join(group_path, fname)
-                frame_idx += 1
-                ext = os.path.splitext(fname)[1].lower()
-                global_frame_id = f"{lesion_key}.{frame_idx:06d}"
-                dest_name = f"{global_frame_id}{ext}"
-                dest_path = os.path.join(dest_dir, dest_name)
-                shutil.copy(src, dest_path)
-                with Image.open(dest_path) as img:
-                    width, height = img.size
-                records.append(
+                candidates.append(
                     {
-                        "global_frame_id": global_frame_id,
-                        "global_lesion_id": None,
+                        "SRC_PATH": os.path.join(group_path, fname),
                         "dataset": ds_name.lower(),
-                        "source_frame_id": fname,
-                        "img_width": width,
-                        "img_height": height,
-                        "filename_ext": ext,
-                        "canonical_path": dest_path,
-                        "raw_path": src,
-                        "modality": None,
+                        "group": group_name,
+                        "filename": fname,
                     }
                 )
+
+    if not candidates:
+        return records
+
+    df = pd.DataFrame(candidates)
+    with ThreadPoolExecutor() as executor:
+        sizes = list(executor.map(get_image_size, df["SRC_PATH"]))
+    df["WIDTH"], df["HEIGHT"] = zip(*sizes)
+
+    filtered_df = _drop_duplicate_frames(df)
+    filtered_df = filtered_df.sort_values(["dataset", "group", "filename"])
+
+    for (ds_name, group_name), group_df in filtered_df.groupby(["dataset", "group"]):
+        lesion_key = f"NEG_{ds_name.upper()}_{group_name}"
+        frame_idx = 0
+        for _, row in group_df.iterrows():
+            frame_idx += 1
+            src = row["SRC_PATH"]
+            fname = row["filename"]
+            ext = os.path.splitext(fname)[1].lower()
+            global_frame_id = f"{lesion_key}.{frame_idx:06d}"
+            dest_name = f"{global_frame_id}{ext}"
+            dest_path = os.path.join(dest_dir, dest_name)
+            shutil.copy(src, dest_path)
+            records.append(
+                {
+                    "global_frame_id": global_frame_id,
+                    "global_lesion_id": None,
+                    "dataset": ds_name,
+                    "source_frame_id": fname,
+                    "img_width": row["WIDTH"],
+                    "img_height": row["HEIGHT"],
+                    "filename_ext": ext,
+                    "canonical_path": dest_path,
+                    "raw_path": src,
+                    "modality": None,
+                }
+            )
+
     return records
 
 
@@ -736,8 +761,6 @@ def merge_datasets(
             src_dir = os.path.expanduser(src)
             if not os.path.isabs(src_dir):
                 src_dir = os.path.join(base_path, src_dir)
-            if ds_name.lower() == "sun":
-                drop_duplicate_negative_images(src_dir)
             process_negative_images(src_dir, target_width, target_height)
             negative_records.extend(
                 copy_and_rename_negative_images(src_dir, images_dir, dataset_name=ds_name)

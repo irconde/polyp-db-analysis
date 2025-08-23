@@ -3,25 +3,26 @@ from pathlib import Path
 
 from PIL import Image
 
-from polypdb.preprocess.sun import drop_duplicate_negative_images
+from polypdb.merge import copy_and_rename_negative_images
 
 
-def test_drop_duplicate_negative_images(tmp_path):
-    src_dir = tmp_path / "sun_negatives"
-    src_dir.mkdir()
-
+def test_negative_copy_deduplicates(tmp_path):
+    src_dir = tmp_path / "sun_negatives" / "clip1"
+    src_dir.mkdir(parents=True)
     img1 = src_dir / "a.png"
     Image.new("RGB", (10, 10), color=(255, 0, 0)).save(img1)
-
     img2 = src_dir / "b.png"
     shutil.copy(img1, img2)
 
-    img3 = src_dir / "c.png"
-    Image.new("RGB", (12, 12), color=(0, 255, 0)).save(img3)
+    dest_dir = tmp_path / "canonical" / "images"
+    records = copy_and_rename_negative_images(
+        str(src_dir.parent), str(dest_dir), dataset_name="sun"
+    )
 
-    removed = drop_duplicate_negative_images(str(src_dir))
+    # destination should only have one image
+    assert len(list(Path(dest_dir).glob("*.png"))) == 1
+    assert len(records) == 1
 
-    remaining = sorted(p.name for p in Path(src_dir).iterdir() if p.suffix == ".png")
-    assert removed == 1
-    assert remaining == ["a.png", "c.png"]
-
+    # originals remain untouched
+    assert img1.exists()
+    assert img2.exists()
