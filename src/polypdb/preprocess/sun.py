@@ -294,6 +294,8 @@ def drop_duplicate_negative_images(
         sizes = list(executor.map(get_image_size, df["SRC_PATH"]))
     df["WIDTH"], df["HEIGHT"] = zip(*sizes)
 
+    logger.info("Found %d negative images before dropping duplicates", len(df))
+
     if cache_file is None:
         cache_file = os.path.join(src_dir, "sun_neg_hash_cache.csv")
 
@@ -482,6 +484,8 @@ def convert_to_standard_layout(
     with ThreadPoolExecutor() as executor:
         sizes = list(executor.map(get_image_size, df["SRC_PATH"]))
     df["WIDTH"], df["HEIGHT"] = zip(*sizes)
+
+    logger.info("Found %d positive images before dropping duplicates", len(df))
 
     cache_path = os.path.join(src_dir, "sun_hash_cache.csv")
     df = _drop_duplicate_frames(
