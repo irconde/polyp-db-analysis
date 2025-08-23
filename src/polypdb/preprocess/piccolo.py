@@ -206,18 +206,33 @@ def _infer_image_type(img_dir: str, df: pd.DataFrame) -> pd.Series:
 
     features: list[np.ndarray] = []
     indices: list[int] = []
+    unreadable: list[int] = []
     for idx, frame in enumerate(df["FRAME"]):
         path = os.path.join(img_dir, frame)
-        try:
-            img = cv2.imread(path)
-            if img is None:
+        img = cv2.imread(path)
+        if img is None:
+            try:
+                with Image.open(path) as pil_img:
+                    img = np.array(pil_img)
+                if img.ndim == 2:
+                    img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+                else:
+                    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            except Exception as exc:  # pragma: no cover - diagnostic only
+                logger.warning("Unable to read %s: %s", frame, exc)
+                unreadable.append(idx)
                 continue
+        try:
             hist = cv2.calcHist([img], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
             hist = cv2.normalize(hist, hist).flatten()
             features.append(hist)
             indices.append(idx)
         except Exception as exc:  # pragma: no cover - diagnostic only
             logger.debug("Failed to process %s: %s", frame, exc)
+
+    if unreadable:
+        bad_frames = ", ".join(f"{i}:{df['FRAME'][i]}" for i in unreadable)
+        raise ValueError(f"Failed to read images at indices: {bad_frames}")
 
     series = pd.Series(pd.NA, index=range(len(df)), dtype="object")
     if not features:
