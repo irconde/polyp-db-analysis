@@ -3,7 +3,7 @@ import os
 import yaml
 import logging
 
-from .merge import merge_datasets
+from .merge import merge_datasets, dataset_statistics_from_canonical
 from .preprocess import CONVERTERS
 from .ultralytics import prepare_dataset, prepare_classification_dataset
 from .count_samples import count_samples
@@ -58,6 +58,13 @@ def main() -> None:
     pipeline_parser = subparsers.add_parser("pipeline", help="Run full preprocessing pipeline")
     pipeline_parser.add_argument("config", help="Path to YAML configuration file")
 
+    stats_parser = subparsers.add_parser(
+        "stats", help="Compute dataset statistics from a canonical folder"
+    )
+    stats_parser.add_argument(
+        "canonical_dir", help="Path to the canonical dataset directory"
+    )
+
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -78,6 +85,8 @@ def main() -> None:
             logger.info("%s split:", split.capitalize())
             for class_id, cnt in counts[split].items():
                 logger.info("Class %s: %s samples", class_id, cnt)
+    elif args.command == "stats":
+        dataset_statistics_from_canonical(args.canonical_dir)
     elif args.command == "pipeline":
         cfg = load_config(args.config)
         base_path = cfg["base_path"]
