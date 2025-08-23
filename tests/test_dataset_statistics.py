@@ -23,6 +23,14 @@ def test_dataset_statistics():
     assert stats["morphology_distribution"] == {"sessile": 1, "flat": 1}
     assert stats["dataset_distribution"] == {"sun": 2, "polar": 2}
     assert stats["frames_per_case_summary"]["max"] == 2
+    assert stats["dataset_case_distribution"] == {
+        "sun": {"positive": 1, "negative": 1},
+        "polar": {"positive": 1, "negative": 1},
+    }
+    assert stats["dataset_frame_distribution"] == {
+        "sun": {"positive": 2, "negative": 2},
+        "polar": {"positive": 1, "negative": 1},
+    }
 
 
 def test_dataset_statistics_from_canonical(tmp_path):
@@ -57,3 +65,11 @@ def test_dataset_statistics_from_canonical(tmp_path):
     assert stats["morphology_distribution"] == {"sessile": 1, "flat": 1}
     assert stats["dataset_distribution"] == {"sun": 2, "polar": 2}
     assert stats["frames_per_case_summary"]["max"] == 2
+    assert stats["dataset_case_distribution"] == {
+        "sun": {"positive": 1, "negative": 1},
+        "polar": {"positive": 1, "negative": 1},
+    }
+    assert stats["dataset_frame_distribution"] == {
+        "sun": {"positive": 2, "negative": 2},
+        "polar": {"positive": 1, "negative": 1},
+    }

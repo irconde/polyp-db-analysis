@@ -740,7 +740,26 @@ def export_parquet_metadata(
 def dataset_statistics(
     df: pd.DataFrame, negative_frames: list[dict], negative_original_count: int
 ) -> dict:
-    """Compute and log summary statistics for the fused dataset."""
+    """Compute and log summary statistics for the fused dataset.
+
+    Parameters
+    ----------
+    df:
+        DataFrame containing positive frame metadata.
+    negative_frames:
+        List of dictionaries describing negative frames. Each record must
+        include ``global_frame_id`` and ``dataset`` keys.
+    negative_original_count:
+        Number of negative frames before duplicate removal.
+
+    Returns
+    -------
+    dict
+        A dictionary with overall dataset metrics. In addition to the
+        previous summary values, the result now includes
+        ``dataset_case_distribution`` and ``dataset_frame_distribution``
+        showing positive/negative counts per source dataset.
+    """
     total_positive = len(df)
     total_negative = len(negative_frames)
     original_total = total_positive + negative_original_count
@@ -760,7 +779,8 @@ def dataset_statistics(
         .to_dict()
     )
 
-    pos_dataset_counts = (
+    # Positive and negative case counts per dataset
+    pos_case_by_dataset = (
         df.drop_duplicates("global_lesion_id")["dataset"].value_counts().to_dict()
     )
     from collections import Counter
@@ -768,14 +788,30 @@ def dataset_statistics(
     for rec in negative_frames:
         cid = rec["global_frame_id"].split(".")[0]
         neg_case_map[cid] = rec["dataset"]
-    neg_dataset_counts = Counter(neg_case_map.values())
-    dataset_counts = Counter(pos_dataset_counts)
-    dataset_counts.update(neg_dataset_counts)
+    neg_case_by_dataset = Counter(neg_case_map.values())
+    dataset_counts = Counter(pos_case_by_dataset)
+    dataset_counts.update(neg_case_by_dataset)
     dataset_counts = dict(dataset_counts)
+
+    dataset_case_distribution = {}
+    for ds in set(pos_case_by_dataset) | set(neg_case_by_dataset):
+        dataset_case_distribution[ds] = {
+            "positive": int(pos_case_by_dataset.get(ds, 0)),
+            "negative": int(neg_case_by_dataset.get(ds, 0)),
+        }
 
     pos_frame_counts = df.groupby("global_lesion_id").size()
     neg_frame_counts = Counter(neg_case_ids)
     all_frame_counts = pd.concat([pos_frame_counts, pd.Series(neg_frame_counts)])
+
+    pos_frames_by_dataset = df["dataset"].value_counts().to_dict()
+    neg_frames_by_dataset = Counter(rec["dataset"] for rec in negative_frames)
+    dataset_frame_distribution = {}
+    for ds in set(pos_frames_by_dataset) | set(neg_frames_by_dataset):
+        dataset_frame_distribution[ds] = {
+            "positive": int(pos_frames_by_dataset.get(ds, 0)),
+            "negative": int(neg_frames_by_dataset.get(ds, 0)),
+        }
     frame_summary = {
         "min": int(all_frame_counts.min()),
         "max": int(all_frame_counts.max()),
@@ -791,6 +827,8 @@ def dataset_statistics(
         "morphology_distribution": morph_counts,
         "dataset_distribution": dataset_counts,
         "frames_per_case_summary": frame_summary,
+        "dataset_case_distribution": dataset_case_distribution,
+        "dataset_frame_distribution": dataset_frame_distribution,
     }
 
     logger.info("Original total samples: %d", original_total)
@@ -799,6 +837,8 @@ def dataset_statistics(
     logger.info("Case distribution: %s", case_distribution)
     logger.info("Morphology distribution: %s", morph_counts)
     logger.info("Dataset distribution: %s", dataset_counts)
+    logger.info("Dataset case distribution: %s", dataset_case_distribution)
+    logger.info("Dataset frame distribution: %s", dataset_frame_distribution)
     logger.info("Frames per case summary: %s", frame_summary)
 
     return stats
