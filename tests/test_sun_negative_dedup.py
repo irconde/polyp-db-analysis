@@ -17,13 +17,14 @@ def test_negative_copy_deduplicates(tmp_path, caplog):
 
     dest_dir = tmp_path / "canonical" / "images"
     with caplog.at_level(logging.INFO):
-        records = copy_and_rename_negative_images(
+        records, original = copy_and_rename_negative_images(
             str(src_dir.parent), str(dest_dir), dataset_name="sun"
         )
 
     # destination should only have one image
     assert len(list(Path(dest_dir).glob("*.png"))) == 1
     assert len(records) == 1
+    assert original == 2
     assert "Found 2 negative images before dropping duplicates" in caplog.text
     assert (src_dir.parent / "neg_hash_cache.csv").exists()
 
