@@ -788,6 +788,41 @@ def dataset_statistics(
     return stats
 
 
+def dataset_statistics_from_canonical(canonical_base: str) -> dict:
+    """Compute dataset statistics from a canonical dataset directory.
+
+    Parameters
+    ----------
+    canonical_base : str
+        Path to the canonical dataset containing a ``manifests`` directory
+        with ``frames.parquet`` and ``lesions.parquet`` files.
+
+    Returns
+    -------
+    dict
+        Summary statistics in the same format as :func:`dataset_statistics`.
+    """
+
+    manifests_dir = os.path.join(canonical_base, "manifests")
+    frames_path = os.path.join(manifests_dir, "frames.parquet")
+    lesions_path = os.path.join(manifests_dir, "lesions.parquet")
+
+    frames_df = pd.read_parquet(frames_path)
+    lesions_df = pd.read_parquet(lesions_path)
+
+    pos_df = frames_df[frames_df["has_polyp"]].merge(
+        lesions_df[["global_lesion_id", "dataset", "shape"]],
+        on=["global_lesion_id", "dataset"],
+        how="left",
+    )
+    pos_df = pos_df.rename(columns={"shape": "morphology_shape"})
+
+    neg_df = frames_df[~frames_df["has_polyp"]]
+    negative_records = neg_df[["global_frame_id", "dataset"]].to_dict("records")
+
+    return dataset_statistics(pos_df, negative_records, negative_original_count=len(neg_df))
+
+
 def merge_datasets(
     base_path,
     datasets: list[str],
