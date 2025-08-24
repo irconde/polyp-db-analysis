@@ -188,7 +188,7 @@ def _infer_image_type(img_dir: str, df: pd.DataFrame) -> pd.Series:
     OpenCV's default BGR ordering to RGB and an RGB colour histogram is
     extracted. K-means with two clusters is then used to separate white light
     (WL) from narrow band imaging (NBI) frames. The cluster with label ``0`` is
-    assumed to correspond to NBI as observed empirically.
+    assumed to correspond to WL as observed empirically.
 
     Parameters
     ----------
@@ -250,7 +250,7 @@ def _infer_image_type(img_dir: str, df: pd.DataFrame) -> pd.Series:
 
     kmeans = KMeans(n_clusters=2, random_state=0, n_init=10).fit(features)
     for i, label in zip(indices, kmeans.labels_):
-        series.iat[i] = "NBI" if label == 0 else "WL"
+        series.iat[i] = "WL" if label == 0 else "NBI"
     return series
 
 
