@@ -278,6 +278,51 @@ def mask_corner_artifacts(
     return img
 
 
+def crop_and_mask_corner_artifacts(
+    src_dir,
+    dest_dir,
+    padding_color=(0, 0, 0),
+    padding_threshold=10,
+    threshold=10,
+):
+    """Crop images then mask corner overlays using auto detection.
+
+    Parameters
+    ----------
+    src_dir : str
+        Directory with input images.
+    dest_dir : str
+        Directory where processed images will be saved.
+    padding_color : tuple
+        RGB colour regarded as padding and removed before masking.
+    padding_threshold : int
+        Permissible channel deviation for padding detection.
+    threshold : int
+        Threshold for auto-detecting overlay size in :func:`mask_corner_artifacts`.
+    """
+
+    src_dir = os.fspath(src_dir)
+    dest_dir = os.fspath(dest_dir)
+    os.makedirs(dest_dir, exist_ok=True)
+
+    for name in os.listdir(src_dir):
+        if not name.lower().endswith(
+            (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp")
+        ):
+            continue
+        in_path = os.path.join(src_dir, name)
+        out_path = os.path.join(dest_dir, name)
+        crop_image_padding(
+            in_path,
+            out_path,
+            padding_color=padding_color,
+            threshold=padding_threshold,
+        )
+        with Image.open(out_path) as img:
+            masked = mask_corner_artifacts(img, auto_detect=True, threshold=threshold)
+            _save_image(masked, out_path)
+
+
 def normalize_image(img, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
     """Normalize ``img`` using per-channel ``mean`` and ``std``.
 
