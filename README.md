@@ -152,14 +152,22 @@ corner colour, then masks the discovered triangular region. Small sequences of
 different coloured pixels (e.g., logo indicators touching an edge) are ignored
 up to ``max_colour_run`` pixels so these artefacts are also covered.
 
-To process a directory of images, cropping away padding before masking, run:
+To process a directory of images, masking corner artefacts before cropping, run:
 
 ```bash
 polypdb mask-corners INPUT_DIR OUTPUT_DIR
 ```
 
-This command writes cropped and cleaned images to ``OUTPUT_DIR`` using the
-auto-detection behaviour.
+This command writes cleaned and cropped images to ``OUTPUT_DIR`` using the
+auto-detection behaviour. The padding remover assumes the border colour is
+``(15,15,15)`` with a tolerance of ``20``. Adjust ``--padding-color`` and
+``--padding-threshold`` if your images use different padding:
+
+```bash
+polypdb mask-corners INPUT_DIR OUTPUT_DIR \
+  --padding-color 0,0,0 \
+  --padding-threshold 10
+```
 
 ## Development
 

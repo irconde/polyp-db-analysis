@@ -46,9 +46,9 @@ def crop_image_padding(
     cropped_img_path,
     mask_path=None,
     cropped_mask_path=None,
-    padding_color=(0, 0, 0),
-    threshold=10,
-): 
+    padding_color=(15, 15, 15),
+    threshold=20,
+):
     """Crop an image and optional mask, stripping away padding pixels.
 
     ``img_path`` is validated before attempting to open it.  Passing a non
@@ -69,10 +69,11 @@ def crop_image_padding(
     cropped_mask_path:
         Destination for the cropped mask when ``mask_path`` is provided.
     padding_color:
-        RGB colour considered as padding and removed from the image.
+        RGB colour considered as padding and removed from the image. Defaults
+        to ``(15, 15, 15)``.
     threshold:
         Permissible channel deviation from ``padding_color`` to still be
-        regarded as padding.
+        regarded as padding. Defaults to ``20``.
     """
 
     img_path = os.fspath(img_path)
@@ -330,11 +331,11 @@ def mask_corner_artifacts(
 def crop_and_mask_corner_artifacts(
     src_dir,
     dest_dir,
-    padding_color=(0, 0, 0),
-    padding_threshold=10,
+    padding_color=(15, 15, 15),
+    padding_threshold=20,
     threshold=10,
 ):
-    """Crop images then mask corner overlays using auto detection.
+    """Mask corner overlays then crop padding using auto detection.
 
     Parameters
     ----------
@@ -343,9 +344,11 @@ def crop_and_mask_corner_artifacts(
     dest_dir : str
         Directory where processed images will be saved.
     padding_color : tuple
-        RGB colour regarded as padding and removed before masking.
+        RGB colour regarded as padding and removed after masking. Defaults to
+        ``(15, 15, 15)``.
     padding_threshold : int
-        Permissible channel deviation for padding detection.
+        Permissible channel deviation for padding detection. Defaults to
+        ``20``.
     threshold : int
         Threshold for auto-detecting overlay size in :func:`mask_corner_artifacts`.
     """
@@ -361,15 +364,15 @@ def crop_and_mask_corner_artifacts(
             continue
         in_path = os.path.join(src_dir, name)
         out_path = os.path.join(dest_dir, name)
+        with Image.open(in_path) as img:
+            masked = mask_corner_artifacts(img, auto_detect=True, threshold=threshold)
+            _save_image(masked, out_path)
         crop_image_padding(
-            in_path,
+            out_path,
             out_path,
             padding_color=padding_color,
             threshold=padding_threshold,
         )
-        with Image.open(out_path) as img:
-            masked = mask_corner_artifacts(img, auto_detect=True, threshold=threshold)
-            _save_image(masked, out_path)
 
 
 def normalize_image(img, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):

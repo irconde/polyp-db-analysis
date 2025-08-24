@@ -67,7 +67,7 @@ def main() -> None:
     )
 
     mask_parser = subparsers.add_parser(
-        "mask-corners", help="Crop images and mask corner artifacts"
+        "mask-corners", help="Mask corner artifacts then crop images"
     )
     mask_parser.add_argument("src_dir", help="Directory containing input images")
     mask_parser.add_argument(
@@ -75,14 +75,14 @@ def main() -> None:
     )
     mask_parser.add_argument(
         "--padding-color",
-        default="0,0,0",
-        help="RGB padding colour to strip before masking (default: 0,0,0)",
+        default="15,15,15",
+        help="RGB padding colour to strip after masking (default: 15,15,15)",
     )
     mask_parser.add_argument(
         "--padding-threshold",
         type=int,
-        default=10,
-        help="Colour deviation allowed when removing padding",
+        default=20,
+        help="Colour deviation allowed when removing padding (default: 20)",
     )
     mask_parser.add_argument(
         "--threshold",
