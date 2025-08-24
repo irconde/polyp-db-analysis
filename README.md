@@ -143,6 +143,13 @@ Execute the pipeline:
 polypdb pipeline pipeline_config.yaml
 ```
 
+## Image preprocessing utilities
+
+`mask_corner_artifacts` removes static overlays such as timestamps or patient
+information from image corners. With ``auto_detect=True`` (default) the
+function scans outward from each corner until the pixel values differ from the
+corner colour, then masks the discovered triangular region.
+
 ## Development
 
 Run tests with `pytest` to verify changes.

@@ -199,6 +199,85 @@ def resize_with_padding(img, target_size=(224, 224), fill_color=(0, 0, 0)):
     return new_img
 
 
+def mask_corner_artifacts(
+    img,
+    width=50,
+    height=50,
+    auto_detect=True,
+    threshold=10,
+):
+    """Mask camera overlays or logos in the four image corners.
+
+    Parameters
+    ----------
+    img:
+        ``PIL.Image`` to be processed. The image is not modified in place.
+    width, height:
+        Fallback dimensions for the corner overlays when ``auto_detect`` is
+        ``False``.
+    auto_detect:
+        When ``True`` (default), the size of the overlay in each corner is
+        determined automatically by scanning outward from the corner until
+        pixel values diverge from the base corner colour by ``threshold``.
+    threshold:
+        Maximum per-channel colour distance to still be considered part of the
+        overlay during auto detection.
+
+    Returns
+    -------
+    ``PIL.Image``
+        Image with corner artifacts filled using the corner colour.
+    """
+
+    img = img.copy()
+    pixels = img.load()
+    img_w, img_h = img.size
+    draw = ImageDraw.Draw(img)
+
+    def _differs(p1, p2):
+        return any(abs(int(a) - int(b)) > threshold for a, b in zip(p1[:3], p2[:3]))
+
+    def _measure(x0, y0, x_step, y_step):
+        base = pixels[x0, y0]
+        w = 0
+        x = x0
+        while 0 <= x < img_w and not _differs(pixels[x, y0], base):
+            w += 1
+            x += x_step
+        h = 0
+        y = y0
+        while 0 <= y < img_h and not _differs(pixels[x0, y], base):
+            h += 1
+            y += y_step
+        return w, h, base
+
+    corners = [
+        ("tl", 0, 0, 1, 1),
+        ("tr", img_w - 1, 0, -1, 1),
+        ("bl", 0, img_h - 1, 1, -1),
+        ("br", img_w - 1, img_h - 1, -1, -1),
+    ]
+
+    for name, x0, y0, x_step, y_step in corners:
+        if auto_detect:
+            w, h, base = _measure(x0, y0, x_step, y_step)
+        else:
+            w, h, base = width, height, pixels[x0, y0]
+        if w <= 0 or h <= 0:
+            continue
+        if name == "tl":
+            poly = [(0, 0), (w, 0), (0, h)]
+        elif name == "tr":
+            poly = [(img_w, 0), (img_w - w, 0), (img_w, h)]
+        elif name == "bl":
+            poly = [(0, img_h), (w, img_h), (0, img_h - h)]
+        else:  # br
+            poly = [(img_w, img_h), (img_w - w, img_h), (img_w, img_h - h)]
+        draw.polygon(poly, fill=base)
+
+    return img
+
+
 def normalize_image(img, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
     """Normalize ``img`` using per-channel ``mean`` and ``std``.
 
