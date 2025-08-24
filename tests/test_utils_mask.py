@@ -79,3 +79,22 @@ def test_mask_corner_artifacts_edge_artifact():
     assert pixels[w - 3, h - 3] == (0, 0, 0)
     # just outside overlay remains white
     assert pixels[w - ow - 1, h - 1] == (255, 255, 255)
+
+
+def test_mask_corner_artifacts_rectangular_overlay():
+    """Rectangular overlays are fully masked."""
+    size = (100, 100)
+    img = Image.new("RGB", size, (255, 255, 255))
+    draw = ImageDraw.Draw(img)
+    w, h = size
+    ow, oh = 20, 15
+    # rectangular overlay with a blue artefact in the top-right corner
+    draw.rectangle([0, 0, ow - 1, oh - 1], fill=(0, 0, 0))
+    draw.rectangle([ow // 2, 1, ow - 2, oh - 2], fill=(0, 0, 255))
+
+    masked = mask_corner_artifacts(img, auto_detect=True, threshold=1)
+    pixels = masked.load()
+    # artefact removed
+    assert pixels[ow - 3, 4] == (0, 0, 0)
+    # outside overlay untouched
+    assert pixels[ow + 1, oh + 1] == (255, 255, 255)

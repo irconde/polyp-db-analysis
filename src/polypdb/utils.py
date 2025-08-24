@@ -220,6 +220,9 @@ def mask_corner_artifacts(
         When ``True`` (default), the size of the overlay in each corner is
         determined automatically by scanning outward from the corner until
         pixel values diverge from the base corner colour by ``threshold``.
+        If the diagonally opposite corner of the measured region has the
+        same colour, a rectangular overlay is assumed; otherwise, a
+        triangular region is masked.
     threshold:
         Maximum per-channel colour distance to still be considered part of the
         overlay during auto detection.
@@ -227,7 +230,7 @@ def mask_corner_artifacts(
         Allow short sequences of pixels that differ from the corner colour by
         less than ``max_colour_run`` pixels when measuring the overlay size.
         This helps cover logos or indicators touching the image edges, such as
-        the small blue rectangle in some frames.
+        small coloured rectangles in some frames.
 
     Returns
     -------
@@ -297,15 +300,29 @@ def mask_corner_artifacts(
             w, h, base = width, height, pixels[x0, y0]
         if w <= 0 or h <= 0:
             continue
-        if name == "tl":
-            poly = [(0, 0), (w, 0), (0, h)]
-        elif name == "tr":
-            poly = [(img_w, 0), (img_w - w, 0), (img_w, h)]
-        elif name == "bl":
-            poly = [(0, img_h), (w, img_h), (0, img_h - h)]
-        else:  # br
-            poly = [(img_w, img_h), (img_w - w, img_h), (img_w, img_h - h)]
-        draw.polygon(poly, fill=base)
+        x1 = x0 + x_step * (w - 1)
+        y1 = y0 + y_step * (h - 1)
+        if 0 <= x1 < img_w and 0 <= y1 < img_h and not _differs(pixels[x1, y1], base):
+            # rectangular overlay
+            if name == "tl":
+                rect = [0, 0, w - 1, h - 1]
+            elif name == "tr":
+                rect = [img_w - w, 0, img_w - 1, h - 1]
+            elif name == "bl":
+                rect = [0, img_h - h, w - 1, img_h - 1]
+            else:  # br
+                rect = [img_w - w, img_h - h, img_w - 1, img_h - 1]
+            draw.rectangle(rect, fill=base)
+        else:
+            if name == "tl":
+                poly = [(0, 0), (w, 0), (0, h)]
+            elif name == "tr":
+                poly = [(img_w, 0), (img_w - w, 0), (img_w, h)]
+            elif name == "bl":
+                poly = [(0, img_h), (w, img_h), (0, img_h - h)]
+            else:  # br
+                poly = [(img_w, img_h), (img_w - w, img_h), (img_w, img_h - h)]
+            draw.polygon(poly, fill=base)
 
     return img
 
