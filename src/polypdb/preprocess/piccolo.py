@@ -175,7 +175,7 @@ def _derive_bboxes(df: pd.DataFrame, src_dir: str, work_dir: str) -> pd.DataFram
     df["BOUNDING BOX"] = list(bboxes)
     df["WIDTH"] = list(widths)
     df["HEIGHT"] = list(heights)
-    df = df[df["BOUNDING BOX"] != ""]
+    df = df[df["BOUNDING BOX"] != ""].reset_index(drop=True)
     return df.drop(columns=["SET"])
 
 
