@@ -7,6 +7,7 @@ from .merge import merge_datasets, dataset_statistics_from_canonical
 from .preprocess import CONVERTERS
 from .ultralytics import prepare_dataset, prepare_classification_dataset
 from .count_samples import count_samples
+from .utils import crop_and_mask_corner_artifacts
 
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,31 @@ def main() -> None:
         "canonical_dir", help="Path to the canonical dataset directory"
     )
 
+    mask_parser = subparsers.add_parser(
+        "mask-corners", help="Crop images and mask corner artifacts"
+    )
+    mask_parser.add_argument("src_dir", help="Directory containing input images")
+    mask_parser.add_argument(
+        "dest_dir", help="Directory to save processed images"
+    )
+    mask_parser.add_argument(
+        "--padding-color",
+        default="0,0,0",
+        help="RGB padding colour to strip before masking (default: 0,0,0)",
+    )
+    mask_parser.add_argument(
+        "--padding-threshold",
+        type=int,
+        default=10,
+        help="Colour deviation allowed when removing padding",
+    )
+    mask_parser.add_argument(
+        "--threshold",
+        type=int,
+        default=10,
+        help="Colour deviation threshold for corner artefact detection",
+    )
+
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -87,6 +113,15 @@ def main() -> None:
                 logger.info("Class %s: %s samples", class_id, cnt)
     elif args.command == "stats":
         dataset_statistics_from_canonical(args.canonical_dir)
+    elif args.command == "mask-corners":
+        padding_color = tuple(int(c) for c in args.padding_color.split(","))
+        crop_and_mask_corner_artifacts(
+            args.src_dir,
+            args.dest_dir,
+            padding_color=padding_color,
+            padding_threshold=args.padding_threshold,
+            threshold=args.threshold,
+        )
     elif args.command == "pipeline":
         cfg = load_config(args.config)
         base_path = cfg["base_path"]

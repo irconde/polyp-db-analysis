@@ -150,6 +150,15 @@ information from image corners. With ``auto_detect=True`` (default) the
 function scans outward from each corner until the pixel values differ from the
 corner colour, then masks the discovered triangular region.
 
+To process a directory of images, cropping away padding before masking, run:
+
+```bash
+polypdb mask-corners INPUT_DIR OUTPUT_DIR
+```
+
+This command writes cropped and cleaned images to ``OUTPUT_DIR`` using the
+auto-detection behaviour.
+
 ## Development
 
 Run tests with `pytest` to verify changes.
