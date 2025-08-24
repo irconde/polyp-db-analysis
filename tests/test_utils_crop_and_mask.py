@@ -44,14 +44,12 @@ def test_crop_and_mask_corner_artifacts(tmp_path):
         "br": (14, 9),
     }
     base = _make_image(overlays)
-    padded = Image.new("RGB", (110, 110), (0, 0, 0))
-    padded.paste(base, (5, 5))
 
     src = tmp_path / "src"
     dst = tmp_path / "dst"
     src.mkdir()
     dst.mkdir()
-    padded.save(src / "img.png")
+    base.save(src / "img.png")
 
     crop_and_mask_corner_artifacts(
         src, dst, padding_color=(0, 0, 0), padding_threshold=0, threshold=1
@@ -75,3 +73,4 @@ def test_crop_and_mask_corner_artifacts(tmp_path):
     for inside, outside in inside_outside.values():
         assert pixels[inside] == (0, 0, 0)
         assert pixels[outside] == (255, 255, 255)
+

@@ -21,8 +21,8 @@ def get_image_size(image_path):
     return width, height
 
 
-def crop_image_padding(img_path, cropped_img_path, mask_path=None, cropped_mask_path=None, padding_color=(0, 0, 0),
-                       threshold=10):
+def crop_image_padding(img_path, cropped_img_path, mask_path=None, cropped_mask_path=None, padding_color=(15, 15, 15),
+                       threshold=20):
     """
     Crops the image and mask to remove any padding.
     Args:
@@ -30,8 +30,8 @@ def crop_image_padding(img_path, cropped_img_path, mask_path=None, cropped_mask_
         cropped_img_path: Path to save the cropped image.
         mask_path: Path to the input mask.
         cropped_mask_path: Path to save the cropped mask.
-        padding_color: Color to check for padding.
-        threshold: Threshold for color difference.
+        padding_color: Color to check for padding. Defaults to ``(15, 15, 15)``.
+        threshold: Threshold for color difference. Defaults to ``20``.
     Returns:
         None. Saves the cropped image and mask to the specified paths.
     """
