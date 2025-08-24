@@ -205,6 +205,7 @@ def mask_corner_artifacts(
     height=50,
     auto_detect=True,
     threshold=10,
+    max_colour_run=25,
 ):
     """Mask camera overlays or logos in the four image corners.
 
@@ -222,6 +223,11 @@ def mask_corner_artifacts(
     threshold:
         Maximum per-channel colour distance to still be considered part of the
         overlay during auto detection.
+    max_colour_run:
+        Allow short sequences of pixels that differ from the corner colour by
+        less than ``max_colour_run`` pixels when measuring the overlay size.
+        This helps cover logos or indicators touching the image edges, such as
+        the small blue rectangle in some frames.
 
     Returns
     -------
@@ -239,16 +245,42 @@ def mask_corner_artifacts(
 
     def _measure(x0, y0, x_step, y_step):
         base = pixels[x0, y0]
-        w = 0
+        # width
         x = x0
-        while 0 <= x < img_w and not _differs(pixels[x, y0], base):
+        run = 0
+        w = 0
+        found = False
+        while 0 <= x < img_w:
+            if _differs(pixels[x, y0], base):
+                run += 1
+                found = True
+            else:
+                run = 0
             w += 1
+            if run > max_colour_run:
+                w -= run
+                break
             x += x_step
-        h = 0
+        if not found:
+            w = 0
+        # height
         y = y0
-        while 0 <= y < img_h and not _differs(pixels[x0, y], base):
+        run = 0
+        h = 0
+        found = False
+        while 0 <= y < img_h:
+            if _differs(pixels[x0, y], base):
+                run += 1
+                found = True
+            else:
+                run = 0
             h += 1
+            if run > max_colour_run:
+                h -= run
+                break
             y += y_step
+        if not found:
+            h = 0
         return w, h, base
 
     corners = [

@@ -59,3 +59,23 @@ def test_mask_corner_artifacts_auto_detect():
     for corner, (inside, outside) in inside_outside.items():
         assert pixels[inside] == (0, 0, 0)
         assert pixels[outside] == (255, 255, 255)
+
+
+def test_mask_corner_artifacts_edge_artifact():
+    """Artifacts touching the image edge are also removed."""
+    size = (100, 100)
+    img = Image.new("RGB", size, (255, 255, 255))
+    draw = ImageDraw.Draw(img)
+    w, h = size
+    ow = oh = 20
+    # base overlay triangle
+    draw.polygon([(w, h), (w - ow, h), (w, h - oh)], fill=(0, 0, 0))
+    # blue rectangle touching the bottom edge inside the overlay
+    draw.rectangle([w - ow + 5, h - 5, w - 2, h - 1], fill=(0, 0, 255))
+
+    masked = mask_corner_artifacts(img, auto_detect=True, threshold=1)
+    pixels = masked.load()
+    # inside rectangle now black
+    assert pixels[w - 3, h - 3] == (0, 0, 0)
+    # just outside overlay remains white
+    assert pixels[w - ow - 1, h - 1] == (255, 255, 255)
