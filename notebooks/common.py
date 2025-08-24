@@ -149,7 +149,8 @@ def draw_bounding_boxes(bounding_boxes, image_path, save_path):
     # Open the image
     with Image.open(image_path) as img:
         draw = ImageDraw.Draw(img)
-        coordinates = [int(coord.strip()) for coord in bounding_boxes.split(',') if coord.strip()]
+        coordinates = [int(coord.strip())
+                       for coord in bounding_boxes.split(',') if coord.strip()]
         draw.rectangle(coordinates, outline="red", width=2)
 
         # Save the image with bounding boxes

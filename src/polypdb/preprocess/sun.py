@@ -154,7 +154,6 @@ def _drop_duplicate_frames(
         for path in drop_paths:
             logger.debug("Skipping cached duplicate frame: %s", path)
         df = df[~df["SRC_PATH"].isin(drop_paths)]
-
     if rows_to_update:
         update_df = pd.DataFrame(rows_to_update)
         cache_df = pd.concat(

@@ -46,7 +46,8 @@ def _collect_metadata(src_dir: str, metadata_filename: str = "clinical metadata_
         ``pandas.DataFrame`` with normalised metadata columns.
     """
 
-    df = pd.read_csv(os.path.join(src_dir, metadata_filename), delimiter=";", encoding="latin1")
+    df = pd.read_csv(os.path.join(src_dir, metadata_filename),
+                     delimiter=";", encoding="latin1")
     df = df.replace("-", pd.NA).dropna(how="all").dropna(axis=1, how="all")
     df = df.drop(
         columns=[
@@ -101,10 +102,13 @@ def _expand_frames(src_dir: str, meta_df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=list(meta_df.columns) + ["FRAME", "SET"])
 
     frame_df = pd.concat(frames, ignore_index=True)
-    meta_unique = meta_df.drop_duplicates(subset=["CODE - LESION", "CODE - VIDEO"])
-    df = frame_df.merge(meta_unique, on=["CODE - LESION", "CODE - VIDEO"], how="left")
+    meta_unique = meta_df.drop_duplicates(
+        subset=["CODE - LESION", "CODE - VIDEO"])
+    df = frame_df.merge(
+        meta_unique, on=["CODE - LESION", "CODE - VIDEO"], how="left")
     df = df.dropna(subset=["PARIS CLASSIFICATION"])
-    df = df.rename(columns={"PARIS CLASSIFICATION": "SHAPE", "POLYP SIZE (mm)": "SIZE"})
+    df = df.rename(
+        columns={"PARIS CLASSIFICATION": "SHAPE", "POLYP SIZE (mm)": "SIZE"})
     df["SHAPE"] = (
         df["SHAPE"]
         .str.replace("l", "I", regex=False)
@@ -135,10 +139,12 @@ def _derive_bboxes(df: pd.DataFrame, src_dir: str, work_dir: str) -> pd.DataFram
     def _process(row) -> tuple[str, int, int]:
         frame_path = os.path.join(src_dir, row.SET, "polyps", row.FRAME)
         mask_path = os.path.join(
-            src_dir, row.SET, "masks", row.FRAME.replace(".png", "_Corrected.tif")
+            src_dir, row.SET, "masks", row.FRAME.replace(
+                ".png", "_Corrected.tif")
         )
         cropped_frame_path = os.path.join(cropped_frame_dir, row.FRAME)
-        cropped_mask_path = os.path.join(cropped_mask_dir, row.FRAME.replace(".png", ".tif"))
+        cropped_mask_path = os.path.join(
+            cropped_mask_dir, row.FRAME.replace(".png", ".tif"))
 
         crop_image_padding(
             frame_path,
@@ -207,51 +213,35 @@ def _infer_image_type(img_dir: str, df: pd.DataFrame) -> pd.Series:
 
     features: list[np.ndarray] = []
     indices: list[int] = []
-    unreadable: list[int] = []
+
+    def extract_color_histogram(image):
+        # Convert image to RGB (OpenCV loads images in BGR)
+        image = cv2.cvtColor(np.array(image), cv2.COLOR_BGR2RGB)
+        # Compute the color histogram
+        hist = cv2.calcHist([image], [0, 1, 2], None, [
+                            8, 8, 8], [0, 256, 0, 256, 0, 256])
+        # Normalize the histogram
+        hist = cv2.normalize(hist, hist).flatten()
+        return hist
+
     for idx, frame in enumerate(df["FRAME"]):
         path = os.path.join(img_dir, frame)
-        img = cv2.imread(path)
-        if img is None:
-            try:
-                with Image.open(path) as pil_img:
-                    img = np.array(pil_img)
-                if img.ndim == 2:
-                    img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-                else:
-                    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-            except Exception as exc:  # pragma: no cover - diagnostic only
-                logger.warning("Unable to read %s: %s", frame, exc)
-                unreadable.append(idx)
-                continue
         try:
-            # OpenCV loads images in BGR format; convert to RGB so that the
-            # histogram reflects the expected colour channels.
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            hist = cv2.calcHist(
-                [img],
-                [0, 1, 2],
-                None,
-                [8, 8, 8],
-                [0, 256, 0, 256, 0, 256],
-            )
-            hist = cv2.normalize(hist, hist).flatten()
-            features.append(hist)
-            indices.append(idx)
-        except Exception as exc:  # pragma: no cover - diagnostic only
-            logger.debug("Failed to process %s: %s", frame, exc)
-
-    if unreadable:
-        bad_frames = ", ".join(f"{i}:{df['FRAME'][i]}" for i in unreadable)
-        raise ValueError(f"Failed to read images at indices: {bad_frames}")
-
-    series = pd.Series(pd.NA, index=range(len(df)), dtype="object")
-    if not features:
-        return series
+            with Image.open(path) as img:
+                hist = extract_color_histogram(img)
+                features.append(hist)
+                indices.append(idx)
+        except Exception as exc:
+            logger.debug("Unable to read %s: %s", frame, exc)
 
     kmeans = KMeans(n_clusters=2, random_state=0, n_init=10).fit(features)
-    for i, label in zip(indices, kmeans.labels_):
-        series.iat[i] = "WL" if label == 0 else "NBI"
-    return series
+    labels = kmeans.labels_
+
+    # Add the classification results to a new column in the DataFrame
+    image_types = pd.Series(pd.NA, index=df.index)
+    for idx, label in zip(indices, labels):
+        image_types.at[idx] = "WL" if label == 0 else "NBI"
+    return image_types
 
 
 def _finalise_metadata(df: pd.DataFrame) -> pd.DataFrame:
@@ -289,6 +279,7 @@ def convert_to_standard_layout(
     logger.info("Converting PICCOLO dataset from %s to %s", src_dir, dest_dir)
     meta = _collect_metadata(src_dir, metadata_filename)
     frames = _expand_frames(src_dir, meta)
+    logger.info("Found %d frames with polyp annotations", len(frames))
 
     with tempfile.TemporaryDirectory() as work_dir:
         frames = _derive_bboxes(frames, src_dir, work_dir)
