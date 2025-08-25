@@ -658,3 +658,73 @@ def validate_conversion(dest_dir, df, filename_col='FRAME'):
     logger.info(
         "Validated conversion for %s: %d rows match %d images", dest_dir, df_count, file_count
     )
+
+
+def create_text_mask(img_path, mask_path, ocr=None):
+    """Create a rectangular text mask for ``img_path`` using PaddleOCR.
+
+    The DB detector from :mod:`paddleocr` is employed to localise text
+    regions.  For each detected text polygon a minimal axis-aligned
+    rectangle is drawn onto the mask.
+
+    Parameters
+    ----------
+    img_path:
+        Location of the input image.
+    mask_path:
+        Output path where the mask image will be saved.  The mask uses a
+        single ``L`` channel with ``255`` indicating detected text.
+    ocr:
+        Optional pre-initialised :class:`paddleocr.PaddleOCR` instance.
+        When ``None`` an instance configured for English detection only
+        is created on the fly.
+    """
+
+    if ocr is None:
+        from paddleocr import PaddleOCR  # type: ignore
+
+        ocr = PaddleOCR(use_angle_cls=False, lang="en")
+
+    result = ocr.ocr(os.fspath(img_path), det=True, rec=False, cls=False)
+
+    with Image.open(img_path) as img:
+        mask = Image.new("L", img.size, 0)
+        draw = ImageDraw.Draw(mask)
+
+        for line in result:
+            box = line[0]
+            xs = [p[0] for p in box]
+            ys = [p[1] for p in box]
+            rect = [min(xs), min(ys), max(xs), max(ys)]
+            draw.rectangle(rect, fill=255)
+
+        _save_image(mask, mask_path)
+
+
+def create_text_masks(src_dir, dest_dir, ocr=None):
+    """Generate text masks for all images in ``src_dir``.
+
+    Files with extensions commonly associated with images are processed and
+    a corresponding ``*_mask.png`` file is written to ``dest_dir``.
+    ``ocr`` is passed to :func:`create_text_mask` to avoid repeatedly
+    initialising the detector when processing many images.
+    """
+
+    src_dir = os.fspath(src_dir)
+    dest_dir = os.fspath(dest_dir)
+    os.makedirs(dest_dir, exist_ok=True)
+
+    if ocr is None:
+        from paddleocr import PaddleOCR  # type: ignore
+
+        ocr = PaddleOCR(use_angle_cls=False, lang="en")
+
+    for name in os.listdir(src_dir):
+        if not name.lower().endswith(
+            (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp")
+        ):
+            continue
+        src_path = os.path.join(src_dir, name)
+        base = os.path.splitext(name)[0]
+        dest_path = os.path.join(dest_dir, f"{base}_mask.png")
+        create_text_mask(src_path, dest_path, ocr=ocr)
