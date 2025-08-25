@@ -210,6 +210,7 @@ def mask_corner_artifacts(
     threshold: int = 10,
     max_colour_run: int = 25,
     dark_thresh: int = 40,
+    max_auto_fraction: float = 0.15,
     fill_mode: str = "base",
 ):
     """Mask camera overlays or logos in the four image corners.
@@ -244,6 +245,10 @@ def mask_corner_artifacts(
     dark_thresh:
         Grayscale value below which a pixel is considered part of the dark
         padding.  Defaults to ``40``.
+    max_auto_fraction:
+        Maximum fraction of the image dimension that auto detection may mask.
+        This prevents large dark regions from being fully covered.  Defaults to
+        ``0.15``.
     fill_mode:
         Fill colour for the masked region. ``"base"`` (default) reuses the
         corner colour.  A fixed RGB colour can be provided via
@@ -353,6 +358,10 @@ def mask_corner_artifacts(
     for name, x0, y0, x_step, y_step, poly_fn in corners:
         if auto_detect:
             w, h, base = _measure(x0, y0, x_step, y_step, img_w, img_h)
+            max_w = int(img_w * max_auto_fraction)
+            max_h = int(img_h * max_auto_fraction)
+            w = min(w, max_w)
+            h = min(h, max_h)
         else:
             w, h, base = width, height, pixels[x0, y0]
         if w <= 0 or h <= 0:
@@ -392,6 +401,7 @@ def crop_and_mask_corner_artifacts(
     padding_threshold=20,
     threshold=10,
     dark_thresh=40,
+    max_auto_fraction=0.15,
 ):
     """Mask corner overlays then crop padding using auto detection.
 
@@ -411,6 +421,9 @@ def crop_and_mask_corner_artifacts(
         Threshold for auto-detecting overlay size in :func:`mask_corner_artifacts`.
     dark_thresh : int
         Gray threshold used to classify padding during corner masking.
+    max_auto_fraction : float
+        Maximum fraction of the image dimension that auto detection may mask
+        when calling :func:`mask_corner_artifacts`.
     """
 
     src_dir = os.fspath(src_dir)
@@ -430,6 +443,7 @@ def crop_and_mask_corner_artifacts(
                 auto_detect=True,
                 threshold=threshold,
                 dark_thresh=dark_thresh,
+                max_auto_fraction=max_auto_fraction,
             )
             _save_image(masked, out_path)
         crop_image_padding(

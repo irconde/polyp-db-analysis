@@ -90,6 +90,15 @@ def main() -> None:
         default=10,
         help="Colour deviation threshold for corner artefact detection",
     )
+    mask_parser.add_argument(
+        "--max-auto-fraction",
+        type=float,
+        default=0.15,
+        help=(
+            "Maximum fraction of the image dimension that auto detection may mask "
+            "when removing corner artefacts (default: 0.15)"
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -121,6 +130,7 @@ def main() -> None:
             padding_color=padding_color,
             padding_threshold=args.padding_threshold,
             threshold=args.threshold,
+            max_auto_fraction=args.max_auto_fraction,
         )
     elif args.command == "pipeline":
         cfg = load_config(args.config)
