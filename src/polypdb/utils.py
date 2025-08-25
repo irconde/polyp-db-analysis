@@ -7,10 +7,10 @@ from tqdm import tqdm
 
 from PIL import Image, ImageDraw
 from matplotlib import pyplot as plt
-import cv2
 import numpy as np
 import tifffile
 from typing import Optional, Tuple
+import typing as t
 
 
 logger = logging.getLogger(__name__)
@@ -660,7 +660,7 @@ def validate_conversion(dest_dir, df, filename_col='FRAME'):
     )
 
 
-def create_text_mask(img_path, mask_path, ocr=None):
+def create_text_mask(img_path, mask_path, ocr=None, preprocess=True):
     """Create a rectangular text mask for ``img_path`` using PaddleOCR.
 
     The DB detector from :mod:`paddleocr` is employed to localise text
@@ -678,6 +678,10 @@ def create_text_mask(img_path, mask_path, ocr=None):
         Optional pre-initialised :class:`paddleocr.PaddleOCR` instance.
         When ``None`` an instance configured for English detection only
         is created on the fly.
+    preprocess:
+        When ``True`` an OpenCV based preprocessing pipeline (grayscale
+        conversion, adaptive thresholding and dilation) is applied before
+        running the detector.  Disable for raw images.
     """
 
     if ocr is None:
@@ -690,7 +694,27 @@ def create_text_mask(img_path, mask_path, ocr=None):
 
         ocr = PaddleOCR(use_angle_cls=False, lang="en")
 
-    result = ocr.ocr(os.fspath(img_path), det=True, rec=False, cls=False)
+    img_for_ocr: t.Any
+    if preprocess:
+        try:
+            import cv2  # type: ignore
+        except Exception:  # pragma: no cover - handled gracefully
+            cv2 = None  # type: ignore
+
+        if cv2 is not None:
+            img = cv2.imread(os.fspath(img_path))
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            thresh = cv2.adaptiveThreshold(
+                gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 11, 2
+            )
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+            img_for_ocr = cv2.dilate(thresh, kernel, iterations=1)
+        else:
+            img_for_ocr = os.fspath(img_path)
+    else:
+        img_for_ocr = os.fspath(img_path)
+
+    result = ocr.ocr(img_for_ocr, det=True, rec=False, cls=False)
 
     with Image.open(img_path) as img:
         mask = Image.new("L", img.size, 0)
@@ -706,13 +730,15 @@ def create_text_mask(img_path, mask_path, ocr=None):
         _save_image(mask, mask_path)
 
 
-def create_text_masks(src_dir, dest_dir, ocr=None):
+def create_text_masks(src_dir, dest_dir, ocr=None, preprocess=True):
     """Generate text masks for all images in ``src_dir``.
 
     Files with extensions commonly associated with images are processed and
     a corresponding ``*_mask.png`` file is written to ``dest_dir``.
     ``ocr`` is passed to :func:`create_text_mask` to avoid repeatedly
     initialising the detector when processing many images.
+    ``preprocess`` controls whether the OpenCV pipeline is applied before
+    detection for all images.
     """
 
     src_dir = os.fspath(src_dir)
@@ -737,4 +763,4 @@ def create_text_masks(src_dir, dest_dir, ocr=None):
         src_path = os.path.join(src_dir, name)
         base = os.path.splitext(name)[0]
         dest_path = os.path.join(dest_dir, f"{base}_mask.png")
-        create_text_mask(src_path, dest_path, ocr=ocr)
+        create_text_mask(src_path, dest_path, ocr=ocr, preprocess=preprocess)
