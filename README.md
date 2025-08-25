@@ -4,9 +4,12 @@ Utilities for merging colonoscopy polyp datasets and preparing them for object d
 
 ## Installation
 
-Install the package and its dependencies:
+Install the package and its dependencies.  The OCR utilities rely on
+`PaddleOCR`, which in turn requires the `paddlepaddle` runtime.  Install
+`paddlepaddle` first, then the package itself:
 
 ```bash
+pip install "paddlepaddle<3"
 pip install -e .
 ```
 

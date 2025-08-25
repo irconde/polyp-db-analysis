@@ -681,7 +681,12 @@ def create_text_mask(img_path, mask_path, ocr=None):
     """
 
     if ocr is None:
-        from paddleocr import PaddleOCR  # type: ignore
+        try:
+            from paddleocr import PaddleOCR  # type: ignore
+        except ModuleNotFoundError as exc:
+            raise ModuleNotFoundError(
+                "PaddleOCR is unavailable. Install paddlepaddle with `pip install \"paddlepaddle<3\"`"  # noqa: E501
+            ) from exc
 
         ocr = PaddleOCR(use_angle_cls=False, lang="en")
 
@@ -715,7 +720,12 @@ def create_text_masks(src_dir, dest_dir, ocr=None):
     os.makedirs(dest_dir, exist_ok=True)
 
     if ocr is None:
-        from paddleocr import PaddleOCR  # type: ignore
+        try:
+            from paddleocr import PaddleOCR  # type: ignore
+        except ModuleNotFoundError as exc:
+            raise ModuleNotFoundError(
+                "PaddleOCR is unavailable. Install paddlepaddle with `pip install \"paddlepaddle<3\"`"  # noqa: E501
+            ) from exc
 
         ocr = PaddleOCR(use_angle_cls=False, lang="en")
 
