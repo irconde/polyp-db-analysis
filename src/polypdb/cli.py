@@ -7,7 +7,7 @@ from .merge import merge_datasets, dataset_statistics_from_canonical
 from .preprocess import CONVERTERS
 from .ultralytics import prepare_dataset, prepare_classification_dataset
 from .count_samples import count_samples
-from .utils import crop_and_mask_corner_artifacts
+from .utils import crop_and_mask_corner_artifacts, create_text_masks
 
 
 logger = logging.getLogger(__name__)
@@ -100,6 +100,14 @@ def main() -> None:
         ),
     )
 
+    text_mask_parser = subparsers.add_parser(
+        "text-masks", help="Detect text and create mask images"
+    )
+    text_mask_parser.add_argument("src_dir", help="Directory containing input images")
+    text_mask_parser.add_argument(
+        "dest_dir", help="Directory to save generated mask images"
+    )
+
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -132,6 +140,8 @@ def main() -> None:
             threshold=args.threshold,
             max_auto_fraction=args.max_auto_fraction,
         )
+    elif args.command == "text-masks":
+        create_text_masks(args.src_dir, args.dest_dir)
     elif args.command == "pipeline":
         cfg = load_config(args.config)
         base_path = cfg["base_path"]

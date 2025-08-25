@@ -18,7 +18,8 @@ dependencies = [
     "scikit-image",
     "tifffile",
     "opencv-python-headless",
-    "ImageHash"
+    "ImageHash",
+    "paddleocr<3"
 ]
 
 [project.scripts]
