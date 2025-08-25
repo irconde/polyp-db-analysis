@@ -7,8 +7,10 @@ from tqdm import tqdm
 
 from PIL import Image, ImageDraw
 from matplotlib import pyplot as plt
+import cv2
 import numpy as np
 import tifffile
+from typing import Optional, Tuple
 
 
 logger = logging.getLogger(__name__)
@@ -201,14 +203,23 @@ def resize_with_padding(img, target_size=(224, 224), fill_color=(0, 0, 0)):
 
 
 def mask_corner_artifacts(
-    img,
-    width=50,
-    height=50,
-    auto_detect=True,
-    threshold=10,
-    max_colour_run=25,
+    img: Image.Image,
+    width: int = 50,
+    height: int = 50,
+    auto_detect: bool = True,
+    threshold: int = 10,
+    max_colour_run: int = 25,
+    dark_thresh: int = 40,
+    fill_mode: str = "base",
 ):
     """Mask camera overlays or logos in the four image corners.
+
+    This implementation mirrors the standalone script that reliably removes the
+    triangular corner pads used in colonoscopy frames.  Auto-detection is guided
+    both by colour similarity and by a grayscale ``dark`` mask so that the mask
+    does not extend into the valid field of view.  Short runs of non-matching
+    pixels are tolerated which ensures small artefacts touching the image edge
+    are still covered.
 
     Parameters
     ----------
@@ -220,91 +231,145 @@ def mask_corner_artifacts(
     auto_detect:
         When ``True`` (default), the size of the overlay in each corner is
         determined automatically by scanning outward from the corner until
-        pixel values diverge from the base corner colour by ``threshold``.
-        If the diagonally opposite corner of the measured region has the
-        same colour, a rectangular overlay is assumed; otherwise, a
-        triangular region is masked.
+        pixel values diverge from the base corner colour by ``threshold`` and
+        remain darker than ``dark_thresh``.  If the diagonally opposite corner of
+        the measured region has the same colour, a rectangular overlay is
+        assumed; otherwise a triangular region is masked.
     threshold:
         Maximum per-channel colour distance to still be considered part of the
         overlay during auto detection.
     max_colour_run:
-        Allow short sequences of pixels that differ from the corner colour by
-        less than ``max_colour_run`` pixels when measuring the overlay size.
-        This helps cover logos or indicators touching the image edges, such as
-        small coloured rectangles in some frames.
+        Allow short sequences of differing pixels when measuring the overlay
+        size.  This helps cover logos or indicators touching the image edges.
+    dark_thresh:
+        Grayscale value below which a pixel is considered part of the dark
+        padding.  Defaults to ``40``.
+    fill_mode:
+        Fill colour for the masked region. ``"base"`` (default) reuses the
+        corner colour.  A fixed RGB colour can be provided via
+        ``"rgb:R,G,B"``.
 
     Returns
     -------
     ``PIL.Image``
-        Image with corner artifacts filled using the corner colour.
+        Image with corner artifacts filled.
     """
 
-    img = img.copy()
+    img = img.convert("RGB")
     pixels = img.load()
     img_w, img_h = img.size
     draw = ImageDraw.Draw(img)
 
+    gray = cv2.cvtColor(np.array(img)[:, :, ::-1], cv2.COLOR_BGR2GRAY)
+    dark = gray < dark_thresh
+
+    fixed_fill: Optional[Tuple[int, int, int]] = None
+    if fill_mode.startswith("rgb:"):
+        try:
+            fixed_fill = tuple(
+                int(c) for c in fill_mode.split("rgb:")[1].split(",")
+            )
+            if len(fixed_fill) != 3:
+                fixed_fill = None
+        except Exception:
+            fixed_fill = None
+
     def _differs(p1, p2):
         return any(abs(int(a) - int(b)) > threshold for a, b in zip(p1[:3], p2[:3]))
 
-    def _measure(x0, y0, x_step, y_step):
+    def _measure(x0: int, y0: int, x_step: int, y_step: int, max_w: int, max_h: int):
         base = pixels[x0, y0]
-        # width
+        # horizontal run along row y0
+        run_w = 0
         x = x0
-        run = 0
-        w = 0
-        found = False
-        while 0 <= x < img_w:
-            if _differs(pixels[x, y0], base):
-                run += 1
-                found = True
+        miss = 0
+        while 0 <= x < img_w and run_w < max_w:
+            if _differs(pixels[x, y0], base) or not dark[y0, x]:
+                miss += 1
+                if miss > max_colour_run:
+                    break
             else:
-                run = 0
-            w += 1
-            if run > max_colour_run:
-                w -= run
-                break
+                miss = 0
+            run_w += 1
             x += x_step
-        if not found:
-            w = 0
-        # height
+        if miss:
+            run_w -= miss
+            if miss > max_colour_run:
+                run_w += 1
+        run_w = max(0, run_w)
+
+        # vertical run along column x0
+        run_h = 0
         y = y0
-        run = 0
-        h = 0
-        found = False
-        while 0 <= y < img_h:
-            if _differs(pixels[x0, y], base):
-                run += 1
-                found = True
+        miss = 0
+        while 0 <= y < img_h and run_h < max_h:
+            if _differs(pixels[x0, y], base) or not dark[y, x0]:
+                miss += 1
+                if miss > max_colour_run:
+                    break
             else:
-                run = 0
-            h += 1
-            if run > max_colour_run:
-                h -= run
-                break
+                miss = 0
+            run_h += 1
             y += y_step
-        if not found:
-            h = 0
-        return w, h, base
+        if miss:
+            run_h -= miss
+            if miss > max_colour_run:
+                run_h += 1
+        run_h = max(0, run_h)
+        return run_w, run_h, base
 
     corners = [
-        ("tl", 0, 0, 1, 1),
-        ("tr", img_w - 1, 0, -1, 1),
-        ("bl", 0, img_h - 1, 1, -1),
-        ("br", img_w - 1, img_h - 1, -1, -1),
+        ("tl", 0, 0, 1, 1, lambda W, H: [(0, 0), (W, 0), (0, H)]),
+        (
+            "tr",
+            img_w - 1,
+            0,
+            -1,
+            1,
+            lambda W, H: [(img_w, 0), (img_w - W, 0), (img_w, H)],
+        ),
+        (
+            "bl",
+            0,
+            img_h - 1,
+            1,
+            -1,
+            lambda W, H: [(0, img_h), (W, img_h), (0, img_h - H)],
+        ),
+        (
+            "br",
+            img_w - 1,
+            img_h - 1,
+            -1,
+            -1,
+            lambda W, H: [
+                (img_w, img_h),
+                (img_w - W, img_h),
+                (img_w, img_h - H),
+            ],
+        ),
     ]
 
-    for name, x0, y0, x_step, y_step in corners:
+    for name, x0, y0, x_step, y_step, poly_fn in corners:
         if auto_detect:
-            w, h, base = _measure(x0, y0, x_step, y_step)
+            w, h, base = _measure(x0, y0, x_step, y_step, img_w, img_h)
         else:
             w, h, base = width, height, pixels[x0, y0]
         if w <= 0 or h <= 0:
             continue
+
         x1 = x0 + x_step * (w - 1)
         y1 = y0 + y_step * (h - 1)
-        if 0 <= x1 < img_w and 0 <= y1 < img_h and not _differs(pixels[x1, y1], base):
-            # rectangular overlay
+        color = tuple(
+            int(c) for c in (fixed_fill if fixed_fill is not None else base[:3])
+        )
+
+        if (
+            0 <= x1 < img_w
+            and 0 <= y1 < img_h
+            and not _differs(pixels[x1, y1], base)
+            and dark[y1, x1]
+        ):
             if name == "tl":
                 rect = [0, 0, w - 1, h - 1]
             elif name == "tr":
@@ -313,17 +378,9 @@ def mask_corner_artifacts(
                 rect = [0, img_h - h, w - 1, img_h - 1]
             else:  # br
                 rect = [img_w - w, img_h - h, img_w - 1, img_h - 1]
-            draw.rectangle(rect, fill=base)
+            draw.rectangle(rect, fill=color)
         else:
-            if name == "tl":
-                poly = [(0, 0), (w, 0), (0, h)]
-            elif name == "tr":
-                poly = [(img_w, 0), (img_w - w, 0), (img_w, h)]
-            elif name == "bl":
-                poly = [(0, img_h), (w, img_h), (0, img_h - h)]
-            else:  # br
-                poly = [(img_w, img_h), (img_w - w, img_h), (img_w, img_h - h)]
-            draw.polygon(poly, fill=base)
+            draw.polygon(poly_fn(w, h), fill=color)
 
     return img
 
@@ -334,6 +391,7 @@ def crop_and_mask_corner_artifacts(
     padding_color=(15, 15, 15),
     padding_threshold=20,
     threshold=10,
+    dark_thresh=40,
 ):
     """Mask corner overlays then crop padding using auto detection.
 
@@ -351,6 +409,8 @@ def crop_and_mask_corner_artifacts(
         ``20``.
     threshold : int
         Threshold for auto-detecting overlay size in :func:`mask_corner_artifacts`.
+    dark_thresh : int
+        Gray threshold used to classify padding during corner masking.
     """
 
     src_dir = os.fspath(src_dir)
@@ -365,7 +425,12 @@ def crop_and_mask_corner_artifacts(
         in_path = os.path.join(src_dir, name)
         out_path = os.path.join(dest_dir, name)
         with Image.open(in_path) as img:
-            masked = mask_corner_artifacts(img, auto_detect=True, threshold=threshold)
+            masked = mask_corner_artifacts(
+                img,
+                auto_detect=True,
+                threshold=threshold,
+                dark_thresh=dark_thresh,
+            )
             _save_image(masked, out_path)
         crop_image_padding(
             out_path,
