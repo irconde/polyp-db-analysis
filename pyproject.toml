@@ -19,6 +19,7 @@ dependencies = [
     "tifffile",
     "opencv-python-headless",
     "ImageHash",
+    "paddlepaddle<3",
     "paddleocr<3"
 ]
 

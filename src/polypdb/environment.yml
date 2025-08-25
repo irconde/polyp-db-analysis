@@ -112,6 +112,7 @@ dependencies:
   - overrides=7.4.0=py312hca03da5_0
   - packaging=23.1=py312hca03da5_0
   - pandas=2.1.4=py312hd77ebd4_0
+  - paddlepaddle<3
   - pandocfilters=1.5.0=pyhd3eb1b0_0
   - parso=0.8.3=pyhd3eb1b0_0
   - pcre2=10.42=hb066dcc_0
