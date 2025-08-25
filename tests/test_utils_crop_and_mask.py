@@ -52,7 +52,12 @@ def test_crop_and_mask_corner_artifacts(tmp_path):
     base.save(src / "img.png")
 
     crop_and_mask_corner_artifacts(
-        src, dst, padding_color=(0, 0, 0), padding_threshold=0, threshold=1
+        src,
+        dst,
+        padding_color=(0, 0, 0),
+        padding_threshold=0,
+        threshold=1,
+        max_auto_fraction=1,
     )
 
     out = Image.open(dst / "img.png")

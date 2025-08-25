@@ -44,7 +44,9 @@ def test_mask_corner_artifacts_auto_detect():
         "br": (14, 9),
     }
     img = _make_image(overlays)
-    masked = mask_corner_artifacts(img, auto_detect=True, threshold=1)
+    masked = mask_corner_artifacts(
+        img, auto_detect=True, threshold=1, max_auto_fraction=1
+    )
     pixels = masked.load()
     w, h = masked.size
 
@@ -73,7 +75,9 @@ def test_mask_corner_artifacts_edge_artifact():
     # blue rectangle touching the bottom edge inside the overlay
     draw.rectangle([w - ow + 5, h - 5, w - 2, h - 1], fill=(0, 0, 255))
 
-    masked = mask_corner_artifacts(img, auto_detect=True, threshold=1)
+    masked = mask_corner_artifacts(
+        img, auto_detect=True, threshold=1, max_auto_fraction=1
+    )
     pixels = masked.load()
     # inside rectangle now black
     assert pixels[w - 3, h - 3] == (0, 0, 0)
@@ -92,9 +96,35 @@ def test_mask_corner_artifacts_rectangular_overlay():
     draw.rectangle([0, 0, ow - 1, oh - 1], fill=(0, 0, 0))
     draw.rectangle([ow // 2, 1, ow - 2, oh - 2], fill=(0, 0, 255))
 
-    masked = mask_corner_artifacts(img, auto_detect=True, threshold=1)
+    masked = mask_corner_artifacts(
+        img, auto_detect=True, threshold=1, max_auto_fraction=1
+    )
     pixels = masked.load()
     # artefact removed
     assert pixels[ow - 3, 4] == (0, 0, 0)
     # outside overlay untouched
     assert pixels[ow + 1, oh + 1] == (255, 255, 255)
+
+
+def test_mask_corner_artifacts_max_auto_fraction_cap():
+    """Masking stops once the capped size is reached."""
+    size = (200, 100)
+    img = Image.new("RGB", size, (255, 255, 255))
+    draw = ImageDraw.Draw(img)
+    # Large dark region in top-left corner (80x100)
+    draw.rectangle([0, 0, 79, 99], fill=(0, 0, 0))
+
+    masked = mask_corner_artifacts(
+        img,
+        auto_detect=True,
+        threshold=1,
+        max_auto_fraction=0.15,
+        fill_mode="rgb:255,0,0",
+    )
+    pixels = masked.load()
+    # Within capped region masked red
+    assert pixels[29, 14] == (255, 0, 0)
+    # Outside capped region but still dark remains original colour
+    assert pixels[30, 15] == (0, 0, 0)
+    # Unaffected area remains white
+    assert pixels[199, 99] == (255, 255, 255)
