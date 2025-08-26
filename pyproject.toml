@@ -20,7 +20,8 @@ dependencies = [
     "opencv-python-headless",
     "ImageHash",
     "paddlepaddle<3",
-    "paddleocr<3"
+    "paddleocr<3",
+    "simple-lama-inpainting",
 ]
 
 [project.scripts]

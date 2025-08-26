@@ -789,7 +789,14 @@ def detect_text_boxes(img, ocr, scales=(1.0, 1.5, 2.0), restrict_to_edges=True, 
 
 
 def create_text_mask(
-    img_path, mask_path, ocr=None, preprocess=True, expand=5, left_clamp=25
+    img_path,
+    mask_path,
+    ocr=None,
+    preprocess=True,
+    expand=5,
+    left_clamp=25,
+    inpaint_path=None,
+    inpaint_model=None,
 ):
     """Create an expanded rectangular text mask for ``img_path`` using PaddleOCR.
 
@@ -839,9 +846,11 @@ def create_text_mask(
 
     if cv2 is not None:
         bgr = cv2.imread(os.fspath(img_path))
+        pil_img = Image.fromarray(bgr[:, :, ::-1])
     else:
         with Image.open(img_path) as _img:
-            bgr = np.array(_img)[:, :, ::-1]
+            pil_img = _img.convert("RGB")
+            bgr = np.array(pil_img)[:, :, ::-1]
 
     scales = (1.0, 1.5, 2.0) if preprocess else (1.0,)
     rects, _ = detect_text_boxes(
@@ -866,9 +875,28 @@ def create_text_mask(
         draw.rectangle((left, top, right, bottom), fill=255)
     _save_image(mask, mask_path)
 
+    if inpaint_path is not None:
+        if inpaint_model is None:
+            try:
+                from simple_lama_inpainting import SimpleLama  # type: ignore
+            except ModuleNotFoundError as exc:
+                raise ModuleNotFoundError(
+                    "simple-lama-inpainting is unavailable. Install with `pip install simple-lama-inpainting`"
+                ) from exc
+            inpaint_model = SimpleLama()
+        inpainted = inpaint_model(pil_img, mask)
+        _save_image(inpainted, inpaint_path)
+
 
 def create_text_masks(
-    src_dir, dest_dir, ocr=None, preprocess=True, expand=5, left_clamp=25
+    src_dir,
+    dest_dir,
+    ocr=None,
+    preprocess=True,
+    expand=5,
+    left_clamp=25,
+    inpaint_dir=None,
+    inpaint_model=None,
 ):
     """Generate text masks for all images in ``src_dir``.
 
@@ -888,6 +916,17 @@ def create_text_masks(
     src_dir = os.fspath(src_dir)
     dest_dir = os.fspath(dest_dir)
     os.makedirs(dest_dir, exist_ok=True)
+    if inpaint_dir is not None:
+        inpaint_dir = os.fspath(inpaint_dir)
+        os.makedirs(inpaint_dir, exist_ok=True)
+        if inpaint_model is None:
+            try:
+                from simple_lama_inpainting import SimpleLama  # type: ignore
+            except ModuleNotFoundError as exc:
+                raise ModuleNotFoundError(
+                    "simple-lama-inpainting is unavailable. Install with `pip install simple-lama-inpainting`"
+                ) from exc
+            inpaint_model = SimpleLama()
 
     if ocr is None:
         try:
@@ -907,6 +946,9 @@ def create_text_masks(
         src_path = os.path.join(src_dir, name)
         base = os.path.splitext(name)[0]
         dest_path = os.path.join(dest_dir, f"{base}_mask.png")
+        inpaint_path = (
+            os.path.join(inpaint_dir, f"{base}.png") if inpaint_dir is not None else None
+        )
         create_text_mask(
             src_path,
             dest_path,
@@ -914,4 +956,6 @@ def create_text_masks(
             preprocess=preprocess,
             expand=expand,
             left_clamp=left_clamp,
+            inpaint_path=inpaint_path,
+            inpaint_model=inpaint_model,
         )
