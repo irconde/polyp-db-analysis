@@ -172,6 +172,26 @@ polypdb mask-corners INPUT_DIR OUTPUT_DIR \
   --padding-threshold 10
 ```
 
+`mask_viewport_auto_color_safe` helps remove small auxiliary viewports that
+occasionally appear in the bottom-left corner of endoscopic frames. The
+utility estimates the viewport's background colour and only applies the mask
+when a similar colour is detected, avoiding accidental blackouts.
+
+Process a directory of images with:
+
+```bash
+python -m polypdb.mask_viewport INPUT_DIR OUTPUT_DIR
+```
+
+The script reports which files were masked and saves the results to
+``OUTPUT_DIR`` using the original filenames. Restrict processing to a specific
+extension with ``--ext`` (default: ``.jpg``).
+
 ## Development
 
-Run tests with `pytest` to verify changes.
+Run tests with `pytest` to verify changes. The suite includes checks for the
+viewport masking helper in ``tests/test_utils_viewport_mask.py``:
+
+```bash
+pytest
+```
