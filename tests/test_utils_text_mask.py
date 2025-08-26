@@ -82,3 +82,30 @@ def test_create_text_masks(tmp_path, preprocess):
 
     assert (dst / "a_mask.png").exists()
     assert (dst / "b_mask.png").exists()
+
+
+def test_create_text_masks_inpaint(tmp_path):
+    src = tmp_path / "src"
+    mask_dst = tmp_path / "masks"
+    inpaint_dst = tmp_path / "inpaint"
+    src.mkdir()
+    mask_dst.mkdir()
+    inpaint_dst.mkdir()
+
+    Image.new("RGB", (30, 30)).save(src / "a.png")
+
+    class DummyInpaint:
+        def __call__(self, image, mask):
+            return image
+
+    create_text_masks(
+        src,
+        mask_dst,
+        ocr=DummyOCR(),
+        preprocess=False,
+        inpaint_dir=inpaint_dst,
+        inpaint_model=DummyInpaint(),
+    )
+
+    assert (mask_dst / "a_mask.png").exists()
+    assert (inpaint_dst / "a.png").exists()
