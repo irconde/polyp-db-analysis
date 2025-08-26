@@ -107,6 +107,12 @@ def main() -> None:
     text_mask_parser.add_argument(
         "dest_dir", help="Directory to save generated mask images"
     )
+    text_mask_parser.add_argument(
+        "--expand",
+        type=int,
+        default=5,
+        help="Pixels to expand each detected text mask (default: 5)",
+    )
 
     args = parser.parse_args()
 
@@ -141,7 +147,7 @@ def main() -> None:
             max_auto_fraction=args.max_auto_fraction,
         )
     elif args.command == "text-masks":
-        create_text_masks(args.src_dir, args.dest_dir)
+        create_text_masks(args.src_dir, args.dest_dir, expand=args.expand)
     elif args.command == "pipeline":
         cfg = load_config(args.config)
         base_path = cfg["base_path"]
