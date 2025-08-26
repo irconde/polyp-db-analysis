@@ -1,5 +1,5 @@
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 
 import pytest
 
@@ -81,6 +81,35 @@ def test_create_text_mask_left_edge(tmp_path):
         utils.detect_text_boxes = orig
     arr = np.array(Image.open(mask_path))
     assert arr[15, 0] == 255
+
+
+def test_create_text_mask_ui_squares(tmp_path):
+    pytest.importorskip("cv2")
+
+    img_path = tmp_path / "img.png"
+    mask_path = tmp_path / "mask.png"
+
+    img = Image.new("RGB", (100, 20), color=(0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    for i in range(6):
+        x = 5 + i * 15
+        draw.rectangle((x, 5, x + 10, 15), fill=(255, 255, 255))
+    img.save(img_path)
+
+    from polypdb import utils
+
+    utils.detect_text_boxes, orig = (
+        lambda img, ocr, **kwargs: ([], None),
+        utils.detect_text_boxes,
+    )
+    try:
+        create_text_mask(img_path, mask_path, ocr=DummyOCR(), preprocess=False)
+    finally:
+        utils.detect_text_boxes = orig
+
+    arr = np.array(Image.open(mask_path))
+    assert arr[10, 10] == 255
+    assert arr[10, 99] == 0
 
 
 @pytest.mark.parametrize("preprocess", [True, False])
