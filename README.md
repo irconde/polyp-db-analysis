@@ -187,6 +187,20 @@ The script reports which files were masked and saves the results to
 ``OUTPUT_DIR`` using the original filenames. Restrict processing to a specific
 extension with ``--ext`` (default: ``.jpg``).
 
+### Clean Hyper-Kvasir-unlabeled frames
+
+Frames from the Hyper-Kvasir-unlabeled dataset often contain viewports,
+text overlays and padding. Use the provided helper to clean and crop them
+before further processing:
+
+```bash
+python -m polypdb.clean_hyperkvasir_unlabeled INPUT_DIR OUTPUT_DIR
+```
+
+This command masks auxiliary viewports, removes detected text regions with
+PaddleOCR, crops borders and strips uniform padding, writing the cleaned
+images to ``OUTPUT_DIR``.
+
 ## Development
 
 Run tests with `pytest` to verify changes. The suite includes checks for the
@@ -195,3 +209,9 @@ viewport masking helper in ``tests/test_utils_viewport_mask.py``:
 ```bash
 pytest
 ```
+
+## Contributing
+
+Contributions are welcome! Fork the repository and open a pull request with your
+proposed changes. Please ensure the test suite passes locally by running
+`pytest` before submitting.
