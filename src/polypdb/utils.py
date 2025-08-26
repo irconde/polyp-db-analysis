@@ -747,7 +747,11 @@ def detect_text_boxes(img, ocr, scales=(1.0, 1.5, 2.0), restrict_to_edges=True, 
             else [res]
         )
         for page in pages:
+            if not page:
+                continue
             for det in page:
+                if not det or det[0] is None:
+                    continue
                 P = np.asarray(det[0], dtype=np.float32)
                 x0, y0 = P.min(axis=0)
                 x1, y1 = P.max(axis=0)
