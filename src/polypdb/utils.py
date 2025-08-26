@@ -713,7 +713,34 @@ def merge_rects(rects, gap=18, y_overlap=0.45, pad=2, H=None, W=None):
     return out
 
 
-def detect_text_boxes(img, ocr, scales=(1.0, 1.5, 2.0), restrict_to_edges=True, suppress_glare=True):
+def preprocess_for_text(img: np.ndarray) -> np.ndarray:
+    """Enhance ``img`` prior to text detection.
+
+    When OpenCV is available the image is converted to grayscale, contrast is
+    normalised and the result is inverted.  A binary image is produced via
+    Otsu's thresholding and converted back to BGR so it can be fed to OCR
+    routines expecting three channels.  If OpenCV is not available the input is
+    returned unchanged.
+    """
+
+    if cv2 is None:
+        return img
+
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    norm = cv2.equalizeHist(gray)
+    norm = cv2.bitwise_not(norm)
+    _, thresh = cv2.threshold(norm, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    return cv2.cvtColor(thresh, cv2.COLOR_GRAY2BGR)
+
+
+def detect_text_boxes(
+    img,
+    ocr,
+    scales=(1.0, 1.5, 2.0),
+    restrict_to_edges=True,
+    suppress_glare=True,
+    preprocess=True,
+):
     """Detect and merge rectangular text regions for ``img`` using ``ocr``.
 
     ``img`` should be a BGR ``numpy.ndarray``.  Detection is optionally run at
@@ -740,6 +767,9 @@ def detect_text_boxes(img, ocr, scales=(1.0, 1.5, 2.0), restrict_to_edges=True, 
                 glare, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)), 1
             )
             det_img[glare > 0] = 0
+
+        if preprocess:
+            det_img = preprocess_for_text(det_img)
 
         res = ocr.ocr(det_img, cls=False)
         rects = []
@@ -859,6 +889,7 @@ def create_text_mask(
         scales=scales,
         restrict_to_edges=True,
         suppress_glare=preprocess,
+        preprocess=preprocess,
     )
 
     mask = Image.new("L", (bgr.shape[1], bgr.shape[0]), 0)
