@@ -959,3 +959,96 @@ def create_text_masks(
             inpaint_path=inpaint_path,
             inpaint_model=inpaint_model,
         )
+
+
+def estimate_background_color(image: np.ndarray, region_frac: float = 0.25) -> Tuple[int, int, int]:
+    """Estimate median colour of the bottom-left region of ``image``.
+
+    Parameters
+    ----------
+    image:
+        BGR image array.
+    region_frac:
+        Fraction of width and height defining the region extending from the
+        bottom-left corner. Default is ``0.25`` which corresponds to the
+        lower-left quadrant.
+
+    Returns
+    -------
+    Tuple[int, int, int]
+        Median BGR colour of the sampled region.
+    """
+    h, w = image.shape[:2]
+    region = image[int(h * (1 - region_frac)) :, : int(w * region_frac)]
+    pixels = region.reshape(-1, 3)
+    median_color = np.median(pixels, axis=0).astype(np.uint8)
+    return tuple(int(c) for c in median_color)
+
+
+def is_color_similar(color: t.Sequence[int], ref=(135, 162, 18), tol: int = 35) -> bool:
+    """Return ``True`` if ``color`` is within ``tol`` of ``ref`` for all channels."""
+    return all(abs(int(c) - int(r)) <= tol for c, r in zip(color, ref))
+
+
+def mask_full_viewport_by_expanded_box(
+    image: np.ndarray,
+    color_ref: t.Sequence[int],
+    color_tol: int = 30,
+    min_area: int = 1000,
+    margin: int = 5,
+) -> np.ndarray:
+    """Create mask covering a bottom-left viewport matching ``color_ref``.
+
+    The mask is computed by thresholding ``image`` for colours close to
+    ``color_ref`` and restricting detection to the bottom-left quadrant. Each
+    detected region above ``min_area`` is expanded by ``margin`` pixels on all
+    sides and filled in the returned mask.
+    """
+    if cv2 is None:  # pragma: no cover - handled gracefully
+        raise ImportError("OpenCV is required for viewport masking")
+
+    lower = np.array([max(0, c - color_tol) for c in color_ref], dtype=np.uint8)
+    upper = np.array([min(255, c + color_tol) for c in color_ref], dtype=np.uint8)
+    color_mask = cv2.inRange(image, lower, upper)
+
+    h, w = image.shape[:2]
+    quadrant_mask = np.zeros((h, w), dtype=np.uint8)
+    quadrant_mask[int(h / 2) :, : int(w / 2)] = 255
+    combined = cv2.bitwise_and(color_mask, quadrant_mask)
+
+    contours, _ = cv2.findContours(combined, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    final_mask = np.zeros_like(combined)
+
+    for cnt in contours:
+        if cv2.contourArea(cnt) > min_area:
+            x, y, bw, bh = cv2.boundingRect(cnt)
+            x = max(0, x - margin)
+            y = max(0, y - margin)
+            bw = min(w - x, bw + 2 * margin)
+            bh = min(h - y, bh + 2 * margin)
+            cv2.rectangle(final_mask, (x, y), (x + bw, y + bh), 255, thickness=cv2.FILLED)
+
+    return final_mask
+
+
+def mask_viewport_auto_color_safe(
+    image: np.ndarray,
+    color_tol: int = 30,
+    min_area: int = 1000,
+    margin: int = 5,
+    ref_color: t.Sequence[int] = (135, 162, 18),
+    ref_tol: int = 35,
+) -> Tuple[np.ndarray, Tuple[int, int, int], bool]:
+    """Mask bottom-left viewport when its background colour looks like ``ref_color``.
+
+    Returns a tuple ``(masked_img, estimated_color, applied)`` where ``applied``
+    indicates whether masking was performed.
+    """
+    color_ref = estimate_background_color(image)
+    if not is_color_similar(color_ref, ref_color, tol=ref_tol):
+        return image.copy(), color_ref, False
+
+    mask = mask_full_viewport_by_expanded_box(image, color_ref, color_tol, min_area, margin)
+    masked_img = image.copy()
+    masked_img[mask == 255] = 0
+    return masked_img, tuple(int(c) for c in color_ref), True
