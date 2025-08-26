@@ -818,6 +818,36 @@ def detect_text_boxes(
     return best_rects, union
 
 
+def detect_ui_squares(img: np.ndarray) -> t.List[t.Tuple[int, int, int, int]]:
+    """Detect small white UI squares in ``img``.
+
+    Parameters
+    ----------
+    img:
+        BGR image array in which to search.
+
+    Returns
+    -------
+    list of ``(x0, y0, x1, y1)`` rectangles for each detected square.  When
+    OpenCV is unavailable an empty list is returned.
+    """
+
+    if cv2 is None:
+        return []
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    _, binarized = cv2.threshold(gray, 220, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(
+        binarized, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+    rects: t.List[t.Tuple[int, int, int, int]] = []
+    for c in contours:
+        x, y, w, h = cv2.boundingRect(c)
+        if 5 < w < 20 and 5 < h < 20 and abs(w - h) < 4:
+            rects.append((x, y, x + w, y + h))
+    rects.sort(key=lambda r: r[0])
+    return rects
+
+
 def create_text_mask(
     img_path,
     mask_path,
@@ -891,6 +921,10 @@ def create_text_mask(
         suppress_glare=preprocess,
         preprocess=preprocess,
     )
+
+    ui_rects = detect_ui_squares(bgr)
+    if ui_rects:
+        rects = merge_rects(rects + ui_rects, H=bgr.shape[0], W=bgr.shape[1])
 
     mask = Image.new("L", (bgr.shape[1], bgr.shape[0]), 0)
     draw = ImageDraw.Draw(mask)
