@@ -117,6 +117,10 @@ def main() -> None:
         default=5,
         help="Pixels to expand each detected text mask (default: 5)",
     )
+    text_mask_parser.add_argument(
+        "--debug-dir",
+        help="Directory to save debug images with mask contours",
+    )
 
     args = parser.parse_args()
 
@@ -156,6 +160,7 @@ def main() -> None:
             args.dest_dir,
             expand=args.expand,
             inpaint_dir=args.inpaint_dir,
+            debug_dir=args.debug_dir,
         )
     elif args.command == "pipeline":
         cfg = load_config(args.config)
