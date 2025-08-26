@@ -49,7 +49,7 @@ def _crop_padding(
 def _mask_text_regions(
     img: np.ndarray,
     ocr,
-    expand: int = 5,
+    expand: int = 10,
     left_clamp: int = 25,
 ) -> np.ndarray:
     """Detect text boxes in ``img`` and mask them with black rectangles."""
@@ -57,10 +57,10 @@ def _mask_text_regions(
     rects, _ = detect_text_boxes(
         img,
         ocr,
-        scales=(1.0, 1.5, 2.0),
-        restrict_to_edges=True,
-        suppress_glare=True,
-        preprocess=True,
+        scales=(0.8, 1.0, 1.2, 1.5, 2.0, 2.5, 3.0),
+        restrict_to_edges=False,
+        suppress_glare=False,
+        preprocess=False,
     )
     h, w = img.shape[:2]
     for x0, y0, x1, y1 in rects:

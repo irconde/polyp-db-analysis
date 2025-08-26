@@ -737,9 +737,9 @@ def detect_text_boxes(
     img,
     ocr,
     scales=(1.0, 1.5, 2.0),
-    restrict_to_edges=True,
-    suppress_glare=True,
-    preprocess=True,
+    restrict_to_edges=False,
+    suppress_glare=False,
+    preprocess=False,
 ):
     """Detect and merge rectangular text regions for ``img`` using ``ocr``.
 
