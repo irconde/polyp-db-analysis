@@ -36,7 +36,14 @@ def test_create_text_mask_expansion(tmp_path):
 
     utils.detect_text_boxes, orig = fake_detect, utils.detect_text_boxes
     try:
-        create_text_mask(img_path, mask_path, ocr=DummyOCR(), preprocess=False, expand=3)
+        create_text_mask(
+            img_path,
+            mask_path,
+            ocr=DummyOCR(),
+            preprocess=False,
+            expand=3,
+            left_clamp=0,
+        )
     finally:
         utils.detect_text_boxes = orig
     arr = np.array(Image.open(mask_path))
@@ -46,7 +53,7 @@ def test_create_text_mask_expansion(tmp_path):
 
 def test_create_text_mask_left_edge(tmp_path):
     def fake_detect(img, ocr, scales=(1.0,), restrict_to_edges=True, suppress_glare=True):
-        return [(2, 10, 8, 20)], None
+        return [(20, 10, 24, 20)], None
 
     img_path = tmp_path / "img.png"
     mask_path = tmp_path / "mask.png"

@@ -788,7 +788,9 @@ def detect_text_boxes(img, ocr, scales=(1.0, 1.5, 2.0), restrict_to_edges=True, 
     return best_rects, union
 
 
-def create_text_mask(img_path, mask_path, ocr=None, preprocess=True, expand=5):
+def create_text_mask(
+    img_path, mask_path, ocr=None, preprocess=True, expand=5, left_clamp=25
+):
     """Create an expanded rectangular text mask for ``img_path`` using PaddleOCR.
 
     The DB detector from :mod:`paddleocr` is employed to localise text
@@ -812,7 +814,9 @@ def create_text_mask(img_path, mask_path, ocr=None, preprocess=True, expand=5):
         faster but potentially less robust detection.
     expand:
         Number of pixels to grow each detected text box in all directions.
-        Boxes close to the left edge are stretched to the image border.
+    left_clamp:
+        Maximum distance from the left edge in pixels at which boxes are
+        stretched to the image border.
     """
 
     if ocr is None:
@@ -857,13 +861,15 @@ def create_text_mask(img_path, mask_path, ocr=None, preprocess=True, expand=5):
         top = max(0, y0 - expand)
         right = min(width, x1 + expand)
         bottom = min(height, y1 + expand)
-        if x0 < expand:
+        if x0 <= left_clamp:
             left = 0
         draw.rectangle((left, top, right, bottom), fill=255)
     _save_image(mask, mask_path)
 
 
-def create_text_masks(src_dir, dest_dir, ocr=None, preprocess=True, expand=5):
+def create_text_masks(
+    src_dir, dest_dir, ocr=None, preprocess=True, expand=5, left_clamp=25
+):
     """Generate text masks for all images in ``src_dir``.
 
     Files with extensions commonly associated with images are processed and
@@ -874,6 +880,9 @@ def create_text_masks(src_dir, dest_dir, ocr=None, preprocess=True, expand=5):
     detection for all images.
     expand:
         Number of pixels to grow each detected text box.
+    left_clamp:
+        Maximum distance from the left edge in pixels at which boxes are
+        stretched to the border.
     """
 
     src_dir = os.fspath(src_dir)
@@ -904,4 +913,5 @@ def create_text_masks(src_dir, dest_dir, ocr=None, preprocess=True, expand=5):
             ocr=ocr,
             preprocess=preprocess,
             expand=expand,
+            left_clamp=left_clamp,
         )
