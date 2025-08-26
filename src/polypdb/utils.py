@@ -818,8 +818,153 @@ def detect_text_boxes(
     return best_rects, union
 
 
-def detect_ui_squares(img: np.ndarray) -> t.List[t.Tuple[int, int, int, int]]:
-    """Detect small white UI squares in ``img``.
+def _detect_ui_square_row(
+    bgr: np.ndarray,
+    expected_count_range: t.Tuple[int, int] = (5, 9),
+    search_band_ratio: float = 0.35,
+    bright_pct: float = 96.0,
+    min_area_ratio: float = 2e-5,
+    max_area_ratio: float = 2e-3,
+    fill_ratio_min: float = 0.5,
+    square_ar_tol: float = 0.6,
+    mean_int_min: int = 170,
+    dilate_frac_of_box: float = 0.15,
+) -> t.Optional[t.Dict[str, t.Any]]:
+    """Detect a horizontal row of small bright squares on the left side.
+
+    The implementation follows the heuristics used in the standalone
+    ``ui_square_row_detector`` script from the project documentation.  A
+    percentile based threshold together with size and aspect-ratio filters is
+    employed to robustly locate the typical left edge UI tick marks present in
+    some datasets.
+
+    Parameters
+    ----------
+    bgr:
+        Input image in BGR format.
+    expected_count_range:
+        Minimum and maximum number of small squares to consider a valid row.
+    search_band_ratio:
+        Fraction of the image width on the left side to search in.
+    bright_pct:
+        Percentile used to determine the high threshold for bright pixels.
+    min_area_ratio / max_area_ratio:
+        Minimum and maximum square area relative to the full image.
+    fill_ratio_min:
+        Minimum contour fill ratio to accept a candidate.
+    square_ar_tol:
+        Allowed deviation from a perfect square (aspect ratio tolerance).
+    mean_int_min:
+        Minimum mean intensity of a candidate square in the contrast-enhanced
+        grayscale image.
+    dilate_frac_of_box:
+        Fraction of the average square size used to dilate the final mask.
+
+    Returns
+    -------
+    Optional dict with keys ``mask`` (``np.uint8``), ``row_boxes`` (list of
+    ``(x, y, w, h)``) and ``bbox`` (``x, y, w, h``).  ``None`` is returned when
+    no suitable row is detected.
+    """
+
+    h, w = bgr.shape[:2]
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    g = clahe.apply(gray)
+
+    thr_val = max(200, int(np.percentile(g, bright_pct)))
+    _, bin_hi = cv2.threshold(g, thr_val, 255, cv2.THRESH_BINARY)
+
+    left_w = int(search_band_ratio * w)
+    left_band = bin_hi[:, :left_w]
+
+    min_area = int((w * h) * min_area_ratio)
+    max_area = int((w * h) * max_area_ratio)
+
+    contours, _ = cv2.findContours(left_band, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    squares: t.List[t.Tuple[int, int, int, int]] = []
+    for c in contours:
+        x, y, ww, hh = cv2.boundingRect(c)
+        area = ww * hh
+        if area < min_area or area > max_area:
+            continue
+        ar = ww / float(hh) if hh else 0.0
+        if ar < square_ar_tol or ar > (1.0 / square_ar_tol):
+            continue
+        cnt_area = cv2.contourArea(c)
+        if cnt_area / max(area, 1) < fill_ratio_min:
+            continue
+        mask = np.zeros_like(left_band, dtype=np.uint8)
+        cv2.drawContours(mask, [c], -1, 255, -1)
+        mean_int = cv2.mean(g[:, :left_w], mask=mask)[0]
+        if mean_int < mean_int_min:
+            continue
+        squares.append((x, y, ww, hh))
+
+    if not squares:
+        return None
+
+    squares = sorted(squares, key=lambda b: (b[1], b[0]))
+
+    rows: t.List[t.List[t.Tuple[int, int, int, int]]] = []
+    for s in squares:
+        placed = False
+        for row in rows:
+            yh = np.mean([r[3] for r in row])
+            if abs(s[1] - np.mean([r[1] for r in row])) <= max(6, 0.8 * yh):
+                row.append(s)
+                placed = True
+                break
+        if not placed:
+            rows.append([s])
+
+    candidates = []
+    for row in rows:
+        row = sorted(row, key=lambda b: b[0])
+        n = len(row)
+        if expected_count_range[0] <= n <= expected_count_range[1]:
+            xs = [b[0] for b in row]
+            gaps = np.diff(xs)
+            if len(gaps) == 0:
+                continue
+            mean_box_w = np.mean([b[2] for b in row])
+            if np.std(gaps) <= max(5.0, 0.7 * mean_box_w):
+                candidates.append(row)
+
+    if candidates:
+        row = sorted(
+            min(candidates, key=lambda r: np.mean([b[0] for b in r])),
+            key=lambda b: b[0],
+        )
+    else:
+        row = sorted(
+            sorted(rows, key=lambda r: (-len(r), np.mean([b[0] for b in r])))[0],
+            key=lambda b: b[0],
+        )
+
+    mask = np.zeros((h, w), dtype=np.uint8)
+    for (x, y, ww, hh) in row:
+        cv2.rectangle(mask, (x, y), (x + ww, y + hh), 255, -1)
+
+    ys, xs = np.where(mask > 0)
+    x0, x1, y0, y1 = int(xs.min()), int(xs.max()), int(ys.min()), int(ys.max())
+    bbox: t.Tuple[int, int, int, int] = (x0, y0, x1 - x0 + 1, y1 - y0 + 1)
+
+    k = max(1, int(round(dilate_frac_of_box * np.mean([b[2] for b in row]))))
+    mask = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_RECT, (k, k)))
+
+    return {"mask": mask, "row_boxes": row, "bbox": bbox}
+
+
+def detect_ui_squares(img: np.ndarray) -> t.Optional[np.ndarray]:
+    """Detect a row of small white UI squares and return a mask.
+
+    The implementation searches for a horizontal sequence of bright,
+    square-ish ticks typically found on the left side of endoscopic frames.  A
+    solid bounding-box mask covering the detected row is returned.  When
+    OpenCV is unavailable or no squares are found ``None`` is returned.
 
     Parameters
     ----------
@@ -828,24 +973,42 @@ def detect_ui_squares(img: np.ndarray) -> t.List[t.Tuple[int, int, int, int]]:
 
     Returns
     -------
-    list of ``(x0, y0, x1, y1)`` rectangles for each detected square.  When
-    OpenCV is unavailable an empty list is returned.
+    ``numpy.ndarray`` mask with ``255`` marking the UI square row or ``None``
+    if not detected.
     """
 
     if cv2 is None:
-        return []
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    _, binarized = cv2.threshold(gray, 220, 255, cv2.THRESH_BINARY)
-    contours, _ = cv2.findContours(
-        binarized, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-    )
-    rects: t.List[t.Tuple[int, int, int, int]] = []
-    for c in contours:
-        x, y, w, h = cv2.boundingRect(c)
-        if 5 < w < 20 and 5 < h < 20 and abs(w - h) < 4:
-            rects.append((x, y, x + w, y + h))
-    rects.sort(key=lambda r: r[0])
-    return rects
+        return None
+
+    det = _detect_ui_square_row(img)
+    if not det:
+        # Relax size constraints for small images as a fallback
+        det = _detect_ui_square_row(img, max_area_ratio=0.1)
+    h, w = img.shape[:2]
+    if not det:
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        _, bin_img = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+        left = bin_img[:, : int(0.5 * w)]
+        contours, _ = cv2.findContours(left, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        xs, ys, xe, ye = [], [], [], []
+        for c in contours:
+            x, y, ww, hh = cv2.boundingRect(c)
+            if ww * hh < 25:
+                continue
+            xs.append(x)
+            ys.append(y)
+            xe.append(x + ww)
+            ye.append(y + hh)
+        if not xs:
+            return None
+        mask = np.zeros((h, w), dtype=np.uint8)
+        cv2.rectangle(mask, (min(xs), min(ys)), (max(xe), max(ye)), 255, -1)
+        return mask
+
+    mask = np.zeros((h, w), dtype=np.uint8)
+    x, y, bw, bh = det["bbox"]  # type: ignore
+    cv2.rectangle(mask, (x, y), (x + bw, y + bh), 255, -1)
+    return mask
 
 
 def create_text_mask(
@@ -862,7 +1025,8 @@ def create_text_mask(
 
     The DB detector from :mod:`paddleocr` is employed to localise text
     regions.  For each detected text polygon a minimal axis-aligned
-    rectangle is drawn onto the mask.
+    rectangle is drawn onto the mask.  When present, the left-side row of
+    bright UI squares is also masked out.
 
     Parameters
     ----------
@@ -922,9 +1086,7 @@ def create_text_mask(
         preprocess=preprocess,
     )
 
-    ui_rects = detect_ui_squares(bgr)
-    if ui_rects:
-        rects = merge_rects(rects + ui_rects, H=bgr.shape[0], W=bgr.shape[1])
+    ui_mask = detect_ui_squares(bgr)
 
     mask = Image.new("L", (bgr.shape[1], bgr.shape[0]), 0)
     draw = ImageDraw.Draw(mask)
@@ -938,6 +1100,11 @@ def create_text_mask(
         if x0 <= left_clamp:
             left = 0
         draw.rectangle((left, top, right, bottom), fill=255)
+
+    arr = np.array(mask)
+    if ui_mask is not None:
+        arr = np.maximum(arr, ui_mask)
+    mask = Image.fromarray(arr)
     _save_image(mask, mask_path)
 
     if inpaint_path is not None:
