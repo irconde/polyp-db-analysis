@@ -1038,6 +1038,7 @@ def create_text_mask(
     left_clamp=25,
     inpaint_path=None,
     inpaint_model=None,
+    debug_path=None,
 ):
     """Create an expanded rectangular text mask for ``img_path`` using PaddleOCR.
 
@@ -1066,6 +1067,8 @@ def create_text_mask(
     left_clamp:
         Maximum distance from the left edge in pixels at which boxes are
         stretched to the image border.
+    debug_path:
+        Optional path where a debug image with mask contours is saved.
     """
 
     if ocr is None:
@@ -1119,11 +1122,16 @@ def create_text_mask(
             left = 0
         draw.rectangle((left, top, right, bottom), fill=255)
 
-    arr = np.array(mask)
-    if ui_mask is not None:
-        arr = np.maximum(arr, ui_mask)
-    mask = Image.fromarray(arr)
+    text_arr = np.array(mask)
+    combined = np.maximum(text_arr, ui_mask) if ui_mask is not None else text_arr
+    mask = Image.fromarray(combined)
     _save_image(mask, mask_path)
+    if debug_path is not None:
+        dbg = bgr.copy()
+        if ui_mask is not None:
+            dbg = draw_mask_contours(dbg, ui_mask, color=(0, 255, 0))
+        dbg = draw_mask_contours(dbg, text_arr, color=(0, 0, 255))
+        _save_image(Image.fromarray(dbg[:, :, ::-1]), debug_path)
 
     if inpaint_path is not None:
         if inpaint_model is None:
@@ -1147,6 +1155,7 @@ def create_text_masks(
     left_clamp=25,
     inpaint_dir=None,
     inpaint_model=None,
+    debug_dir=None,
 ):
     """Generate text masks for all images in ``src_dir``.
 
@@ -1161,6 +1170,8 @@ def create_text_masks(
     left_clamp:
         Maximum distance from the left edge in pixels at which boxes are
         stretched to the border.
+    debug_dir:
+        Optional directory where debug images with drawn mask contours are saved.
     """
 
     src_dir = os.fspath(src_dir)
@@ -1177,6 +1188,9 @@ def create_text_masks(
                     "simple-lama-inpainting is unavailable. Install with `pip install simple-lama-inpainting`"
                 ) from exc
             inpaint_model = SimpleLama()
+    if debug_dir is not None:
+        debug_dir = os.fspath(debug_dir)
+        os.makedirs(debug_dir, exist_ok=True)
 
     if ocr is None:
         try:
@@ -1199,6 +1213,9 @@ def create_text_masks(
         inpaint_path = (
             os.path.join(inpaint_dir, f"{base}.png") if inpaint_dir is not None else None
         )
+        debug_path = (
+            os.path.join(debug_dir, name) if debug_dir is not None else None
+        )
         create_text_mask(
             src_path,
             dest_path,
@@ -1208,6 +1225,7 @@ def create_text_masks(
             left_clamp=left_clamp,
             inpaint_path=inpaint_path,
             inpaint_model=inpaint_model,
+            debug_path=debug_path,
         )
 
 

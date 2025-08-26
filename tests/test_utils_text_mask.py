@@ -112,6 +112,45 @@ def test_create_text_mask_ui_squares(tmp_path):
     assert arr[10, 99] == 0
 
 
+def test_create_text_mask_debug(tmp_path):
+    pytest.importorskip("cv2")
+    img_path = tmp_path / "img.png"
+    mask_path = tmp_path / "mask.png"
+    debug_path = tmp_path / "debug.png"
+
+    Image.new("RGB", (30, 30), color=(0, 0, 0)).save(img_path)
+
+    from polypdb import utils
+
+    def fake_detect(img, ocr, **kwargs):
+        return [(10, 10, 20, 20)], None
+
+    def fake_ui_squares(img):
+        m = np.zeros((img.shape[0], img.shape[1]), dtype=np.uint8)
+        m[5:15, 2:8] = 255
+        return m
+
+    utils.detect_text_boxes, orig_detect = fake_detect, utils.detect_text_boxes
+    utils.detect_ui_squares, orig_ui = fake_ui_squares, utils.detect_ui_squares
+    try:
+        create_text_mask(
+            img_path,
+            mask_path,
+            ocr=DummyOCR(),
+            preprocess=False,
+            expand=0,
+            left_clamp=0,
+            debug_path=debug_path,
+        )
+    finally:
+        utils.detect_text_boxes = orig_detect
+        utils.detect_ui_squares = orig_ui
+
+    debug_img = np.array(Image.open(debug_path))
+    assert (debug_img[10, 2] == np.array([0, 255, 0])).all()
+    assert (debug_img[10, 15] == np.array([255, 0, 0])).all()
+
+
 @pytest.mark.parametrize("preprocess", [True, False])
 def test_create_text_masks(tmp_path, preprocess):
     src = tmp_path / f"src_{preprocess}"
@@ -125,6 +164,36 @@ def test_create_text_masks(tmp_path, preprocess):
 
     assert (dst / "a_mask.png").exists()
     assert (dst / "b_mask.png").exists()
+
+
+def test_create_text_masks_debug_dir(tmp_path):
+    pytest.importorskip("cv2")
+    src = tmp_path / "src"
+    mask_dst = tmp_path / "masks"
+    debug_dst = tmp_path / "debug"
+    src.mkdir()
+    mask_dst.mkdir()
+    Image.new("RGB", (30, 30)).save(src / "a.png")
+
+    from polypdb import utils
+
+    utils.detect_text_boxes, orig = (
+        lambda img, ocr, **kwargs: ([], None),
+        utils.detect_text_boxes,
+    )
+    try:
+        create_text_masks(
+            src,
+            mask_dst,
+            ocr=DummyOCR(),
+            preprocess=False,
+            debug_dir=debug_dst,
+        )
+    finally:
+        utils.detect_text_boxes = orig
+
+    assert (mask_dst / "a_mask.png").exists()
+    assert (debug_dst / "a.png").exists()
 
 
 def test_create_text_masks_inpaint(tmp_path):
