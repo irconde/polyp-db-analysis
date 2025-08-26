@@ -26,7 +26,14 @@ def test_create_text_mask(tmp_path, preprocess):
 
 
 def test_create_text_mask_expansion(tmp_path):
-    def fake_detect(img, ocr, scales=(1.0,), restrict_to_edges=True, suppress_glare=True):
+    def fake_detect(
+        img,
+        ocr,
+        scales=(1.0,),
+        restrict_to_edges=True,
+        suppress_glare=True,
+        preprocess=True,
+    ):
         return [(10, 10, 20, 20)], None
 
     img_path = tmp_path / "img.png"
@@ -52,7 +59,14 @@ def test_create_text_mask_expansion(tmp_path):
 
 
 def test_create_text_mask_left_edge(tmp_path):
-    def fake_detect(img, ocr, scales=(1.0,), restrict_to_edges=True, suppress_glare=True):
+    def fake_detect(
+        img,
+        ocr,
+        scales=(1.0,),
+        restrict_to_edges=True,
+        suppress_glare=True,
+        preprocess=True,
+    ):
         return [(20, 10, 24, 20)], None
 
     img_path = tmp_path / "img.png"

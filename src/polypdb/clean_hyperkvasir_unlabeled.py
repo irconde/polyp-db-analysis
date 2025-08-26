@@ -60,6 +60,7 @@ def _mask_text_regions(
         scales=(1.0, 1.5, 2.0),
         restrict_to_edges=True,
         suppress_glare=True,
+        preprocess=True,
     )
     h, w = img.shape[:2]
     for x0, y0, x1, y1 in rects:
