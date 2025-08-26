@@ -11,6 +11,10 @@ import numpy as np
 import tifffile
 from typing import Optional, Tuple
 import typing as t
+try:  # Optional dependency
+    import cv2  # type: ignore
+except Exception:  # pragma: no cover - handled gracefully
+    cv2 = None  # type: ignore
 
 
 logger = logging.getLogger(__name__)
@@ -660,6 +664,124 @@ def validate_conversion(dest_dir, df, filename_col='FRAME'):
     )
 
 
+def merge_rects(rects, gap=18, y_overlap=0.45, pad=2, H=None, W=None):
+    """Merge nearby rectangles into larger boxes.
+
+    Parameters
+    ----------
+    rects:
+        Iterable of ``(x0, y0, x1, y1)`` tuples.
+    gap:
+        Maximum horizontal gap in pixels to consider boxes adjacent.
+    y_overlap:
+        Minimum vertical overlap ratio for merging.
+    pad:
+        Padding added around merged boxes.
+    H, W:
+        Optional image height and width to clamp coordinates.
+    """
+
+    rects = sorted(rects, key=lambda r: (r[1], r[0]))
+    merged: t.List[t.Tuple[int, int, int, int]] = []
+    for x0, y0, x1, y1 in rects:
+        placed = False
+        for i, (X0, Y0, X1, Y1) in enumerate(merged):
+            ov = max(0, min(y1, Y1) - max(y0, Y0))
+            if ov / max(1, min(y1 - y0, Y1 - Y0)) >= y_overlap and max(
+                0, max(X0, x0) - min(X1, x1)
+            ) <= gap:
+                merged[i] = (min(X0, x0), min(Y0, y0), max(X1, x1), max(Y1, y1))
+                placed = True
+                break
+        if not placed:
+            merged.append((x0, y0, x1, y1))
+
+    out = []
+    for x0, y0, x1, y1 in merged:
+        x0 -= pad
+        y0 -= pad
+        x1 += pad
+        y1 += pad
+        if H is not None and W is not None:
+            x0 = max(0, x0)
+            y0 = max(0, y0)
+            x1 = min(W - 1, x1)
+            y1 = min(H - 1, y1)
+        out.append((x0, y0, x1, y1))
+    return out
+
+
+def detect_text_boxes(img, ocr, scales=(1.0, 1.5, 2.0), restrict_to_edges=True, suppress_glare=True):
+    """Detect and merge rectangular text regions for ``img`` using ``ocr``.
+
+    ``img`` should be a BGR ``numpy.ndarray``.  Detection is optionally run at
+    multiple scales and glare is suppressed in the detector input.  The result
+    consists of merged rectangles and a union bounding box covering all text.
+    """
+
+    H0, W0 = img.shape[:2]
+    best_area, best_rects = -1, []
+
+    for s in scales:
+        if s != 1.0:
+            if cv2 is None:
+                continue
+            resized = cv2.resize(img, None, fx=s, fy=s, interpolation=cv2.INTER_CUBIC)
+        else:
+            resized = img
+
+        det_img = resized.copy()
+        if cv2 is not None and suppress_glare:
+            hsv = cv2.cvtColor(resized, cv2.COLOR_BGR2HSV)
+            glare = ((hsv[..., 2] >= 242) & (hsv[..., 1] <= 60)).astype(np.uint8) * 255
+            glare = cv2.dilate(
+                glare, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)), 1
+            )
+            det_img[glare > 0] = 0
+
+        res = ocr.ocr(det_img, cls=False)
+        rects = []
+        pages = (
+            res
+            if res and isinstance(res[0], list) and isinstance(res[0][0], (list, tuple))
+            else [res]
+        )
+        for page in pages:
+            for det in page:
+                P = np.asarray(det[0], dtype=np.float32)
+                x0, y0 = P.min(axis=0)
+                x1, y1 = P.max(axis=0)
+                w, h = x1 - x0, y1 - y0
+                if w * h < 100 or h > 0.5 * resized.shape[0]:
+                    continue
+                if restrict_to_edges:
+                    if not (
+                        x0 < 0.45 * resized.shape[1]
+                        or x1 > 0.55 * resized.shape[1]
+                        or y0 < 0.25 * resized.shape[0]
+                    ):
+                        continue
+                rects.append(
+                    (int(x0 / s), int(y0 / s), int(x1 / s), int(y1 / s))
+                )
+
+        rects = merge_rects(rects, H=H0, W=W0)
+        area = sum((x1 - x0) * (y1 - y0) for x0, y0, x1, y1 in rects)
+        if area > best_area:
+            best_area, best_rects = area, rects
+
+    if best_rects:
+        xmin = min(r[0] for r in best_rects)
+        ymin = min(r[1] for r in best_rects)
+        xmax = max(r[2] for r in best_rects)
+        ymax = max(r[3] for r in best_rects)
+        union = (xmin, ymin, xmax, ymax)
+    else:
+        union = None
+
+    return best_rects, union
+
+
 def create_text_mask(img_path, mask_path, ocr=None, preprocess=True):
     """Create a rectangular text mask for ``img_path`` using PaddleOCR.
 
@@ -679,9 +801,9 @@ def create_text_mask(img_path, mask_path, ocr=None, preprocess=True):
         When ``None`` an instance configured for English detection only
         is created on the fly.
     preprocess:
-        When ``True`` an OpenCV based preprocessing pipeline (grayscale
-        conversion, adaptive thresholding and dilation) is applied before
-        running the detector.  Disable for raw images.
+        When ``True`` detection is run at multiple scales and a glare
+        suppression step is applied before running the detector.  Disable for
+        faster but potentially less robust detection.
     """
 
     if ocr is None:
@@ -691,43 +813,37 @@ def create_text_mask(img_path, mask_path, ocr=None, preprocess=True):
             raise ModuleNotFoundError(
                 "PaddleOCR is unavailable. Install paddlepaddle with `pip install \"paddlepaddle<3\"`"  # noqa: E501
             ) from exc
+        ocr = PaddleOCR(
+            det=True,
+            rec=False,
+            use_angle_cls=False,
+            show_log=False,
+            lang="en",
+            det_db_thresh=0.25,
+            det_db_box_thresh=0.38,
+            det_db_unclip_ratio=2.2,
+        )
 
-        ocr = PaddleOCR(use_angle_cls=False, lang="en")
-
-    img_for_ocr: t.Any
-    if preprocess:
-        try:
-            import cv2  # type: ignore
-        except Exception:  # pragma: no cover - handled gracefully
-            cv2 = None  # type: ignore
-
-        if cv2 is not None:
-            img = cv2.imread(os.fspath(img_path))
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            thresh = cv2.adaptiveThreshold(
-                gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 11, 2
-            )
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-            img_for_ocr = cv2.dilate(thresh, kernel, iterations=1)
-        else:
-            img_for_ocr = os.fspath(img_path)
+    if cv2 is not None:
+        bgr = cv2.imread(os.fspath(img_path))
     else:
-        img_for_ocr = os.fspath(img_path)
+        with Image.open(img_path) as _img:
+            bgr = np.array(_img)[:, :, ::-1]
 
-    result = ocr.ocr(img_for_ocr, det=True, rec=False, cls=False)
+    scales = (1.0, 1.5, 2.0) if preprocess else (1.0,)
+    rects, _ = detect_text_boxes(
+        bgr,
+        ocr,
+        scales=scales,
+        restrict_to_edges=True,
+        suppress_glare=preprocess,
+    )
 
-    with Image.open(img_path) as img:
-        mask = Image.new("L", img.size, 0)
-        draw = ImageDraw.Draw(mask)
-
-        for line in result:
-            box = line[0]
-            xs = [p[0] for p in box]
-            ys = [p[1] for p in box]
-            rect = [min(xs), min(ys), max(xs), max(ys)]
-            draw.rectangle(rect, fill=255)
-
-        _save_image(mask, mask_path)
+    mask = Image.new("L", (bgr.shape[1], bgr.shape[0]), 0)
+    draw = ImageDraw.Draw(mask)
+    for x0, y0, x1, y1 in rects:
+        draw.rectangle((x0, y0, x1, y1), fill=255)
+    _save_image(mask, mask_path)
 
 
 def create_text_masks(src_dir, dest_dir, ocr=None, preprocess=True):
