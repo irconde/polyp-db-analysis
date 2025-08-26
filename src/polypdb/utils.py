@@ -13,6 +13,8 @@ from typing import Optional, Tuple
 import typing as t
 try:  # Optional dependency
     import cv2  # type: ignore
+    if not hasattr(cv2, "imread"):
+        cv2 = None  # type: ignore
 except Exception:  # pragma: no cover - handled gracefully
     cv2 = None  # type: ignore
 
@@ -786,8 +788,8 @@ def detect_text_boxes(img, ocr, scales=(1.0, 1.5, 2.0), restrict_to_edges=True, 
     return best_rects, union
 
 
-def create_text_mask(img_path, mask_path, ocr=None, preprocess=True):
-    """Create a rectangular text mask for ``img_path`` using PaddleOCR.
+def create_text_mask(img_path, mask_path, ocr=None, preprocess=True, expand=5):
+    """Create an expanded rectangular text mask for ``img_path`` using PaddleOCR.
 
     The DB detector from :mod:`paddleocr` is employed to localise text
     regions.  For each detected text polygon a minimal axis-aligned
@@ -808,6 +810,9 @@ def create_text_mask(img_path, mask_path, ocr=None, preprocess=True):
         When ``True`` detection is run at multiple scales and a glare
         suppression step is applied before running the detector.  Disable for
         faster but potentially less robust detection.
+    expand:
+        Number of pixels to grow each detected text box in all directions.
+        Boxes close to the left edge are stretched to the image border.
     """
 
     if ocr is None:
@@ -845,12 +850,20 @@ def create_text_mask(img_path, mask_path, ocr=None, preprocess=True):
 
     mask = Image.new("L", (bgr.shape[1], bgr.shape[0]), 0)
     draw = ImageDraw.Draw(mask)
+    width, height = mask.size
     for x0, y0, x1, y1 in rects:
-        draw.rectangle((x0, y0, x1, y1), fill=255)
+        # Expand rectangle and clamp within image bounds
+        left = max(0, x0 - expand)
+        top = max(0, y0 - expand)
+        right = min(width, x1 + expand)
+        bottom = min(height, y1 + expand)
+        if x0 < expand:
+            left = 0
+        draw.rectangle((left, top, right, bottom), fill=255)
     _save_image(mask, mask_path)
 
 
-def create_text_masks(src_dir, dest_dir, ocr=None, preprocess=True):
+def create_text_masks(src_dir, dest_dir, ocr=None, preprocess=True, expand=5):
     """Generate text masks for all images in ``src_dir``.
 
     Files with extensions commonly associated with images are processed and
@@ -859,6 +872,8 @@ def create_text_masks(src_dir, dest_dir, ocr=None, preprocess=True):
     initialising the detector when processing many images.
     ``preprocess`` controls whether the OpenCV pipeline is applied before
     detection for all images.
+    expand:
+        Number of pixels to grow each detected text box.
     """
 
     src_dir = os.fspath(src_dir)
@@ -883,4 +898,10 @@ def create_text_masks(src_dir, dest_dir, ocr=None, preprocess=True):
         src_path = os.path.join(src_dir, name)
         base = os.path.splitext(name)[0]
         dest_path = os.path.join(dest_dir, f"{base}_mask.png")
-        create_text_mask(src_path, dest_path, ocr=ocr, preprocess=preprocess)
+        create_text_mask(
+            src_path,
+            dest_path,
+            ocr=ocr,
+            preprocess=preprocess,
+            expand=expand,
+        )
