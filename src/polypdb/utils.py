@@ -818,7 +818,7 @@ def detect_text_boxes(
     return best_rects, union
 
 
-def _detect_ui_square_row(
+def detect_ui_square_row(
     bgr: np.ndarray,
     expected_count_range: t.Tuple[int, int] = (5, 9),
     search_band_ratio: float = 0.35,
@@ -830,41 +830,21 @@ def _detect_ui_square_row(
     mean_int_min: int = 170,
     dilate_frac_of_box: float = 0.15,
 ) -> t.Optional[t.Dict[str, t.Any]]:
-    """Detect a horizontal row of small bright squares on the left side.
-
-    The implementation follows the heuristics used in the standalone
-    ``ui_square_row_detector`` script from the project documentation.  A
-    percentile based threshold together with size and aspect-ratio filters is
-    employed to robustly locate the typical left edge UI tick marks present in
-    some datasets.
-
-    Parameters
-    ----------
-    bgr:
-        Input image in BGR format.
-    expected_count_range:
-        Minimum and maximum number of small squares to consider a valid row.
-    search_band_ratio:
-        Fraction of the image width on the left side to search in.
-    bright_pct:
-        Percentile used to determine the high threshold for bright pixels.
-    min_area_ratio / max_area_ratio:
-        Minimum and maximum square area relative to the full image.
-    fill_ratio_min:
-        Minimum contour fill ratio to accept a candidate.
-    square_ar_tol:
-        Allowed deviation from a perfect square (aspect ratio tolerance).
-    mean_int_min:
-        Minimum mean intensity of a candidate square in the contrast-enhanced
-        grayscale image.
-    dilate_frac_of_box:
-        Fraction of the average square size used to dilate the final mask.
+    """Detect the horizontal row of small UI squares typically on the left side.
 
     Returns
     -------
-    Optional dict with keys ``mask`` (``np.uint8``), ``row_boxes`` (list of
-    ``(x, y, w, h)``) and ``bbox`` (``x, y, w, h``).  ``None`` is returned when
-    no suitable row is detected.
+    dict | None
+        When a row is detected a dictionary is returned with keys:
+
+        ``mask``
+            ``np.uint8`` mask where detected squares are dilated.
+        ``row_boxes``
+            List of ``(x, y, w, h)`` for each square.
+        ``bbox``
+            ``(x, y, w, h)`` bounding box enclosing the row.
+
+        ``None`` is returned when no suitable row is found.
     """
 
     h, w = bgr.shape[:2]
@@ -929,8 +909,8 @@ def _detect_ui_square_row(
             gaps = np.diff(xs)
             if len(gaps) == 0:
                 continue
-            mean_box_w = np.mean([b[2] for b in row])
-            if np.std(gaps) <= max(5.0, 0.7 * mean_box_w):
+            mean_w = np.mean([b[2] for b in row])
+            if np.std(gaps) <= max(5.0, 0.7 * mean_w):
                 candidates.append(row)
 
     if candidates:
@@ -958,6 +938,10 @@ def _detect_ui_square_row(
     return {"mask": mask, "row_boxes": row, "bbox": bbox}
 
 
+# Backwards compatibility
+_detect_ui_square_row = detect_ui_square_row
+
+
 def detect_ui_squares(img: np.ndarray) -> t.Optional[np.ndarray]:
     """Detect a row of small white UI squares and return a mask.
 
@@ -980,10 +964,10 @@ def detect_ui_squares(img: np.ndarray) -> t.Optional[np.ndarray]:
     if cv2 is None:
         return None
 
-    det = _detect_ui_square_row(img)
+    det = detect_ui_square_row(img)
     if not det:
         # Relax size constraints for small images as a fallback
-        det = _detect_ui_square_row(img, max_area_ratio=0.1)
+        det = detect_ui_square_row(img, max_area_ratio=0.1)
     h, w = img.shape[:2]
     if not det:
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -1009,6 +993,40 @@ def detect_ui_squares(img: np.ndarray) -> t.Optional[np.ndarray]:
     x, y, bw, bh = det["bbox"]  # type: ignore
     cv2.rectangle(mask, (x, y), (x + bw, y + bh), 255, -1)
     return mask
+
+
+def draw_mask_contours(
+    img: np.ndarray,
+    mask: np.ndarray,
+    color: t.Tuple[int, int, int] = (0, 255, 0),
+    thickness: int = 1,
+) -> np.ndarray:
+    """Return a copy of ``img`` with ``mask`` contours overlaid.
+
+    Parameters
+    ----------
+    img:
+        BGR image on which to draw.
+    mask:
+        Single channel mask whose non-zero regions will be outlined.
+    color:
+        BGR colour for the contour lines. Defaults to green.
+    thickness:
+        Contour line thickness in pixels. Defaults to ``1``.
+
+    Returns
+    -------
+    ``numpy.ndarray``
+        Copy of ``img`` with mask contours drawn for debugging.
+    """
+    if cv2 is None:  # pragma: no cover - handled gracefully
+        raise ImportError("OpenCV is required for drawing mask contours")
+
+    mask = (mask > 0).astype(np.uint8)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    out = img.copy()
+    cv2.drawContours(out, contours, -1, color, thickness)
+    return out
 
 
 def create_text_mask(
