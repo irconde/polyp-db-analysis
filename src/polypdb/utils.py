@@ -204,7 +204,7 @@ def resize_with_padding(img, target_size=(224, 224), fill_color=(0, 0, 0)):
     img.thumbnail(target_size, Image.Resampling.LANCZOS)
     new_img = Image.new("RGB", target_size, fill_color)
     new_img.paste(img, ((target_size[0] - img.size[0]) // 2,
-                         (target_size[1] - img.size[1]) // 2))
+                        (target_size[1] - img.size[1]) // 2))
     return new_img
 
 
@@ -520,7 +520,8 @@ def draw_bounding_boxes(bounding_boxes, image_path, save_path):
     # Open the image
     with Image.open(image_path) as img:
         draw = ImageDraw.Draw(img)
-        coordinates = [int(coord.strip()) for coord in bounding_boxes.split(',') if coord.strip()]
+        coordinates = [int(coord.strip())
+                       for coord in bounding_boxes.split(',') if coord.strip()]
         draw.rectangle(coordinates, outline="red", width=2)
 
         # Save the image with bounding boxes
@@ -606,10 +607,12 @@ def move_images_parallel(
             else:
                 shutil.move(source_path, destination_path)
         except IOError as e:
-            logger.error("Could not %s %s. Error: %s", action, frame_filename, e)
+            logger.error("Could not %s %s. Error: %s",
+                         action, frame_filename, e)
 
     with ThreadPoolExecutor() as executor:
-        list(tqdm(executor.map(_transfer, rows), total=total, desc=f"{action.title()}ing images"))
+        list(tqdm(executor.map(_transfer, rows), total=total,
+             desc=f"{action.title()}ing images"))
     logger.info("Finished %s images", action)
 
 
@@ -634,7 +637,8 @@ def validate_conversion(dest_dir, df, filename_col='FRAME'):
 
     img_dir = os.path.join(dest_dir, 'img')
     try:
-        files = [f for f in os.listdir(img_dir) if os.path.isfile(os.path.join(img_dir, f))]
+        files = [f for f in os.listdir(
+            img_dir) if os.path.isfile(os.path.join(img_dir, f))]
     except FileNotFoundError:
         logger.error("Image directory %s does not exist", img_dir)
         raise
@@ -644,7 +648,8 @@ def validate_conversion(dest_dir, df, filename_col='FRAME'):
 
     duplicates = df[df[filename_col].duplicated()][filename_col].tolist()
     if duplicates:
-        logger.error("Duplicated filenames in metadata: %s", ", ".join(sorted(duplicates)))
+        logger.error("Duplicated filenames in metadata: %s",
+                     ", ".join(sorted(duplicates)))
 
     if df_count != file_count:
         df_filenames = set(df[filename_col].astype(str))
@@ -692,7 +697,8 @@ def merge_rects(rects, gap=18, y_overlap=0.45, pad=2, H=None, W=None):
             if ov / max(1, min(y1 - y0, Y1 - Y0)) >= y_overlap and max(
                 0, max(X0, x0) - min(X1, x1)
             ) <= gap:
-                merged[i] = (min(X0, x0), min(Y0, y0), max(X1, x1), max(Y1, y1))
+                merged[i] = (min(X0, x0), min(Y0, y0),
+                             max(X1, x1), max(Y1, y1))
                 placed = True
                 break
         if not placed:
@@ -729,7 +735,8 @@ def preprocess_for_text(img: np.ndarray) -> np.ndarray:
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     norm = cv2.equalizeHist(gray)
     norm = cv2.bitwise_not(norm)
-    _, thresh = cv2.threshold(norm, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    _, thresh = cv2.threshold(
+        norm, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     return cv2.cvtColor(thresh, cv2.COLOR_GRAY2BGR)
 
 
@@ -755,14 +762,16 @@ def detect_text_boxes(
         if s != 1.0:
             if cv2 is None:
                 continue
-            resized = cv2.resize(img, None, fx=s, fy=s, interpolation=cv2.INTER_CUBIC)
+            resized = cv2.resize(img, None, fx=s, fy=s,
+                                 interpolation=cv2.INTER_CUBIC)
         else:
             resized = img
 
         det_img = resized.copy()
         if cv2 is not None and suppress_glare:
             hsv = cv2.cvtColor(resized, cv2.COLOR_BGR2HSV)
-            glare = ((hsv[..., 2] >= 242) & (hsv[..., 1] <= 60)).astype(np.uint8) * 255
+            glare = ((hsv[..., 2] >= 242) & (
+                hsv[..., 1] <= 60)).astype(np.uint8) * 255
             glare = cv2.dilate(
                 glare, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)), 1
             )
@@ -862,7 +871,8 @@ def detect_ui_square_row(
     min_area = int((w * h) * min_area_ratio)
     max_area = int((w * h) * max_area_ratio)
 
-    contours, _ = cv2.findContours(left_band, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(
+        left_band, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     squares: t.List[t.Tuple[int, int, int, int]] = []
     for c in contours:
@@ -927,7 +937,8 @@ def detect_ui_square_row(
         )
     else:
         row = sorted(
-            sorted(rows, key=lambda r: (-len(r), np.mean([b[0] for b in r])))[0],
+            sorted(rows, key=lambda r: (-len(r),
+                   np.mean([b[0] for b in r])))[0],
             key=lambda b: b[0],
         )
 
@@ -972,30 +983,9 @@ def detect_ui_squares(img: np.ndarray) -> t.Optional[np.ndarray]:
         return None
 
     det = detect_ui_square_row(img)
-    if not det:
-        # Relax size constraints for small images as a fallback
-        det = detect_ui_square_row(img, max_area_ratio=0.1)
     h, w = img.shape[:2]
-    if not det:
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        _, bin_img = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
-        left = bin_img[:, : int(0.5 * w)]
-        contours, _ = cv2.findContours(left, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        xs, ys, xe, ye = [], [], [], []
-        for c in contours:
-            x, y, ww, hh = cv2.boundingRect(c)
-            if ww * hh < 25:
-                continue
-            xs.append(x)
-            ys.append(y)
-            xe.append(x + ww)
-            ye.append(y + hh)
-        if not xs:
-            return None
-        mask = np.zeros((h, w), dtype=np.uint8)
-        cv2.rectangle(mask, (min(xs), min(ys)), (max(xe), max(ye)), 255, -1)
-        return mask
-
+    if det is None:
+        return None
     mask = np.zeros((h, w), dtype=np.uint8)
     x, y, bw, bh = det["bbox"]  # type: ignore
     cv2.rectangle(mask, (x, y), (x + bw, y + bh), 255, -1)
@@ -1030,7 +1020,8 @@ def draw_mask_contours(
         raise ImportError("OpenCV is required for drawing mask contours")
 
     mask = (mask > 0).astype(np.uint8)
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(
+        mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     out = img.copy()
     cv2.drawContours(out, contours, -1, color, thickness)
     return out
@@ -1195,7 +1186,8 @@ def create_text_mask(
         inpaint_model=inpaint_model,
     )
 
-    combined = np.maximum(text_arr, ui_mask) if ui_mask is not None else text_arr
+    combined = np.maximum(
+        text_arr, ui_mask) if ui_mask is not None else text_arr
     _save_image(Image.fromarray(combined), mask_path)
 
     if debug_path is not None:
@@ -1275,7 +1267,8 @@ def create_text_masks(
         base = os.path.splitext(name)[0]
         dest_path = os.path.join(dest_dir, f"{base}_mask.png")
         inpaint_path = (
-            os.path.join(inpaint_dir, f"{base}.png") if inpaint_dir is not None else None
+            os.path.join(
+                inpaint_dir, f"{base}.png") if inpaint_dir is not None else None
         )
         debug_path = (
             os.path.join(debug_dir, name) if debug_dir is not None else None
@@ -1306,7 +1299,8 @@ def create_text_masks(
             inpaint=inpaint,
             inpaint_model=inpaint_model,
         )
-        combined = np.maximum(text_arr, ui_mask) if ui_mask is not None else text_arr
+        combined = np.maximum(
+            text_arr, ui_mask) if ui_mask is not None else text_arr
         _save_image(Image.fromarray(combined), dest_path)
 
         if debug_path is not None:
@@ -1338,7 +1332,7 @@ def estimate_background_color(image: np.ndarray, region_frac: float = 0.25) -> T
         Median BGR colour of the sampled region.
     """
     h, w = image.shape[:2]
-    region = image[int(h * (1 - region_frac)) :, : int(w * region_frac)]
+    region = image[int(h * (1 - region_frac)):, : int(w * region_frac)]
     pixels = region.reshape(-1, 3)
     median_color = np.median(pixels, axis=0).astype(np.uint8)
     return tuple(int(c) for c in median_color)
@@ -1366,16 +1360,19 @@ def mask_full_viewport_by_expanded_box(
     if cv2 is None:  # pragma: no cover - handled gracefully
         raise ImportError("OpenCV is required for viewport masking")
 
-    lower = np.array([max(0, c - color_tol) for c in color_ref], dtype=np.uint8)
-    upper = np.array([min(255, c + color_tol) for c in color_ref], dtype=np.uint8)
+    lower = np.array([max(0, c - color_tol)
+                     for c in color_ref], dtype=np.uint8)
+    upper = np.array([min(255, c + color_tol)
+                     for c in color_ref], dtype=np.uint8)
     color_mask = cv2.inRange(image, lower, upper)
 
     h, w = image.shape[:2]
     quadrant_mask = np.zeros((h, w), dtype=np.uint8)
-    quadrant_mask[int(h / 2) :, : int(w / 2)] = 255
+    quadrant_mask[int(h / 2):, : int(w / 2)] = 255
     combined = cv2.bitwise_and(color_mask, quadrant_mask)
 
-    contours, _ = cv2.findContours(combined, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(
+        combined, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     final_mask = np.zeros_like(combined)
 
     for cnt in contours:
@@ -1385,7 +1382,8 @@ def mask_full_viewport_by_expanded_box(
             y = max(0, y - margin)
             bw = min(w - x, bw + 2 * margin)
             bh = min(h - y, bh + 2 * margin)
-            cv2.rectangle(final_mask, (x, y), (x + bw, y + bh), 255, thickness=cv2.FILLED)
+            cv2.rectangle(final_mask, (x, y), (x + bw, y + bh),
+                          255, thickness=cv2.FILLED)
 
     return final_mask
 
@@ -1407,7 +1405,8 @@ def mask_viewport_auto_color_safe(
     if not is_color_similar(color_ref, ref_color, tol=ref_tol):
         return image.copy(), color_ref, False
 
-    mask = mask_full_viewport_by_expanded_box(image, color_ref, color_tol, min_area, margin)
+    mask = mask_full_viewport_by_expanded_box(
+        image, color_ref, color_tol, min_area, margin)
     masked_img = image.copy()
     masked_img[mask == 255] = 0
     return masked_img, tuple(int(c) for c in color_ref), True
