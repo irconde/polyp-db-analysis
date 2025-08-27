@@ -10,7 +10,7 @@ The pipeline performs the following operations on each image:
 
 import argparse
 from pathlib import Path
-import typing as t
+from typing import Sequence, Tuple, Optional
 
 import cv2  # type: ignore
 import numpy as np
@@ -23,31 +23,75 @@ from .utils import (
 )
 
 
+def _estimate_padding_rgb(img: np.ndarray, band_frac: float = 0.04) -> Tuple[int, int, int]:
+    """Robust per-image padding colour from a thin border band (median, RGB)."""
+    h, w = img.shape[:2]
+    bw, bh = max(1, int(w * band_frac)), max(1, int(h * band_frac))
+    border = np.concatenate(
+        [
+            img[:bh, :, :].reshape(-1, 3),
+            img[-bh:, :, :].reshape(-1, 3),
+            img[:, :bw, :].reshape(-1, 3),
+            img[:, -bw:, :].reshape(-1, 3),
+        ],
+        axis=0,
+    )
+    return tuple(np.median(border, axis=0).astype(np.uint8).tolist())  # type: ignore[return-value]
+
+
 def _crop_padding(
     img: np.ndarray,
-    padding_color: t.Sequence[int] = (15, 15, 15),
+    padding_color: Optional[Sequence[int]] = (15, 15, 15),
     threshold: int = 20,
+    min_row_frac: float = 0.01,
+    min_col_frac: float = 0.01,
+    erode_iter: int = 2,
+    open_kernel: int = 3,
 ) -> np.ndarray:
-    """Crop uniform padding from ``img``.
-
-    ``padding_color`` defines the RGB colour regarded as padding and ``threshold``
-    specifies how much deviation per channel is tolerated.
     """
+    Crop uniform padding while ignoring small stains/noise.
+
+    - padding_color=None → auto-estimate from border.
+    - threshold: per-channel tolerance around the padding colour (RGB box).
+    - min_row_frac/min_col_frac: minimum fraction of "content" pixels required
+      for a row/column to count as non-padding.
+    - erode_iter/open_kernel: morphology to remove isolated specks.
+    """
+    if padding_color is None:
+        padding_color = _estimate_padding_rgb(img)
 
     color = np.array(padding_color, dtype=np.int16)
     lower = np.clip(color - threshold, 0, 255)
     upper = np.clip(color + threshold, 0, 255)
 
-    close = np.all((img >= lower) & (img <= upper), axis=-1)
-    mask = ~close
-    rows = np.any(mask, axis=1)
-    cols = np.any(mask, axis=0)
-    if not rows.any() or not cols.any():
-        return img
-    top = rows.argmax()
-    bottom = len(rows) - rows[::-1].argmax()
-    left = cols.argmax()
-    right = len(cols) - cols[::-1].argmax()
+    # padding-like pixels
+    pad_like = np.all((img >= lower) & (img <= upper), axis=-1)
+
+    # content mask (uint8) and clean small specks
+    content = (~pad_like).astype(np.uint8) * 255
+    if erode_iter > 0:
+        content = cv2.erode(content, np.ones((3, 3), np.uint8), iterations=erode_iter)
+    if open_kernel > 0:
+        content = cv2.morphologyEx(content, cv2.MORPH_OPEN, np.ones((open_kernel, open_kernel), np.uint8))
+
+    h, w = content.shape
+    min_nonpad_row = max(1, int(w * min_row_frac))
+    min_nonpad_col = max(1, int(h * min_col_frac))
+
+    row_ok = (content > 0).sum(axis=1) >= min_nonpad_row
+    col_ok = (content > 0).sum(axis=0) >= min_nonpad_col
+
+    # relaxed fallback if morphology removed too much
+    if not row_ok.any() or not col_ok.any():
+        row_ok = (~pad_like).sum(axis=1) >= min_nonpad_row
+        col_ok = (~pad_like).sum(axis=0) >= min_nonpad_col
+        if not row_ok.any() or not col_ok.any():
+            return img  # nothing safe to crop
+
+    top = int(np.argmax(row_ok))
+    bottom = int(len(row_ok) - np.argmax(row_ok[::-1]))
+    left = int(np.argmax(col_ok))
+    right = int(len(col_ok) - np.argmax(col_ok[::-1]))
     return img[top:bottom, left:right]
 
 
