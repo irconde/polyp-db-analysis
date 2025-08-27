@@ -147,7 +147,7 @@ def fill_br_padding(
     conc_thr: float = 0.05,
     top_thr: float = 0.12,
     close_ksize: int = 3,
-    r_if_irregular: int = 5,
+    r_if_irregular: int = 8,
 ) -> np.ndarray:
     """Fill the bottom-right padding region with its dominant colour."""
     raw = strict_br_component(raw_rule_mask(img, thresh), min_area=min_area)

@@ -153,8 +153,8 @@ def _clean_frame(
         cv2.rectangle(img, (ui_rect[0], ui_rect[1]), (ui_rect[2], ui_rect[3]), (0, 255, 0), 1)
     if img.shape[0] > 10 and img.shape[1] > 10:
         img = img[5:-5, 5:-5]
-    img = fill_br_padding(img)
     img = _crop_padding(img)
+    img = fill_br_padding(img)
     return img
 
 
