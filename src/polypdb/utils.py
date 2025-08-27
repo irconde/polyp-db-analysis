@@ -901,6 +901,7 @@ def detect_ui_square_row(
             rows.append([s])
 
     candidates = []
+    max_gap_px = int(0.015 * w)
     for row in rows:
         row = sorted(row, key=lambda b: b[0])
         n = len(row)
@@ -910,7 +911,13 @@ def detect_ui_square_row(
             if len(gaps) == 0:
                 continue
             mean_w = np.mean([b[2] for b in row])
-            if np.std(gaps) <= max(5.0, 0.7 * mean_w):
+            mean_gap = np.mean(gaps)
+            std_gap = np.std(gaps)
+            if (
+                std_gap <= max(5.0, 0.7 * mean_w)
+                and mean_gap < 3 * mean_w
+                and mean_gap < max_gap_px
+            ):
                 candidates.append(row)
 
     if candidates:
