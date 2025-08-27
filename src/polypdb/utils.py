@@ -1029,6 +1029,73 @@ def draw_mask_contours(
     return out
 
 
+def mask_text_regions(
+    img: np.ndarray,
+    rects: t.Sequence[t.Tuple[int, int, int, int]],
+    *,
+    expand: int = 5,
+    left_clamp: int = 25,
+    inpaint: bool = False,
+    inpaint_model=None,
+) -> t.Tuple[np.ndarray, np.ndarray]:
+    """Return ``img`` with text rectangles removed and the binary mask.
+
+    Parameters
+    ----------
+    img:
+        BGR image array.
+    rects:
+        Sequence of ``(x0, y0, x1, y1)`` boxes to be masked.
+    expand:
+        Pixels by which each rectangle is grown in all directions.
+    left_clamp:
+        Maximum distance from the left edge in pixels at which boxes are
+        stretched to the border.
+    inpaint:
+        When ``True`` detected regions are inpainted instead of filled with
+        black.
+    inpaint_model:
+        Optional inpainting model.  When ``None`` and ``inpaint`` is ``True``
+        ``simple-lama-inpainting`` is initialised on demand.
+
+    Returns
+    -------
+    tuple[numpy.ndarray, numpy.ndarray]
+        The processed image and a ``uint8`` mask where ``255`` denotes text
+        pixels.
+    """
+
+    h, w = img.shape[:2]
+    mask = np.zeros((h, w), dtype=np.uint8)
+    for x0, y0, x1, y1 in rects:
+        left = max(0, x0 - expand)
+        top = max(0, y0 - expand)
+        right = min(w, x1 + expand)
+        bottom = min(h, y1 + expand)
+        if x0 <= left_clamp:
+            left = 0
+        mask[top:bottom, left:right] = 255
+
+    if inpaint and mask.any():
+        pil_img = Image.fromarray(img[:, :, ::-1])
+        pil_mask = Image.fromarray(mask)
+        if inpaint_model is None:
+            try:
+                from simple_lama_inpainting import SimpleLama  # type: ignore
+            except ModuleNotFoundError as exc:
+                raise ModuleNotFoundError(
+                    "simple-lama-inpainting is unavailable. Install with `pip install simple-lama-inpainting`"
+                ) from exc
+            inpaint_model = SimpleLama()
+        inpainted = inpaint_model(pil_img, pil_mask)
+        result = np.array(inpainted)[:, :, ::-1]
+    else:
+        result = img.copy()
+        result[mask > 0] = 0
+
+    return result, mask
+
+
 def create_text_mask(
     img_path,
     mask_path,
@@ -1091,11 +1158,9 @@ def create_text_mask(
 
     if cv2 is not None:
         bgr = cv2.imread(os.fspath(img_path))
-        pil_img = Image.fromarray(bgr[:, :, ::-1])
     else:
         with Image.open(img_path) as _img:
-            pil_img = _img.convert("RGB")
-            bgr = np.array(pil_img)[:, :, ::-1]
+            bgr = np.array(_img.convert("RGB"))[:, :, ::-1]
 
     scales = (1.0, 1.5, 2.0) if preprocess else (1.0,)
     rects, _ = detect_text_boxes(
@@ -1109,23 +1174,19 @@ def create_text_mask(
 
     ui_mask = detect_ui_squares(bgr)
 
-    mask = Image.new("L", (bgr.shape[1], bgr.shape[0]), 0)
-    draw = ImageDraw.Draw(mask)
-    width, height = mask.size
-    for x0, y0, x1, y1 in rects:
-        # Expand rectangle and clamp within image bounds
-        left = max(0, x0 - expand)
-        top = max(0, y0 - expand)
-        right = min(width, x1 + expand)
-        bottom = min(height, y1 + expand)
-        if x0 <= left_clamp:
-            left = 0
-        draw.rectangle((left, top, right, bottom), fill=255)
+    inpaint = inpaint_path is not None
+    processed, text_arr = mask_text_regions(
+        bgr,
+        rects,
+        expand=expand,
+        left_clamp=left_clamp,
+        inpaint=inpaint,
+        inpaint_model=inpaint_model,
+    )
 
-    text_arr = np.array(mask)
     combined = np.maximum(text_arr, ui_mask) if ui_mask is not None else text_arr
-    mask = Image.fromarray(combined)
-    _save_image(mask, mask_path)
+    _save_image(Image.fromarray(combined), mask_path)
+
     if debug_path is not None:
         dbg = bgr.copy()
         if ui_mask is not None:
@@ -1133,17 +1194,8 @@ def create_text_mask(
         dbg = draw_mask_contours(dbg, text_arr, color=(0, 0, 255))
         _save_image(Image.fromarray(dbg[:, :, ::-1]), debug_path)
 
-    if inpaint_path is not None:
-        if inpaint_model is None:
-            try:
-                from simple_lama_inpainting import SimpleLama  # type: ignore
-            except ModuleNotFoundError as exc:
-                raise ModuleNotFoundError(
-                    "simple-lama-inpainting is unavailable. Install with `pip install simple-lama-inpainting`"
-                ) from exc
-            inpaint_model = SimpleLama()
-        inpainted = inpaint_model(pil_img, mask)
-        _save_image(inpainted, inpaint_path)
+    if inpaint:
+        _save_image(Image.fromarray(processed[:, :, ::-1]), inpaint_path)
 
 
 def create_text_masks(
@@ -1207,6 +1259,7 @@ def create_text_masks(
             (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp")
         ):
             continue
+
         src_path = os.path.join(src_dir, name)
         base = os.path.splitext(name)[0]
         dest_path = os.path.join(dest_dir, f"{base}_mask.png")
@@ -1216,17 +1269,44 @@ def create_text_masks(
         debug_path = (
             os.path.join(debug_dir, name) if debug_dir is not None else None
         )
-        create_text_mask(
-            src_path,
-            dest_path,
-            ocr=ocr,
+
+        if cv2 is not None:
+            bgr = cv2.imread(src_path)
+        else:
+            with Image.open(src_path) as _img:
+                bgr = np.array(_img.convert("RGB"))[:, :, ::-1]
+
+        scales = (1.0, 1.5, 2.0) if preprocess else (1.0,)
+        rects, _ = detect_text_boxes(
+            bgr,
+            ocr,
+            scales=scales,
+            restrict_to_edges=True,
+            suppress_glare=preprocess,
             preprocess=preprocess,
+        )
+        ui_mask = detect_ui_squares(bgr)
+        inpaint = inpaint_path is not None
+        processed, text_arr = mask_text_regions(
+            bgr,
+            rects,
             expand=expand,
             left_clamp=left_clamp,
-            inpaint_path=inpaint_path,
+            inpaint=inpaint,
             inpaint_model=inpaint_model,
-            debug_path=debug_path,
         )
+        combined = np.maximum(text_arr, ui_mask) if ui_mask is not None else text_arr
+        _save_image(Image.fromarray(combined), dest_path)
+
+        if debug_path is not None:
+            dbg = bgr.copy()
+            if ui_mask is not None:
+                dbg = draw_mask_contours(dbg, ui_mask, color=(0, 255, 0))
+            dbg = draw_mask_contours(dbg, text_arr, color=(0, 0, 255))
+            _save_image(Image.fromarray(dbg[:, :, ::-1]), debug_path)
+
+        if inpaint:
+            _save_image(Image.fromarray(processed[:, :, ::-1]), inpaint_path)
 
 
 def estimate_background_color(image: np.ndarray, region_frac: float = 0.25) -> Tuple[int, int, int]:
