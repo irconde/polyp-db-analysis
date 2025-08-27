@@ -15,7 +15,12 @@ import typing as t
 import cv2  # type: ignore
 import numpy as np
 
-from .utils import detect_text_boxes, mask_text_regions, mask_viewport_auto_color_safe
+from .utils import (
+    detect_text_boxes,
+    detect_ui_squares,
+    mask_text_regions,
+    mask_viewport_auto_color_safe,
+)
 
 
 def _crop_padding(
@@ -64,6 +69,11 @@ def _clean_frame(
         suppress_glare=False,
         preprocess=False,
     )
+    ui_mask = detect_ui_squares(img)
+    if ui_mask is not None and ui_mask.any():
+        ys, xs = np.where(ui_mask > 0)
+        ui_rect = (int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max()))
+        rects = list(rects) + [ui_rect]
     img, _ = mask_text_regions(
         img,
         rects,
