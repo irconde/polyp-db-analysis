@@ -57,8 +57,25 @@ def _clean_frame(
     *,
     inpaint_text: bool = False,
     inpaint_model=None,
+    draw_ui_bbox: bool = False,
 ) -> np.ndarray:
-    """Apply masking and cropping operations to ``img``."""
+    """Apply masking and cropping operations to ``img``.
+
+    Parameters
+    ----------
+    img:
+        Input BGR image.
+    ocr:
+        PaddleOCR instance or ``None``.
+    inpaint_text:
+        When ``True`` detected text regions are inpainted instead of filled
+        with black.
+    inpaint_model:
+        Optional inpainting model used when ``inpaint_text`` is ``True``.
+    draw_ui_bbox:
+        When ``True`` draw the bounding box of detected UI squares onto the
+        image for debugging.
+    """
 
     img, _, _ = mask_viewport_auto_color_safe(img)
     rects, _ = detect_text_boxes(
@@ -69,6 +86,7 @@ def _clean_frame(
         suppress_glare=False,
         preprocess=False,
     )
+    ui_rect = None
     ui_mask = detect_ui_squares(img)
     if ui_mask is not None and ui_mask.any():
         ys, xs = np.where(ui_mask > 0)
@@ -82,6 +100,8 @@ def _clean_frame(
         inpaint=inpaint_text,
         inpaint_model=inpaint_model,
     )
+    if draw_ui_bbox and ui_rect is not None:
+        cv2.rectangle(img, (ui_rect[0], ui_rect[1]), (ui_rect[2], ui_rect[3]), (0, 255, 0), 1)
     if img.shape[0] > 10 and img.shape[1] > 10:
         img = img[5:-5, 5:-5]
     img = _crop_padding(img)
