@@ -1,3 +1,8 @@
+import sys
+import types
+
+sys.modules.setdefault("cv2", types.SimpleNamespace())
+
 import numpy as np
 from polypdb import clean_hyperkvasir_unlabeled as ch
 
@@ -98,3 +103,45 @@ def test_clean_frame_removes_br_padding_glyph():
     assert cleaned.shape[1] < 20
     assert cleaned.shape[0] < 20
     assert cleaned.max() <= 200
+
+
+def test_batch_clean_skips_existing_outputs(tmp_path, monkeypatch):
+    src = tmp_path / "src"
+    dst = tmp_path / "dst"
+    src.mkdir()
+    dst.mkdir()
+
+    # Create two dummy input files and an existing output for one of them
+    (src / "a.jpg").write_bytes(b"1")
+    (src / "b.jpg").write_bytes(b"1")
+    (dst / "a.jpg").write_text("done")
+
+    processed = []
+
+    def fake_process(img_path, out_dir):
+        processed.append(img_path.name)
+        (out_dir / img_path.name).write_text("done")
+
+    class DummyExecutor:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def map(self, fn, iterable, dst_iter):
+            results = []
+            for item in iterable:
+                results.append(fn(item, next(dst_iter)))
+            return results
+
+    monkeypatch.setitem(sys.modules, "paddleocr", object())
+    monkeypatch.setattr(ch, "_process_image", fake_process)
+    monkeypatch.setattr(ch, "ProcessPoolExecutor", DummyExecutor)
+
+    ch.batch_clean_hyperkvasir_unlabeled(str(src), str(dst))
+
+    assert processed == ["b.jpg"]

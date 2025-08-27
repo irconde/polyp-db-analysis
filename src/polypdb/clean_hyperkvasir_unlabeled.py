@@ -163,8 +163,13 @@ def batch_clean_hyperkvasir_unlabeled(
     output_dir: str,
     *,
     inpaint_text: bool = False,
+    resume: bool = True,
 ) -> None:
-    """Clean all images in ``input_dir`` and write them to ``output_dir``."""
+    """Clean all images in ``input_dir`` and write them to ``output_dir``.
+
+    When ``resume`` is ``True`` existing files in ``output_dir`` are skipped,
+    allowing interrupted runs to continue without restarting from scratch.
+    """
 
     src = Path(input_dir)
     dst = Path(output_dir)
@@ -188,6 +193,9 @@ def batch_clean_hyperkvasir_unlabeled(
             ) from exc
         inpaint_model = SimpleLama()
     extensions = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
+    img_paths = [p for p in sorted(src.iterdir()) if p.suffix.lower() in extensions]
+    if resume:
+        img_paths = [p for p in img_paths if not (dst / p.name).exists()]
 
     for img_path in sorted(src.iterdir()):
         if img_path.suffix.lower() not in extensions:
@@ -216,11 +224,17 @@ def main() -> None:
         action="store_true",
         help="Fill masked text regions using SimpleLama inpainting.",
     )
+    parser.add_argument(
+        "--no-resume",
+        action="store_true",
+        help="Reprocess all images even if outputs already exist.",
+    )
     args = parser.parse_args()
     batch_clean_hyperkvasir_unlabeled(
         args.input_dir,
         args.output_dir,
         inpaint_text=args.inpaint,
+        resume=not args.no_resume,
     )
 
 
