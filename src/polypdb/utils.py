@@ -1088,7 +1088,11 @@ def mask_text_regions(
                 ) from exc
             inpaint_model = SimpleLama()
         inpainted = inpaint_model(pil_img, pil_mask)
-        result = np.array(inpainted)[:, :, ::-1]
+        # ``np.array(...)[..., ::-1]`` creates a view with a negative stride
+        # which OpenCV drawing functions (e.g. ``cv2.rectangle``) cannot handle
+        # as they require C-contiguous arrays.  ``copy()`` ensures we return a
+        # contiguous array in BGR order.
+        result = np.array(inpainted)[:, :, ::-1].copy()
     else:
         result = img.copy()
         result[mask > 0] = 0
