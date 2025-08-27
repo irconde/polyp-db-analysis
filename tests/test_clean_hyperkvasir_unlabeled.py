@@ -66,3 +66,35 @@ def test_clean_frame_can_draw_ui_bbox():
     green = np.array([0, 255, 0], dtype=np.uint8)
     assert (cleaned[10, 12:18] == green).all()
     assert (cleaned[10:20, 12] == green).all()
+
+
+def test_clean_frame_removes_br_padding_glyph():
+    img = np.full((20, 30, 3), 200, dtype=np.uint8)
+    img[:, 20:] = 0  # right padding
+    img[15:20, 25:30] = 255  # glyph inside padding
+
+    def fake_detect_text_boxes(_img, _ocr, **kwargs):
+        return [], None
+
+    def fake_detect_ui_squares(_img):
+        return None
+
+    def fake_viewport(img):
+        return img, None, None
+
+    orig_detect = ch.detect_text_boxes
+    orig_ui = ch.detect_ui_squares
+    orig_viewport = ch.mask_viewport_auto_color_safe
+    try:
+        ch.detect_text_boxes = fake_detect_text_boxes
+        ch.detect_ui_squares = fake_detect_ui_squares
+        ch.mask_viewport_auto_color_safe = fake_viewport
+        cleaned = ch._clean_frame(img, ocr=None)
+    finally:
+        ch.detect_text_boxes = orig_detect
+        ch.detect_ui_squares = orig_ui
+        ch.mask_viewport_auto_color_safe = orig_viewport
+
+    assert cleaned.shape[1] < 20
+    assert cleaned.shape[0] < 20
+    assert cleaned.max() <= 200

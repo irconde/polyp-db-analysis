@@ -21,6 +21,7 @@ from .utils import (
     mask_text_regions,
     mask_viewport_auto_color_safe,
 )
+from .br_padding_fill import fill_br_padding
 
 
 def _estimate_padding_rgb(img: np.ndarray, band_frac: float = 0.04) -> Tuple[int, int, int]:
@@ -152,6 +153,7 @@ def _clean_frame(
         cv2.rectangle(img, (ui_rect[0], ui_rect[1]), (ui_rect[2], ui_rect[3]), (0, 255, 0), 1)
     if img.shape[0] > 10 and img.shape[1] > 10:
         img = img[5:-5, 5:-5]
+    img = fill_br_padding(img)
     img = _crop_padding(img)
     return img
 
