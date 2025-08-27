@@ -101,6 +101,10 @@ def _clean_frame(
         inpaint_model=inpaint_model,
     )
     if draw_ui_bbox and ui_rect is not None:
+        # ``img`` may be a non-contiguous view when inpainting is enabled, which
+        # OpenCV drawing functions do not accept. Ensure contiguity before
+        # drawing the bounding box for debugging.
+        img = np.ascontiguousarray(img)
         cv2.rectangle(img, (ui_rect[0], ui_rect[1]), (ui_rect[2], ui_rect[3]), (0, 255, 0), 1)
     if img.shape[0] > 10 and img.shape[1] > 10:
         img = img[5:-5, 5:-5]
