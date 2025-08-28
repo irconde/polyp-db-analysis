@@ -17,11 +17,19 @@ import numpy as np
 # ---------------- core: raw rule + BR component ----------------
 
 
-def raw_rule_mask(img: np.ndarray, thresh: int = 17) -> np.ndarray:
-    """Return a 0/255 mask where at least two channels are ``<= thresh``."""
+def raw_rule_mask(img: np.ndarray, thresh: int = 17, max_color: int = 25) -> np.ndarray:
+    """Return a 0/255 mask for dark pixels.
+
+    A pixel is included when at least two colour channels are ``<= thresh`` and
+    **all** channels are ``<= max_color``.  This guards against the mask growing
+    into brighter regions where one channel might be very high.
+    """
     b, g, r = cv2.split(img)
     vals = np.stack([b, g, r], axis=-1).astype(np.int16)
-    m = (np.sum(vals <= thresh, axis=-1) >= 2).astype(np.uint8) * 255
+    m = (
+        (np.sum(vals <= thresh, axis=-1) >= 2)
+        & np.all(vals <= max_color, axis=-1)
+    ).astype(np.uint8) * 255
     return m
 
 
