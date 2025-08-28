@@ -10,6 +10,13 @@ from .merge import (
     dataset_statistics_from_parquets,
     export_manifests_to_csv,
 )
+from .report import (
+    write_readme,
+    write_schema_yaml,
+    write_dataset_meta,
+    validate_canonical,
+    write_checksums,
+)
 from .preprocess import CONVERTERS
 from .ultralytics import prepare_dataset, prepare_classification_dataset
 from .count_samples import count_samples
@@ -147,6 +154,28 @@ def main() -> None:
         help="Directory to save debug images with mask contours",
     )
 
+    readme_parser = subparsers.add_parser(
+        "write-readme",
+        help="Generate README.md, schema.yaml, and dataset_meta.json for a canonical dataset",
+    )
+    readme_parser.add_argument("canonical_dir", help="Path to the canonical dataset directory")
+    readme_parser.add_argument(
+        "--readme-out", help="Optional README output path (default: <canonical>/README.md)",
+    )
+
+    validate_parser = subparsers.add_parser(
+        "validate-canonical", help="Validate canonical manifests and file references",
+    )
+    validate_parser.add_argument("canonical_dir", help="Path to the canonical dataset directory")
+
+    csum_parser = subparsers.add_parser(
+        "write-checksums", help="Write sha256 checksums for images/ to manifests/checksums.csv",
+    )
+    csum_parser.add_argument("canonical_dir", help="Path to the canonical dataset directory")
+    csum_parser.add_argument(
+        "--out", help="Optional checksums CSV path (default: manifests/checksums.csv)",
+    )
+
     export_csv_parser = subparsers.add_parser(
         "export-csv",
         help=(
@@ -259,6 +288,16 @@ def main() -> None:
             else:
                 logger.info("Preparing detection dataset")
                 prepare_dataset(prepare_cfg)
+    elif args.command == "write-readme":
+        path = write_readme(args.canonical_dir, args.readme_out)
+        logger.info("README generated at %s", path)
+    elif args.command == "validate-canonical":
+        res = validate_canonical(args.canonical_dir)
+        if not res["ok"]:
+            raise SystemExit(1)
+    elif args.command == "write-checksums":
+        out = write_checksums(args.canonical_dir, args.out)
+        logger.info("Checksums written to %s", out)
     elif args.command == "export-csv":
         written = export_manifests_to_csv(args.canonical_dir, args.out_dir, args.tables)
         if written:
