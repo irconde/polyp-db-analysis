@@ -136,6 +136,20 @@ polypdb stats-manifests --frames /path/to/frames.parquet \
 The command logs a concise summary and can optionally write the full statistics
 dictionary to a JSON file with `--json-out`.
 
+### Export manifests as CSV
+
+Export one or more manifest parquet files from a canonical dataset to CSV:
+
+```bash
+polypdb export-csv /path/to/canonical /path/to/output_csv_dir
+```
+
+Export a subset of tables only:
+
+```bash
+polypdb export-csv /path/to/canonical /path/to/output_csv_dir --tables frames lesions
+```
+
 ### Full preprocessing pipeline
 
 Run conversion, merging and optional dataset preparation in a single step. The

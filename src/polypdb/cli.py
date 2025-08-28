@@ -8,6 +8,7 @@ from .merge import (
     merge_datasets,
     dataset_statistics_from_canonical,
     dataset_statistics_from_parquets,
+    export_manifests_to_csv,
 )
 from .preprocess import CONVERTERS
 from .ultralytics import prepare_dataset, prepare_classification_dataset
@@ -146,6 +147,26 @@ def main() -> None:
         help="Directory to save debug images with mask contours",
     )
 
+    export_csv_parser = subparsers.add_parser(
+        "export-csv",
+        help=(
+            "Export manifest parquet files (frames/lesions/annotations) as CSV from a "
+            "canonical dataset directory"
+        ),
+    )
+    export_csv_parser.add_argument(
+        "canonical_dir", help="Path to the canonical dataset directory"
+    )
+    export_csv_parser.add_argument(
+        "out_dir", help="Directory to write CSV files"
+    )
+    export_csv_parser.add_argument(
+        "--tables",
+        nargs="+",
+        choices=["frames", "lesions", "annotations"],
+        help="Subset of tables to export (default: all)",
+    )
+
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -238,6 +259,13 @@ def main() -> None:
             else:
                 logger.info("Preparing detection dataset")
                 prepare_dataset(prepare_cfg)
+    elif args.command == "export-csv":
+        written = export_manifests_to_csv(args.canonical_dir, args.out_dir, args.tables)
+        if written:
+            for name, path in written.items():
+                logger.info("Exported %s -> %s", name, path)
+        else:
+            logger.warning("No tables were exported.")
 
 
 if __name__ == "__main__":

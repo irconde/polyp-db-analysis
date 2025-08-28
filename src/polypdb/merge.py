@@ -913,6 +913,57 @@ def dataset_statistics_from_parquets(frames_path: str, lesions_path: str) -> dic
     return dataset_statistics(pos_df, negative_records, negative_original_count=len(neg_df))
 
 
+def export_manifests_to_csv(
+    canonical_base: str, out_dir: str, tables: list[str] | None = None
+) -> dict[str, str]:
+    """Export manifest parquet files to CSV.
+
+    Parameters
+    ----------
+    canonical_base:
+        Path to the canonical dataset directory that contains a ``manifests``
+        subdirectory with parquet files.
+    out_dir:
+        Destination directory where CSV files will be written.
+    tables:
+        Optional list of tables to export. Supported values: ``frames``,
+        ``lesions``, ``annotations``. If ``None``, all available tables are
+        exported.
+
+    Returns
+    -------
+    dict
+        Mapping from table name to the written CSV path.
+    """
+
+    manifests_dir = os.path.join(canonical_base, "manifests")
+    os.makedirs(out_dir, exist_ok=True)
+
+    supported = ["frames", "lesions", "annotations"]
+    if tables is None:
+        tables = supported
+    else:
+        invalid = [t for t in tables if t not in supported]
+        if invalid:
+            raise ValueError(f"Unsupported tables requested: {invalid}")
+
+    written: dict[str, str] = {}
+    for t in tables:
+        parquet_path = os.path.join(manifests_dir, f"{t}.parquet")
+        if not os.path.exists(parquet_path):
+            logger.warning("Parquet not found for table %s: %s (skipping)", t, parquet_path)
+            continue
+        df = pd.read_parquet(parquet_path)
+        csv_path = os.path.join(out_dir, f"{t}.csv")
+        df.to_csv(csv_path, index=False)
+        written[t] = csv_path
+        logger.info("Wrote %s CSV to %s", t, csv_path)
+
+    if not written:
+        logger.warning("No CSV files were written; check your canonical directory")
+    return written
+
+
 def merge_datasets(
     base_path,
     datasets: list[str],
