@@ -29,8 +29,7 @@ def test_copy_and_rename_negative_images_with_explicit_dataset(tmp_path):
             "img_width": 20,
             "img_height": 30,
             "filename_ext": ".png",
-            "canonical_path": os.path.join(str(dest_dir), expected_name),
-            "raw_path": str(img_path),
+            "img_path": os.path.join('images', expected_name),
             "modality": None,
         }
     ]
@@ -59,8 +58,7 @@ def test_copy_and_rename_negative_images_without_groups(tmp_path):
             "img_width": 10,
             "img_height": 15,
             "filename_ext": ".jpg",
-            "canonical_path": os.path.join(str(dest_dir), expected_name),
-            "raw_path": str(img_path),
+            "img_path": os.path.join('images', expected_name),
             "modality": None,
         }
     ]

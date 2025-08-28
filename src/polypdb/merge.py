@@ -466,8 +466,7 @@ def copy_and_rename_negative_images(
                     "img_width": row["WIDTH"],
                     "img_height": row["HEIGHT"],
                     "filename_ext": ext,
-                    "canonical_path": dest_path,
-                    "raw_path": src,
+                    "img_path": os.path.join('images', dest_name),
                     "modality": None,
                 }
             )
@@ -663,8 +662,7 @@ def export_parquet_metadata(
     manifests_dir = os.path.join(canonical_base, 'manifests')
     os.makedirs(manifests_dir, exist_ok=True)
 
-    timestamp = pd.Timestamp.utcnow()
-    ingest_version = "v1"
+    # Note: ingest metadata removed per user request
 
     frame_records = []
     for _, row in df.iterrows():
@@ -679,22 +677,15 @@ def export_parquet_metadata(
             'img_width': width,
             'img_height': height,
             'filename_ext': os.path.splitext(row['frame'])[1].lower(),
-            'canonical_path': canonical_path,
-            'raw_path': row.get('raw_path'),
+            'img_path': os.path.join('images', row['frame']),
             'modality': row.get('image_type'),
-            'ingest_version': ingest_version,
-            'ingest_timestamp': timestamp,
             'has_polyp': True,
         })
 
     if negative_frames:
         for rec in negative_frames:
             rec = rec.copy()
-            rec.update({
-                'ingest_version': ingest_version,
-                'ingest_timestamp': timestamp,
-                'has_polyp': False,
-            })
+            rec.update({'has_polyp': False})
             frame_records.append(rec)
     pd.DataFrame(frame_records).to_parquet(
         os.path.join(manifests_dir, 'frames.parquet'), index=False
@@ -711,8 +702,6 @@ def export_parquet_metadata(
             'location': first.get('morphology_location'),
             'n_frames': int(first['n_frames']),
             'source_lesion_id': first['lesion_id'],
-            'ingest_version': ingest_version,
-            'ingest_timestamp': timestamp,
         })
     pd.DataFrame(case_records).to_parquet(
         os.path.join(manifests_dir, 'cases.parquet'), index=False
