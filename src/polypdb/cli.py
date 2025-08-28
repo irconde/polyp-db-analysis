@@ -82,9 +82,9 @@ def main() -> None:
         help="Path to frames.parquet",
     )
     stats_m_parser.add_argument(
-        "--lesions",
+        "--cases",
         required=True,
-        help="Path to lesions.parquet",
+        help="Path to cases.parquet",
     )
     stats_m_parser.add_argument(
         "--json-out",
@@ -163,7 +163,7 @@ def main() -> None:
     export_csv_parser.add_argument(
         "--tables",
         nargs="+",
-        choices=["frames", "lesions", "annotations"],
+        choices=["frames", "cases", "annotations"],
         help="Subset of tables to export (default: all)",
     )
 
@@ -190,7 +190,7 @@ def main() -> None:
     elif args.command == "stats":
         dataset_statistics_from_canonical(args.canonical_dir)
     elif args.command == "stats-manifests":
-        stats = dataset_statistics_from_parquets(args.frames, args.lesions)
+        stats = dataset_statistics_from_parquets(args.frames, args.cases)
         if args.json_out:
             with open(args.json_out, "w") as f:
                 json.dump(stats, f, indent=2)

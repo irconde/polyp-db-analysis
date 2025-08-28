@@ -23,7 +23,7 @@ def test_copy_and_rename_negative_images_with_explicit_dataset(tmp_path):
     assert records == [
         {
             "global_frame_id": "NEG_SUN_clipA.000001",
-            "global_lesion_id": None,
+            "global_case_id": "NEG_SUN_clipA",
             "dataset": "sun",
             "source_frame_id": "frame1.png",
             "img_width": 20,
@@ -53,7 +53,7 @@ def test_copy_and_rename_negative_images_without_groups(tmp_path):
     assert records == [
         {
             "global_frame_id": "NEG_POLAR_polar_negatives.000001",
-            "global_lesion_id": None,
+            "global_case_id": "NEG_POLAR_polar_negatives",
             "dataset": "polar",
             "source_frame_id": "neg1.jpg",
             "img_width": 10,

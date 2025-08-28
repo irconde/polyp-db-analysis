@@ -119,7 +119,7 @@ Compute summary statistics for a fused dataset using the canonical directory or
 explicit manifest parquet files.
 
 - From a canonical directory (expects `manifests/frames.parquet` and
-  `manifests/lesions.parquet` inside):
+  `manifests/cases.parquet` inside):
 
 ```bash
 polypdb stats /path/to/canonical
@@ -129,7 +129,7 @@ polypdb stats /path/to/canonical
 
 ```bash
 polypdb stats-manifests --frames /path/to/frames.parquet \
-                        --lesions /path/to/lesions.parquet \
+                        --cases /path/to/cases.parquet \
                         --json-out stats.json   # optional
 ```
 

@@ -6,7 +6,7 @@ from polypdb.merge import dataset_statistics, dataset_statistics_from_canonical
 def test_dataset_statistics():
     df = pd.DataFrame(
         {
-            "global_lesion_id": ["A1", "A1", "B1"],
+            "global_case_id": ["A1", "A1", "B1"],
             "dataset": ["sun", "sun", "polar"],
             "morphology_shape": ["sessile", "sessile", "flat"],
         }
@@ -40,23 +40,23 @@ def test_dataset_statistics_from_canonical(tmp_path):
 
     frames_df = pd.DataFrame(
         [
-            {"global_frame_id": "A1.000001", "global_lesion_id": "A1", "dataset": "sun", "has_polyp": True},
-            {"global_frame_id": "A1.000002", "global_lesion_id": "A1", "dataset": "sun", "has_polyp": True},
-            {"global_frame_id": "B1.000001", "global_lesion_id": "B1", "dataset": "polar", "has_polyp": True},
-            {"global_frame_id": "NEG_SUN_g1.000001", "global_lesion_id": None, "dataset": "sun", "has_polyp": False},
-            {"global_frame_id": "NEG_SUN_g1.000002", "global_lesion_id": None, "dataset": "sun", "has_polyp": False},
-            {"global_frame_id": "NEG_POLAR_g2.000001", "global_lesion_id": None, "dataset": "polar", "has_polyp": False},
+            {"global_frame_id": "A1.000001", "global_case_id": "A1", "dataset": "sun", "has_polyp": True},
+            {"global_frame_id": "A1.000002", "global_case_id": "A1", "dataset": "sun", "has_polyp": True},
+            {"global_frame_id": "B1.000001", "global_case_id": "B1", "dataset": "polar", "has_polyp": True},
+            {"global_frame_id": "NEG_SUN_g1.000001", "global_case_id": "NEG_SUN_g1", "dataset": "sun", "has_polyp": False},
+            {"global_frame_id": "NEG_SUN_g1.000002", "global_case_id": "NEG_SUN_g1", "dataset": "sun", "has_polyp": False},
+            {"global_frame_id": "NEG_POLAR_g2.000001", "global_case_id": "NEG_POLAR_g2", "dataset": "polar", "has_polyp": False},
         ]
     )
     frames_df.to_parquet(manifests / "frames.parquet", index=False)
 
-    lesions_df = pd.DataFrame(
+    cases_df = pd.DataFrame(
         [
-            {"global_lesion_id": "A1", "dataset": "sun", "shape": "sessile", "n_frames": 2},
-            {"global_lesion_id": "B1", "dataset": "polar", "shape": "flat", "n_frames": 1},
+            {"global_case_id": "A1", "dataset": "sun", "shape": "sessile", "n_frames": 2},
+            {"global_case_id": "B1", "dataset": "polar", "shape": "flat", "n_frames": 1},
         ]
     )
-    lesions_df.to_parquet(manifests / "lesions.parquet", index=False)
+    cases_df.to_parquet(manifests / "cases.parquet", index=False)
 
     stats = dataset_statistics_from_canonical(str(canonical))
     assert stats["original_total_samples"] == 6
