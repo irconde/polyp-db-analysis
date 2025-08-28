@@ -43,8 +43,9 @@ def test_harmonize_metadata_basic(tmp_path):
     }
 
     assert expected_cols.issubset(harmonised.columns)
-    assert harmonised.loc[0, "morphology_shape"] == "sessile"
-    assert harmonised.loc[1, "morphology_shape"] == "pedunculated"
+    # Preserve original morphology labels verbatim
+    assert harmonised.loc[0, "morphology_shape"] == "Is"
+    assert harmonised.loc[1, "morphology_shape"] == "Ip"
     assert harmonised.loc[0, "image_paths"] == [f"{image_dir}/sun_a.png"]
     assert harmonised.loc[0, "bounding_boxes"] == [[1, 2, 3, 4]]
     assert harmonised["n_frames"].tolist() == [1, 1]

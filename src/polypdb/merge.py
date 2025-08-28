@@ -177,8 +177,8 @@ def harmonize_metadata(df: pd.DataFrame, image_dir: str) -> pd.DataFrame:
         df['bounding_boxes'] = [[] for _ in range(len(df))]
 
     if 'SHAPE' in df.columns:
-        shapes = df['SHAPE'].str.strip().str.lower()
-        df['morphology_shape'] = shapes.map(MORPHOLOGY_SHAPE_MAP).fillna(shapes)
+        # Preserve original morphology labels verbatim (e.g., 'Is', 'Ip', 'IIa')
+        df['morphology_shape'] = df['SHAPE']
     else:
         df['morphology_shape'] = None
 
