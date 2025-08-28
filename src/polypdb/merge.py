@@ -1037,7 +1037,9 @@ def merge_datasets(
     save_combined_dataframe(combined_df, base_path, output_filename)
     export_parquet_metadata(combined_df, canonical_base, negative_records)
 
-    dataset_statistics(combined_df, negative_records, negative_original_count)
+    # Compute statistics using the new 'global_case_id' terminology without fallbacks
+    stats_df = combined_df.rename(columns={"global_lesion_id": "global_case_id"})
+    dataset_statistics(stats_df, negative_records, negative_original_count)
 
     # Loop through the DataFrame and draw bounding boxes on each image
     if plot_images:
