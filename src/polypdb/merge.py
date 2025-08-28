@@ -879,6 +879,40 @@ def dataset_statistics_from_canonical(canonical_base: str) -> dict:
     return dataset_statistics(pos_df, negative_records, negative_original_count=len(neg_df))
 
 
+def dataset_statistics_from_parquets(frames_path: str, lesions_path: str) -> dict:
+    """Compute dataset statistics given explicit manifest parquet paths.
+
+    Parameters
+    ----------
+    frames_path:
+        Path to ``frames.parquet`` containing per-frame metadata with a
+        boolean ``has_polyp`` column.
+    lesions_path:
+        Path to ``lesions.parquet`` containing per-lesion metadata including
+        ``global_lesion_id``, ``dataset`` and morphology fields.
+
+    Returns
+    -------
+    dict
+        Summary statistics in the same format as :func:`dataset_statistics`.
+    """
+
+    frames_df = pd.read_parquet(frames_path)
+    lesions_df = pd.read_parquet(lesions_path)
+
+    pos_df = frames_df[frames_df["has_polyp"]].merge(
+        lesions_df[["global_lesion_id", "dataset", "shape"]],
+        on=["global_lesion_id", "dataset"],
+        how="left",
+    )
+    pos_df = pos_df.rename(columns={"shape": "morphology_shape"})
+
+    neg_df = frames_df[~frames_df["has_polyp"]]
+    negative_records = neg_df[["global_frame_id", "dataset"]].to_dict("records")
+
+    return dataset_statistics(pos_df, negative_records, negative_original_count=len(neg_df))
+
+
 def merge_datasets(
     base_path,
     datasets: list[str],

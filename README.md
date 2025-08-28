@@ -113,6 +113,29 @@ Count the number of samples per class in a YOLO dataset directory:
 polypdb count path/to/dataset
 ```
 
+### Dataset statistics
+
+Compute summary statistics for a fused dataset using the canonical directory or
+explicit manifest parquet files.
+
+- From a canonical directory (expects `manifests/frames.parquet` and
+  `manifests/lesions.parquet` inside):
+
+```bash
+polypdb stats /path/to/canonical
+```
+
+- Directly from parquet files:
+
+```bash
+polypdb stats-manifests --frames /path/to/frames.parquet \
+                        --lesions /path/to/lesions.parquet \
+                        --json-out stats.json   # optional
+```
+
+The command logs a concise summary and can optionally write the full statistics
+dictionary to a JSON file with `--json-out`.
+
 ### Full preprocessing pipeline
 
 Run conversion, merging and optional dataset preparation in a single step. The

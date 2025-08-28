@@ -2,8 +2,13 @@ import argparse
 import os
 import yaml
 import logging
+import json
 
-from .merge import merge_datasets, dataset_statistics_from_canonical
+from .merge import (
+    merge_datasets,
+    dataset_statistics_from_canonical,
+    dataset_statistics_from_parquets,
+)
 from .preprocess import CONVERTERS
 from .ultralytics import prepare_dataset, prepare_classification_dataset
 from .count_samples import count_samples
@@ -64,6 +69,25 @@ def main() -> None:
     )
     stats_parser.add_argument(
         "canonical_dir", help="Path to the canonical dataset directory"
+    )
+
+    stats_m_parser = subparsers.add_parser(
+        "stats-manifests",
+        help="Compute dataset statistics from manifest parquet files",
+    )
+    stats_m_parser.add_argument(
+        "--frames",
+        required=True,
+        help="Path to frames.parquet",
+    )
+    stats_m_parser.add_argument(
+        "--lesions",
+        required=True,
+        help="Path to lesions.parquet",
+    )
+    stats_m_parser.add_argument(
+        "--json-out",
+        help="Optional path to write statistics as JSON",
     )
 
     mask_parser = subparsers.add_parser(
@@ -144,6 +168,22 @@ def main() -> None:
                 logger.info("Class %s: %s samples", class_id, cnt)
     elif args.command == "stats":
         dataset_statistics_from_canonical(args.canonical_dir)
+    elif args.command == "stats-manifests":
+        stats = dataset_statistics_from_parquets(args.frames, args.lesions)
+        if args.json_out:
+            with open(args.json_out, "w") as f:
+                json.dump(stats, f, indent=2)
+            logger.info("Wrote statistics to %s", args.json_out)
+        else:
+            # Concise, readable summary to stdout via logger
+            logger.info("Original total frames: %s", stats.get("original_total_samples"))
+            logger.info("Total frames (after dedup): %s", stats.get("total_samples"))
+            logger.info("Total cases: %s", stats.get("total_cases"))
+            logger.info("Case distribution: %s", stats.get("case_distribution"))
+            logger.info("Frames per case summary: %s", stats.get("frames_per_case_summary"))
+            logger.info("Morphology distribution: %s", stats.get("morphology_distribution"))
+            logger.info("Dataset case distribution: %s", stats.get("dataset_case_distribution"))
+            logger.info("Dataset frame distribution: %s", stats.get("dataset_frame_distribution"))
     elif args.command == "mask-corners":
         padding_color = tuple(int(c) for c in args.padding_color.split(","))
         crop_and_mask_corner_artifacts(
