@@ -16,6 +16,62 @@ import logging
 from ..utils import get_image_size, move_images_parallel, validate_conversion
 
 
+def _fetch_metadata_from_db(db_config: dict) -> pd.DataFrame:
+    """Return PIBA metadata by executing the SQL query used in the notebook.
+
+    Parameters
+    ----------
+    db_config:
+        Dictionary with ``user``, ``password``, ``host`` and ``database`` keys
+        understood by :func:`mysql.connector.connect`.
+
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame mirroring the ``piba_db_dump.xlsx`` produced in the
+        ``piba-database-analysis.ipynb`` notebook.
+    """
+
+    try:  # Import lazily so ``mysql-connector-python`` remains optional.
+        import mysql.connector  # type: ignore
+    except Exception as exc:  # pragma: no cover - exercised when module missing
+        raise ImportError(
+            "mysql-connector-python is required to fetch PIBA metadata"
+        ) from exc
+
+    query = (
+        "SELECT\n"
+        "    img.id AS image_id,\n"
+        "    img.manually_selected AS manually_selected,\n"
+        "    g.title AS title,\n"
+        "    p.id AS polyp_id,\n"
+        "    p.size AS polyp_size,\n"
+        "    p.paris_primary AS paris_primary,\n"
+        "    p.location AS polyp_location,\n"
+        "    pl.x AS x,\n"
+        "    pl.y AS y,\n"
+        "    pl.width AS width,\n"
+        "    pl.height AS height\n"
+        "FROM\n"
+        "    image img\n"
+        "JOIN\n"
+        "    polyp p ON img.polyp_id = p.id\n"
+        "JOIN\n"
+        "    polyplocation pl ON img.id = pl.image_id\n"
+        "JOIN\n"
+        "    gallery g ON img.gallery_id = g.id\n"
+        "WHERE\n"
+        "    img.is_removed = FALSE;"
+    )
+
+    conn = mysql.connector.connect(**db_config)
+    try:
+        df = pd.read_sql(query, conn)
+    finally:
+        conn.close()
+    return df
+
+
 logger = logging.getLogger(__name__)
 
 RENAME_COLUMNS = {
@@ -43,24 +99,38 @@ SHAPE_MAP = {
 
 
 def convert_to_standard_layout(
-    src_dir: str, dest_dir: str, metadata_filename: str = "piba_db_dump.xlsx"
+    src_dir: str,
+    dest_dir: str,
+    metadata_filename: str = "piba_db_dump.xlsx",
+    db_config: dict | None = None,
 ) -> None:
     """Convert PIBA dataset to the standard directory layout.
 
     Apart from renaming columns, the function normalises the light source
     labels, maps morphology descriptions to Paris codes, computes image
-    dimensions and produces bounding boxes in ``x1,y1,x2,y2`` format.
+    dimensions and produces bounding boxes in ``x1,y1,x2,y2`` format. When an
+    Excel dump of the metadata is not available the information can be fetched
+    directly from a MySQL database by passing ``db_config``.
 
     Args:
         src_dir: Directory containing the original PIBA files.
         dest_dir: Directory where the converted dataset will be written.
         metadata_filename: Name of the Excel file with polyp metadata.
+        db_config: Optional connection parameters for the PIBA MySQL database.
 
     Returns:
         None
     """
     logger.info("Converting PIBA dataset from %s to %s", src_dir, dest_dir)
-    df = pd.read_excel(os.path.join(src_dir, metadata_filename))
+    meta_path = os.path.join(src_dir, metadata_filename)
+    if os.path.exists(meta_path):
+        df = pd.read_excel(meta_path)
+    elif db_config is not None:
+        df = _fetch_metadata_from_db(db_config)
+    else:
+        raise FileNotFoundError(
+            f"Metadata file '{metadata_filename}' not found and no db_config provided"
+        )
     df = df.rename(columns=RENAME_COLUMNS)
     df["IMAGE TYPE"] = np.where(df["IMAGE TYPE"].str.contains("WL"), "WL", "NBI")
     df["SIZE"] = df["SIZE"].astype("Int64")
@@ -74,6 +144,7 @@ def convert_to_standard_layout(
     with ThreadPoolExecutor() as executor:
         sizes = list(executor.map(_size, df["FRAME"]))
     df["WIDTH"], df["HEIGHT"] = zip(*sizes)
+
     bbox_strings = (
         df.assign(
             x2=df["X"] + df["BBOX WIDTH"],
