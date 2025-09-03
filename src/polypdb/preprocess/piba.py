@@ -44,7 +44,8 @@ def _fetch_metadata_from_db(db_config: dict) -> pd.DataFrame:
         "    img.id AS image_id,\n"
         "    img.manually_selected AS manually_selected,\n"
         "    g.title AS title,\n"
-        "    p.id AS polyp_id,\n"
+        # Treat polyp id as the case-level identifier
+        "    p.id AS case_id,\n"
         "    p.size AS polyp_size,\n"
         "    p.paris_primary AS paris_primary,\n"
         "    p.location AS polyp_location,\n"
@@ -78,7 +79,10 @@ RENAME_COLUMNS = {
     "image_id": "FRAME",
     "title": "IMAGE TYPE",
     "manually_selected": "MANUAL SELECTION",
+    # Support both legacy 'polyp_id' (from Excel dumps) and the explicit
+    # 'case_id' alias used when pulling directly from the DB.
     "polyp_id": "POLYP ID",
+    "case_id": "POLYP ID",
     "polyp_size": "SIZE",
     "paris_primary": "SHAPE",
     "polyp_location": "LOCATION",

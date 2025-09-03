@@ -1,0 +1,21 @@
+raw_sources:
+  piba:
+    path: /Users/irconde/Desktop/sssl-polyps/polyp-datasets/raw/piba
+    metadata_file: piba_db_dump.xlsx
+
+base_path: /Users/irconde/Desktop/sssl-polyps/polyp-datasets
+
+datasets: [piba]
+
+# Set to an integer to subsample per‑dataset rows; leave null to use all
+num_elements: null
+
+# If you want to auto‑prepare a YOLO dataset after merging,
+# set this to true and provide `prepare_config`.
+prepare: false
+# prepare_config: path/to/ultralytics_config.yaml
+
+# Optional: include if you have negatives for PIBA
+# negative_sources:
+#   piba: /Users/irconde/Desktop/sssl-polyps/polyp-datasets/raw/piba/negatives
+
