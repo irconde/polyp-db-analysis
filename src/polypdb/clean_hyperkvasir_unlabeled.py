@@ -9,8 +9,11 @@ The pipeline performs the following operations on each image:
 """
 
 import argparse
+from itertools import repeat
 from pathlib import Path
 from typing import Sequence, Tuple, Optional
+
+from concurrent.futures import ProcessPoolExecutor
 
 import cv2  # type: ignore
 import numpy as np
@@ -158,6 +161,26 @@ def _clean_frame(
     return img
 
 
+
+_OCR = None
+_INPAINT_TEXT = False
+_INPAINT_MODEL = None
+
+
+def _process_image(img_path: Path, out_dir: Path) -> None:
+    image = cv2.imread(str(img_path))
+    if image is None:
+        print(f"Warning: couldn't read {img_path}")
+        return
+    cleaned = _clean_frame(
+        image,
+        _OCR,
+        inpaint_text=_INPAINT_TEXT,
+        inpaint_model=_INPAINT_MODEL,
+    )
+    cv2.imwrite(str(out_dir / img_path.name), cleaned)
+
+
 def batch_clean_hyperkvasir_unlabeled(
     input_dir: str,
     output_dir: str,
@@ -177,12 +200,9 @@ def batch_clean_hyperkvasir_unlabeled(
 
     try:
         from paddleocr import PaddleOCR  # type: ignore
-    except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
-        raise ModuleNotFoundError(
-            "PaddleOCR is required for text detection. Install paddlepaddle with `pip install \"paddlepaddle<3\"`"
-        ) from exc
-
-    ocr = PaddleOCR(use_angle_cls=False, lang="en")
+    except Exception:  # pragma: no cover - optional dependency
+        PaddleOCR = None  # type: ignore[assignment]
+    ocr = PaddleOCR(use_angle_cls=False, lang="en") if PaddleOCR else None
     inpaint_model = None
     if inpaint_text:
         try:
@@ -196,21 +216,10 @@ def batch_clean_hyperkvasir_unlabeled(
     img_paths = [p for p in sorted(src.iterdir()) if p.suffix.lower() in extensions]
     if resume:
         img_paths = [p for p in img_paths if not (dst / p.name).exists()]
-
-    for img_path in sorted(src.iterdir()):
-        if img_path.suffix.lower() not in extensions:
-            continue
-        image = cv2.imread(str(img_path))
-        if image is None:
-            print(f"Warning: couldn't read {img_path}")
-            continue
-        cleaned = _clean_frame(
-            image,
-            ocr,
-            inpaint_text=inpaint_text,
-            inpaint_model=inpaint_model,
-        )
-        cv2.imwrite(str(dst / img_path.name), cleaned)
+    global _OCR, _INPAINT_TEXT, _INPAINT_MODEL
+    _OCR, _INPAINT_TEXT, _INPAINT_MODEL = ocr, inpaint_text, inpaint_model
+    with ProcessPoolExecutor() as executor:
+        list(executor.map(_process_image, img_paths, repeat(dst)))
 
 
 def main() -> None:

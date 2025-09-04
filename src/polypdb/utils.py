@@ -863,6 +863,8 @@ def detect_ui_square_row(
     g = clahe.apply(gray)
 
     thr_val = max(200, int(np.percentile(g, bright_pct)))
+    # Cap the threshold below the maximum to avoid discarding very bright squares
+    thr_val = min(thr_val, 254)
     _, bin_hi = cv2.threshold(g, thr_val, 255, cv2.THRESH_BINARY)
 
     left_w = int(search_band_ratio * w)
@@ -985,7 +987,20 @@ def detect_ui_squares(img: np.ndarray) -> t.Optional[np.ndarray]:
     det = detect_ui_square_row(img)
     h, w = img.shape[:2]
     if det is None:
-        return None
+        # Fallback: simple threshold-based detection on the left half of the image
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        _, thr = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+        left = thr[:, : int(0.5 * w)]
+        contours, _ = cv2.findContours(left, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return None
+        x0 = min(cv2.boundingRect(c)[0] for c in contours)
+        y0 = min(cv2.boundingRect(c)[1] for c in contours)
+        x1 = max(cv2.boundingRect(c)[0] + cv2.boundingRect(c)[2] for c in contours)
+        y1 = max(cv2.boundingRect(c)[1] + cv2.boundingRect(c)[3] for c in contours)
+        mask = np.zeros((h, w), dtype=np.uint8)
+        cv2.rectangle(mask, (x0, y0), (x1, y1), 255, -1)
+        return mask
     mask = np.zeros((h, w), dtype=np.uint8)
     x, y, bw, bh = det["bbox"]  # type: ignore
     cv2.rectangle(mask, (x, y), (x + bw, y + bh), 255, -1)
