@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 # Frames with known issues that should be excluded from processing
 EXCLUDED_FRAMES: dict[str, set[str]] = {
+    "C1": {
+        "356OLCV1_100S0007"
+    },
     "C2": {
         "EndoCV2021_001010",
         "EndoCV2021_001024",
@@ -63,6 +66,10 @@ EXCLUDED_FRAMES: dict[str, set[str]] = {
         "EndoCV2021_001336",
         "EndoCV2021_001337",
         "EndoCV2021_001338",
+        "EndoCV2021_001191",
+        "EndoCV2021_001260",
+        "EndoCV2021_001282",
+        "EndoCV2021_001321"
     },
     "C3": {
         "C3_EndoCV2021_00480",
@@ -73,6 +80,32 @@ EXCLUDED_FRAMES: dict[str, set[str]] = {
     "C5": {
         "EndoCV2021_C5_50000057",
         "EndoCV2021_C5_50000314",
+        "EndoCV2021_C5_50000100",
+        "EndoCV2021_C5_50000101",
+        "EndoCV2021_C5_50000102",
+        "EndoCV2021_C5_50000103",
+        "EndoCV2021_C5_50000108",
+        "EndoCV2021_C5_50000109",
+        "EndoCV2021_C5_50000110",
+        "EndoCV2021_C5_50000111",
+        "EndoCV2021_C5_50000112",
+        "EndoCV2021_C5_50000113",
+        "EndoCV2021_C5_50000115",
+        "EndoCV2021_C5_50000116",
+        "EndoCV2021_C5_50000120",
+        "EndoCV2021_C5_50000121",
+        "EndoCV2021_C5_50000122",
+        "EndoCV2021_C5_50000123",
+        "EndoCV2021_C5_50000124",
+        "EndoCV2021_C5_50000125",
+        "EndoCV2021_C5_50000126",
+        "EndoCV2021_C5_50000127",
+        "EndoCV2021_C5_50000128",
+        "EndoCV2021_C5_50000129",
+        "EndoCV2021_C5_50000138",
+        "EndoCV2021_C5_50000139",
+        "EndoCV2021_C5_50000140",
+        "EndoCV2021_C5_50000141"
     },
     "C6": {
         "EndoCV2021_C6_0100001",
@@ -140,7 +173,8 @@ def _parse_bbox_file(path: str) -> str:
             boxes.append(
                 f"{int(round(x1))},{int(round(y1))},{int(round(x2))},{int(round(y2))}"
             )
-    return " ".join(boxes)
+    # Use semicolons to separate multiple boxes to match downstream expectations
+    return ";".join(boxes)
 
 
 def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
@@ -209,12 +243,14 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
         bbox_str = row.BOUNDING_BOX
         if bbox_str:
             adj_boxes: list[str] = []
-            for box in bbox_str.split():
+            # Support both whitespace and semicolon separated lists
+            for box in re.split(r"[\s;]+", bbox_str.strip()):
                 x1, y1, x2, y2 = map(int, box.split(","))
                 adj_boxes.append(
                     f"{x1 - x_off},{y1 - y_off},{x2 - x_off},{y2 - y_off}"
                 )
-            boxes.append(" ".join(adj_boxes))
+            # Persist multi-box rows using semicolon separators
+            boxes.append(";".join(adj_boxes))
         else:
             boxes.append("")
 

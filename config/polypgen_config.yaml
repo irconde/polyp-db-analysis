@@ -1,0 +1,10 @@
+raw_sources:
+  polypgen:
+    path: /Users/irconde/Desktop/sssl-polyps/polyp-datasets/raw/polypgen/PolypGen2021_MultiCenterData_v3
+base_path: /Users/irconde/Desktop/sssl-polyps/polyp-datasets
+datasets: [polypgen]
+write_cases: false
+num_elements: null
+prepare: false
+drop_multi_bboxes: false
+clean_artifacts: true

@@ -1,6 +1,7 @@
 import os
 import shutil
 import logging
+import re
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
@@ -586,8 +587,28 @@ def process_images_and_bboxes(df, source_dir, target_width, target_height):
             orig_width, orig_height, result_width, result_height = standardize_and_override_image(img_path,
                                                                                                   target_width,
                                                                                                   target_height)
-            new_bbox = adjust_bounding_box(row['BOUNDING BOX'], orig_width, orig_height, target_width, target_height,
-                                           result_width, result_height)
+            new_bbox = None
+            bbox_val = str(row['BOUNDING BOX']) if not pd.isna(row['BOUNDING BOX']) else ''
+            if bbox_val:
+                parts = re.split(r"[;\s]+", bbox_val.strip())
+                new_parts: list[str] = []
+                for p in parts:
+                    if not p:
+                        continue
+                    new_parts.append(
+                        adjust_bounding_box(
+                            p,
+                            orig_width,
+                            orig_height,
+                            target_width,
+                            target_height,
+                            result_width,
+                            result_height,
+                        )
+                    )
+                new_bbox = ";".join(new_parts)
+            else:
+                new_bbox = ''
             df.at[index, 'BOUNDING BOX'] = new_bbox
         else:
             logger.warning("File not found: %s", img_path)
@@ -981,13 +1002,16 @@ def merge_datasets(
     combined_df = combine_datasets(base_path, datasets, num_elements=num_elements)
     output_filename = 'metadata.xlsx' if num_elements is None else 'output_' + str(num_elements) + '.xlsx'
 
-    # Keep only entries with a single bounding box (no blank spaces in 'BOUNDING BOX')
+    # Keep only entries with a single bounding box for non-PolypGen datasets.
+    # PolypGen can legitimately contain multiple boxes per frame; preserve them.
     before_bb_filter = len(combined_df)
-    combined_df = combined_df[combined_df['BOUNDING BOX'].str.count(' ') == 0]
+    is_polypgen = combined_df['ORIGINAL DATASET'].str.lower() == 'polypgen'
+    has_multiple = combined_df['BOUNDING BOX'].astype(str).str.contains(r"[;\s]")
+    combined_df = combined_df[is_polypgen | ~has_multiple]
     dropped_bb = before_bb_filter - len(combined_df)
     if dropped_bb:
         logger.info(
-            "Dropped %d rows with multiple bounding boxes", dropped_bb
+            "Dropped %d rows with multiple bounding boxes (non-PolypGen)", dropped_bb
         )
 
     logger.info("Combined dataframe length: %d", len(combined_df))
