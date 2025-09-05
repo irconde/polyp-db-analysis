@@ -191,6 +191,7 @@ def harmonize_metadata(df: pd.DataFrame, image_dir: str) -> pd.DataFrame:
         df['image_type'] = None
 
     df['morphology_location'] = df.get('LOCATION')
+    df['center_id'] = df.get('CENTER')
 
     # Drop legacy columns now represented in the unified schema
     drop_cols = [
@@ -203,6 +204,7 @@ def harmonize_metadata(df: pd.DataFrame, image_dir: str) -> pd.DataFrame:
         'IMAGE TYPE',
         'BOUNDING BOX',
         'POLYP ID',  # global id used for naming during processing
+        'CENTER',
     ]
     df = df.drop(columns=[c for c in drop_cols if c in df.columns])
 
@@ -219,6 +221,7 @@ def harmonize_metadata(df: pd.DataFrame, image_dir: str) -> pd.DataFrame:
         'morphology_size',
         'image_type',
         'morphology_location',
+        'center_id',
     ]
 
     other_cols = [c for c in df.columns if c not in core_cols]
@@ -694,6 +697,7 @@ def export_parquet_metadata(
             'global_frame_id': row.get('global_frame_id'),
             'global_case_id': row['global_lesion_id'],
             'dataset': row['dataset'],
+            'center_id': row.get('center_id'),
             'source_frame_id': row['original_frame'],
             'img_width': width,
             'img_height': height,
@@ -718,6 +722,7 @@ def export_parquet_metadata(
         case_records.append({
             'global_case_id': lesion_id,
             'dataset': first['dataset'],
+            'center_id': first.get('center_id'),
             'shape': first.get('morphology_shape'),
             'size_mm': first.get('morphology_size'),
             'location': first.get('morphology_location'),
@@ -736,6 +741,7 @@ def export_parquet_metadata(
                 'ann_id': f"{row.get('global_frame_id')}.{idx:02d}",
                 'global_frame_id': row.get('global_frame_id'),
                 'global_case_id': row['global_lesion_id'],
+                'center_id': row.get('center_id'),
                 'bbox_x': float(x1),
                 'bbox_y': float(y1),
                 'bbox_w': float(x2 - x1),
