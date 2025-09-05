@@ -807,11 +807,18 @@ def dataset_statistics(
         ``dataset_case_distribution`` and ``dataset_frame_distribution``
         showing positive/negative counts per source dataset.
     """
-    # Use only rows with a defined case id for case-related stats
-    df_cases = df[df["global_case_id"].notna()].copy()
-    total_positive = len(df)
-    total_negative = len(negative_frames)
-    original_total = total_positive + negative_original_count
+    # Determine positives (frames with at least one bbox) when available; otherwise assume df is positives
+    if "bounding_boxes" in df.columns:
+        pos_mask = df["bounding_boxes"].apply(lambda v: isinstance(v, (list, tuple)) and len(v) > 0)
+    else:
+        pos_mask = pd.Series(True, index=df.index)
+
+    # Use only rows with a defined case id and positive frames for case-related stats
+    df_cases = df[df["global_case_id"].notna() & pos_mask].copy()
+    total_positive = int(pos_mask.sum())
+    neg_from_df = int((~pos_mask).sum())
+    total_negative = neg_from_df + len(negative_frames)
+    original_total = total_positive + neg_from_df + negative_original_count
     total_after = total_positive + total_negative
 
     positive_cases = df_cases["global_case_id"].nunique()
@@ -858,8 +865,12 @@ def dataset_statistics(
     neg_frame_counts = Counter(neg_case_ids)
     all_frame_counts = pd.concat([pos_frame_counts, pd.Series(neg_frame_counts)])
 
-    pos_frames_by_dataset = df["dataset"].value_counts().to_dict()
-    neg_frames_by_dataset = Counter(rec["dataset"] for rec in negative_frames)
+    # Frame distributions by dataset: positives from df (pos_mask), negatives from df (no bboxes) + external negatives
+    pos_frames_by_dataset = df.loc[pos_mask, "dataset"].value_counts().to_dict()
+    neg_frames_from_df = df.loc[~pos_mask, "dataset"].value_counts().to_dict()
+    from collections import Counter
+    neg_frames_by_dataset = Counter(neg_frames_from_df)
+    neg_frames_by_dataset.update(Counter(rec["dataset"] for rec in negative_frames))
     dataset_frame_distribution = {}
     for ds in set(pos_frames_by_dataset) | set(neg_frames_by_dataset):
         dataset_frame_distribution[ds] = {
