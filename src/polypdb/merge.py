@@ -698,21 +698,21 @@ def export_parquet_metadata(
         if pd.isna(case_id):
             case_id = row.get("global_frame_id")
 
-        frame_records.append(
-            {
-                "global_frame_id": row.get("global_frame_id"),
-                "global_case_id": case_id,
-                "dataset": row["dataset"],
-                "center_id": row.get("center_id"),
-                "source_frame_id": row["original_frame"],
-                "img_width": width,
-                "img_height": height,
-                "filename_ext": os.path.splitext(row["frame"])[1].lower(),
-                "img_path": os.path.join("images", row["frame"]),
-                "modality": row.get("image_type"),
-                "has_polyp": True,
-            }
-        )
+        bboxes = row.get('bounding_boxes')
+        has_polyp = isinstance(bboxes, (list, tuple)) and len(bboxes) > 0
+        frame_records.append({
+            'global_frame_id': row.get('global_frame_id'),
+            'global_case_id': case_id,
+            'dataset': row['dataset'],
+            'center_id': row.get('center_id'),
+            'source_frame_id': row['original_frame'],
+            'img_width': width,
+            'img_height': height,
+            'filename_ext': os.path.splitext(row['frame'])[1].lower(),
+            'img_path': os.path.join('images', row['frame']),
+            'modality': row.get('image_type'),
+            'has_polyp': has_polyp,
+        })
 
     if negative_frames:
         for rec in negative_frames:
