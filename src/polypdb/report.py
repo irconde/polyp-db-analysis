@@ -171,7 +171,9 @@ def validate_canonical(canonical_base: str) -> dict:
 
     # Foreign keys
     if cases is not None:
-        missing_cases = set(frames["global_case_id"]) - set(cases["global_case_id"])
+        # Ignore frames without a case id when checking foreign keys
+        frm_nonnull = frames["global_case_id"].notnull()
+        missing_cases = set(frames.loc[frm_nonnull, "global_case_id"]) - set(cases["global_case_id"])
         if missing_cases:
             issues.append(
                 f"Frames reference {len(missing_cases)} cases missing in cases.parquet"
@@ -222,4 +224,3 @@ def write_checksums(canonical_base: str, out_csv: Optional[str] = None) -> str:
     pd.DataFrame(rows).to_csv(out_csv, index=False)
     logger.info("Wrote checksums for %d files to %s", len(rows), out_csv)
     return out_csv
-

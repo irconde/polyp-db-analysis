@@ -60,11 +60,14 @@ def generate_global_lesion_ids(df: pd.DataFrame) -> list[str]:
 
     for _, row in df.iterrows():
         dataset = str(row["ORIGINAL DATASET"]).upper()
-        lesion_id = str(row["POLYP ID"])
-
+        raw = row.get("POLYP ID")
+        if pd.isna(raw) or (isinstance(raw, str) and raw.strip() == ""):
+            # No case/lesion information available; propagate missing value
+            new_ids.append(pd.NA)
+            continue
+        lesion_id = str(raw)
         if lesion_id.isdigit():
             lesion_id = lesion_id.zfill(pad_width.get(dataset, 5))
-
         new_ids.append(f"{dataset}_{lesion_id}")
 
     return new_ids
@@ -157,7 +160,9 @@ def harmonize_metadata(df: pd.DataFrame, image_dir: str) -> pd.DataFrame:
     df['dataset'] = df['ORIGINAL DATASET'].str.lower()
     df['frame'] = df['FRAME']
     df['original_frame'] = df.get('ORIGINAL FRAME', df['FRAME'])
-    df['n_frames'] = df.groupby('global_lesion_id')['frame'].transform('count').astype(int)
+    counts = df.groupby('global_lesion_id')['frame'].transform('count')
+    # Rows without a case id get n_frames = 1
+    df['n_frames'] = counts.fillna(1).astype(int)
     df['image_paths'] = [
         [os.path.join(image_dir, fname)] for fname in df['frame']
     ]
@@ -261,8 +266,10 @@ def validate_harmonised_dataframe(df: pd.DataFrame, image_dir: str) -> None:
     if missing_columns:
         raise ValueError(f"Missing required columns: {missing_columns}")
 
-    if df[required_columns].isnull().any().any():
-        raise ValueError("Null values found in required columns")
+    # Allow null case ids (global_lesion_id) for datasets without cases
+    non_nullable = [c for c in required_columns if c != "global_lesion_id"]
+    if df[non_nullable].isnull().any().any():
+        raise ValueError("Null values found in required columns (excluding global_lesion_id)")
 
     abs_image_dir = os.path.abspath(image_dir)
     for paths in df["image_paths"]:
@@ -800,27 +807,36 @@ def dataset_statistics(
         ``dataset_case_distribution`` and ``dataset_frame_distribution``
         showing positive/negative counts per source dataset.
     """
+    # Use only rows with a defined case id for case-related stats
+    df_cases = df[df["global_case_id"].notna()].copy()
     total_positive = len(df)
     total_negative = len(negative_frames)
     original_total = total_positive + negative_original_count
     total_after = total_positive + total_negative
 
-    positive_cases = df["global_case_id"].nunique()
+    positive_cases = df_cases["global_case_id"].nunique()
     neg_case_ids = [rec["global_frame_id"].split(".")[0] for rec in negative_frames]
     negative_cases = len(set(neg_case_ids))
     total_cases = positive_cases + negative_cases
 
     case_distribution = {"positive": positive_cases, "negative": negative_cases}
 
-    morph_counts = (
-        df.drop_duplicates("global_case_id")["morphology_shape"]
-        .fillna("unknown")
-        .value_counts()
-        .to_dict()
-    )
+    if len(df_cases) > 0:
+        morph_counts = (
+            df_cases.drop_duplicates("global_case_id")["morphology_shape"]
+            .fillna("unknown")
+            .value_counts()
+            .to_dict()
+        )
+    else:
+        morph_counts = {}
 
     # Positive and negative case counts per dataset
-    pos_case_by_dataset = df.drop_duplicates("global_case_id")["dataset"].value_counts().to_dict()
+    pos_case_by_dataset = (
+        df_cases.drop_duplicates("global_case_id")["dataset"].value_counts().to_dict()
+        if len(df_cases) > 0
+        else {}
+    )
     from collections import Counter
     neg_case_map: dict[str, str] = {}
     for rec in negative_frames:
@@ -838,7 +854,7 @@ def dataset_statistics(
             "negative": int(neg_case_by_dataset.get(ds, 0)),
         }
 
-    pos_frame_counts = df.groupby("global_case_id").size()
+    pos_frame_counts = df_cases.groupby("global_case_id").size()
     neg_frame_counts = Counter(neg_case_ids)
     all_frame_counts = pd.concat([pos_frame_counts, pd.Series(neg_frame_counts)])
 
@@ -850,12 +866,15 @@ def dataset_statistics(
             "positive": int(pos_frames_by_dataset.get(ds, 0)),
             "negative": int(neg_frames_by_dataset.get(ds, 0)),
         }
-    frame_summary = {
-        "min": int(all_frame_counts.min()),
-        "max": int(all_frame_counts.max()),
-        "mean": float(all_frame_counts.mean()),
-        "median": float(all_frame_counts.median()),
-    }
+    if len(all_frame_counts) == 0:
+        frame_summary = {"min": 0, "max": 0, "mean": 0.0, "median": 0.0}
+    else:
+        frame_summary = {
+            "min": int(all_frame_counts.min()),
+            "max": int(all_frame_counts.max()),
+            "mean": float(all_frame_counts.mean()),
+            "median": float(all_frame_counts.median()),
+        }
 
     stats = {
         "original_total_samples": original_total,
@@ -1056,7 +1075,15 @@ def merge_datasets(
     # Preserve original lesion identifiers and create global ids used across datasets
     combined_df['lesion_id'] = combined_df['POLYP ID'].astype(str)
     combined_df['global_lesion_id'] = generate_global_lesion_ids(combined_df)
-    combined_df['POLYP ID'] = combined_df['global_lesion_id']
+    # For naming frames we still need a grouping key; if global_lesion_id is
+    # missing, use a dataset-specific placeholder that does NOT propagate to
+    # manifests as a case id.
+    def _frame_group_id(row: pd.Series) -> str:
+        if pd.notna(row['global_lesion_id']):
+            return str(row['global_lesion_id'])
+        return f"{str(row['ORIGINAL DATASET']).upper()}_NOCASE"
+
+    combined_df['POLYP ID'] = combined_df.apply(_frame_group_id, axis=1)
 
     # Copy and rename images into canonical layout
     logger.info("COPYING IMAGES")

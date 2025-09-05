@@ -212,6 +212,7 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
             rows.append(
                 {
                     "FRAME": img_file,
+                    # PolypGen has no lesion identifiers; leave missing.
                     "POLYP ID": pd.NA,
                     "CENTER": centre_name,
                     "BOUNDING BOX": bbox,
