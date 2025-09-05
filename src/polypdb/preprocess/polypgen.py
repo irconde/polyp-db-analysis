@@ -26,6 +26,86 @@ from ..utils import get_image_size, move_images_parallel, validate_conversion
 logger = logging.getLogger(__name__)
 
 
+# Frames with known issues that should be excluded from processing
+EXCLUDED_FRAMES: dict[str, set[str]] = {
+    "C2": {
+        "EndoCV2021_001010",
+        "EndoCV2021_001024",
+        "EndoCV2021_001025",
+        "EndoCV2021_001028",
+        "EndoCV2021_001029",
+        "EndoCV2021_001030",
+        "EndoCV2021_001031",
+        "EndoCV2021_001036",
+        "EndoCV2021_001043",
+        "EndoCV2021_001044",
+        "EndoCV2021_001106",
+        "EndoCV2021_001107",
+        "EndoCV2021_001108",
+        "EndoCV2021_001117",
+        "EndoCV2021_001118",
+        "EndoCV2021_001149",
+        "EndoCV2021_001150",
+        "EndoCV2021_001166",
+        "EndoCV2021_001215",
+        "EndoCV2021_001216",
+        "EndoCV2021_001217",
+        "EndoCV2021_001218",
+        "EndoCV2021_001273",
+        "EndoCV2021_001274",
+        "EndoCV2021_001292",
+        "EndoCV2021_001315",
+        "EndoCV2021_001316",
+        "EndoCV2021_001317",
+        "EndoCV2021_001318",
+        "EndoCV2021_001319",
+        "EndoCV2021_001320",
+        "EndoCV2021_001336",
+        "EndoCV2021_001337",
+        "EndoCV2021_001338",
+    },
+    "C3": {
+        "C3_EndoCV2021_00480",
+        "C3_EndoCV2021_00481",
+        "C3_EndoCV2021_00482",
+        "C3_EndoCV2021_00491",
+    },
+    "C5": {
+        "EndoCV2021_C5_50000057",
+        "EndoCV2021_C5_50000314",
+    },
+    "C6": {
+        "EndoCV2021_C6_0100001",
+        "EndoCV2021_C6_0100003",
+        "EndoCV2021_C6_0100004",
+        "EndoCV2021_C6_0100005",
+        "EndoCV2021_C6_0100006",
+        "EndoCV2021_C6_0100007",
+        "EndoCV2021_C6_0100008",
+        "EndoCV2021_C6_0100009",
+        "EndoCV2021_C6_0100010",
+        "EndoCV2021_C6_0100011",
+        "EndoCV2021_C6_0100012",
+        "EndoCV2021_C6_0100013",
+        "EndoCV2021_C6_0100014",
+        "EndoCV2021_C6_0100015",
+        "EndoCV2021_C6_0100017",
+        "EndoCV2021_C6_0100018",
+        "EndoCV2021_C6_0100019",
+        "EndoCV2021_C6_0100020",
+        "EndoCV2021_C6_0100021",
+        "EndoCV2021_C6_0100022",
+        "EndoCV2021_C6_0100023",
+        "EndoCV2021_C6_0100025",
+        "EndoCV2021_C6_0100027",
+        "EndoCV2021_C6_0100028",
+        "EndoCV2021_C6_0100030",
+        "EndoCV2021_C6_0100031",
+        "EndoCV2021_C6_0100094",
+    },
+}
+
+
 def _parse_bbox_file(path: str) -> str:
     """Return bounding boxes from ``path`` normalised to ``x1,y1,x2,y2`` format.
 
@@ -70,7 +150,8 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
     resulting images are copied to ``dest_dir/polypgen/img`` and an
     ``annotations.xlsx`` file is created with one row per frame including the
     centre identifier, bounding boxes, image dimensions and metadata columns
-    required by the rest of the pipeline.  All images are white-light and the
+    required by the rest of the pipeline.  Frames listed in ``EXCLUDED_FRAMES``
+    are skipped to remove known artefacts.  All images are white-light and the
     dataset does not provide a polyp identifier.
     """
 
@@ -88,6 +169,8 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
             if not img_file.lower().endswith((".jpg", ".jpeg", ".png")):
                 continue
             base = os.path.splitext(img_file)[0]
+            if base in EXCLUDED_FRAMES.get(centre_name, set()):
+                continue
             bbox_file = os.path.join(bbox_dir, base + ".txt")
             bbox = _parse_bbox_file(bbox_file)
             src_path = os.path.join(img_dir, img_file)
