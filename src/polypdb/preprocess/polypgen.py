@@ -206,7 +206,12 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
             base = os.path.splitext(img_file)[0]
             if base in EXCLUDED_FRAMES.get(centre_name, set()):
                 continue
+            # Some centres save bbox files with a '_mask' suffix
             bbox_file = os.path.join(bbox_dir, base + ".txt")
+            if not os.path.exists(bbox_file):
+                alt_bbox = os.path.join(bbox_dir, base + "_mask.txt")
+                if os.path.exists(alt_bbox):
+                    bbox_file = alt_bbox
             bbox = _parse_bbox_file(bbox_file)
             src_path = os.path.join(img_dir, img_file)
             rows.append(
