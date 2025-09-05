@@ -242,9 +242,9 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
         if img is None:
             continue
         cropped, x_off, y_off = crop_black_padding_band(img)
-        # cleaned, _ = mask_small_viewport(cropped)
-        cv2.imwrite(os.path.join(img_dest_dir, row.FRAME), cropped)
-        h, w = cropped.shape[:2]
+        cleaned, _ = mask_small_viewport(cropped)
+        cv2.imwrite(os.path.join(img_dest_dir, row.FRAME), cleaned)
+        h, w = cleaned.shape[:2]
         widths.append(w)
         heights.append(h)
 
