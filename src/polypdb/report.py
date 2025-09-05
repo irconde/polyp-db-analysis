@@ -123,7 +123,7 @@ manifest tables under `manifests/`.
 
 - `images/`: canonical images. Filenames match `frames.global_frame_id + filename_ext`.
 - `manifests/frames.parquet`: per-frame metadata. `img_path` is relative to this root.
-- `manifests/cases.parquet`: per-case metadata, `shape` values are original labels.
+- `manifests/cases.parquet` (optional): per-case metadata, `shape` values are original labels.
 - `manifests/annotations.parquet`: per-bbox annotations.
 
 ## Schemas
@@ -158,26 +158,32 @@ def validate_canonical(canonical_base: str) -> dict:
     images_root = os.path.join(canonical_base, "images")
 
     issues: list[str] = []
-
-    if frames is None or cases is None:
-        raise FileNotFoundError("Missing frames.parquet or cases.parquet in manifests/")
+    if frames is None:
+        raise FileNotFoundError("Missing frames.parquet in manifests/")
 
     # Key uniqueness
     if frames["global_frame_id"].duplicated().any():
         issues.append("Duplicate global_frame_id in frames")
-    if cases["global_case_id"].duplicated().any():
+    if cases is not None and cases["global_case_id"].duplicated().any():
         issues.append("Duplicate global_case_id in cases")
     if ann is not None and ann["ann_id"].duplicated().any():
         issues.append("Duplicate ann_id in annotations")
 
     # Foreign keys
-    missing_cases = set(frames["global_case_id"]) - set(cases["global_case_id"])
-    if missing_cases:
-        issues.append(f"Frames reference {len(missing_cases)} cases missing in cases.parquet")
+    if cases is not None:
+        missing_cases = set(frames["global_case_id"]) - set(cases["global_case_id"])
+        if missing_cases:
+            issues.append(
+                f"Frames reference {len(missing_cases)} cases missing in cases.parquet"
+            )
+    else:
+        issues.append("cases.parquet missing; skipping case validation")
     if ann is not None:
         missing_frames = set(ann["global_frame_id"]) - set(frames["global_frame_id"])
         if missing_frames:
-            issues.append(f"Annotations reference {len(missing_frames)} frames missing in frames.parquet")
+            issues.append(
+                f"Annotations reference {len(missing_frames)} frames missing in frames.parquet"
+            )
 
     # File existence
     missing_files = []

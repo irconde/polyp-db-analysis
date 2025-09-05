@@ -90,8 +90,7 @@ def main() -> None:
     )
     stats_m_parser.add_argument(
         "--cases",
-        required=True,
-        help="Path to cases.parquet",
+        help="Optional path to cases.parquet",
     )
     stats_m_parser.add_argument(
         "--json-out",

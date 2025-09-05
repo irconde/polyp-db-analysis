@@ -33,6 +33,37 @@ def test_dataset_statistics():
     }
 
 
+def test_dataset_statistics_from_canonical_no_cases(tmp_path):
+    canonical = tmp_path / "canonical"
+    manifests = canonical / "manifests"
+    manifests.mkdir(parents=True)
+
+    frames_df = pd.DataFrame(
+        [
+            {
+                "global_frame_id": "A1.000001",
+                "global_case_id": "A1",
+                "dataset": "sun",
+                "has_polyp": True,
+            },
+            {
+                "global_frame_id": "NEG1.000001",
+                "global_case_id": "NEG1",
+                "dataset": "sun",
+                "has_polyp": False,
+            },
+        ]
+    )
+    frames_df.to_parquet(manifests / "frames.parquet", index=False)
+
+    stats = dataset_statistics_from_canonical(str(canonical))
+    assert stats["case_distribution"] == {"positive": 1, "negative": 1}
+    assert stats["dataset_distribution"] == {"sun": 2}
+    assert stats["morphology_distribution"] == {"unknown": 1}
+    assert stats["dataset_case_distribution"] == {"sun": {"positive": 1, "negative": 1}}
+    assert stats["dataset_frame_distribution"] == {"sun": {"positive": 1, "negative": 1}}
+
+
 def test_dataset_statistics_from_canonical(tmp_path):
     canonical = tmp_path / "canonical"
     manifests = canonical / "manifests"
