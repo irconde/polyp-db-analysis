@@ -690,22 +690,29 @@ def export_parquet_metadata(
 
     frame_records = []
     for _, row in df.iterrows():
-        canonical_path = os.path.join(images_dir, row['frame'])
+        canonical_path = os.path.join(images_dir, row["frame"])
         with Image.open(canonical_path) as img:
             width, height = img.size
-        frame_records.append({
-            'global_frame_id': row.get('global_frame_id'),
-            'global_case_id': row['global_lesion_id'],
-            'dataset': row['dataset'],
-            'center_id': row.get('center_id'),
-            'source_frame_id': row['original_frame'],
-            'img_width': width,
-            'img_height': height,
-            'filename_ext': os.path.splitext(row['frame'])[1].lower(),
-            'img_path': os.path.join('images', row['frame']),
-            'modality': row.get('image_type'),
-            'has_polyp': True,
-        })
+
+        case_id = row.get("global_lesion_id")
+        if pd.isna(case_id):
+            case_id = row.get("global_frame_id")
+
+        frame_records.append(
+            {
+                "global_frame_id": row.get("global_frame_id"),
+                "global_case_id": case_id,
+                "dataset": row["dataset"],
+                "center_id": row.get("center_id"),
+                "source_frame_id": row["original_frame"],
+                "img_width": width,
+                "img_height": height,
+                "filename_ext": os.path.splitext(row["frame"])[1].lower(),
+                "img_path": os.path.join("images", row["frame"]),
+                "modality": row.get("image_type"),
+                "has_polyp": True,
+            }
+        )
 
     if negative_frames:
         for rec in negative_frames:
@@ -716,41 +723,57 @@ def export_parquet_metadata(
         os.path.join(manifests_dir, 'frames.parquet'), index=False
     )
 
-    case_records = []
-    for lesion_id, group in df.groupby('global_lesion_id'):
-        first = group.iloc[0]
-        case_records.append({
-            'global_case_id': lesion_id,
-            'dataset': first['dataset'],
-            'center_id': first.get('center_id'),
-            'shape': first.get('morphology_shape'),
-            'size_mm': first.get('morphology_size'),
-            'location': first.get('morphology_location'),
-            'n_frames': int(first['n_frames']),
-            'source_lesion_id': first['lesion_id'],
-        })
-    pd.DataFrame(case_records).to_parquet(
-        os.path.join(manifests_dir, 'cases.parquet'), index=False
-    )
+    case_records: list[dict] = []
+    required_case_cols = {"global_lesion_id", "lesion_id", "n_frames"}
+    if required_case_cols.issubset(df.columns) and df["global_lesion_id"].notna().any():
+        for lesion_id, group in df.groupby("global_lesion_id"):
+            first = group.iloc[0]
+            case_records.append(
+                {
+                    "global_case_id": lesion_id,
+                    "dataset": first["dataset"],
+                    "center_id": first.get("center_id"),
+                    "shape": first.get("morphology_shape"),
+                    "size_mm": first.get("morphology_size"),
+                    "location": first.get("morphology_location"),
+                    "n_frames": int(first["n_frames"]),
+                    "source_lesion_id": first["lesion_id"],
+                }
+            )
+
+    if case_records:
+        pd.DataFrame(case_records).to_parquet(
+            os.path.join(manifests_dir, "cases.parquet"), index=False
+        )
+    else:
+        logger.info(
+            "Skipping cases.parquet because per-case metadata is missing"
+        )
 
     ann_records = []
     for _, row in df.iterrows():
-        for idx, bbox in enumerate(row['bounding_boxes']):
+        case_id = row.get("global_lesion_id")
+        if pd.isna(case_id):
+            case_id = row.get("global_frame_id")
+        for idx, bbox in enumerate(row["bounding_boxes"]):
             x1, y1, x2, y2 = bbox
-            ann_records.append({
-                'ann_id': f"{row.get('global_frame_id')}.{idx:02d}",
-                'global_frame_id': row.get('global_frame_id'),
-                'global_case_id': row['global_lesion_id'],
-                'center_id': row.get('center_id'),
-                'bbox_x': float(x1),
-                'bbox_y': float(y1),
-                'bbox_w': float(x2 - x1),
-                'bbox_h': float(y2 - y1),
-                'bbox_format': 'xywh',
-                'bbox_normalized': False,
-            })
+            ann_records.append(
+                {
+                    "ann_id": f"{row.get('global_frame_id')}.{idx:02d}",
+                    "global_frame_id": row.get("global_frame_id"),
+                    "global_case_id": case_id,
+                    "center_id": row.get("center_id"),
+                    "bbox_x": float(x1),
+                    "bbox_y": float(y1),
+                    "bbox_w": float(x2 - x1),
+                    "bbox_h": float(y2 - y1),
+                    "bbox_format": "xywh",
+                    "bbox_normalized": False,
+                }
+            )
+
     pd.DataFrame(ann_records).to_parquet(
-        os.path.join(manifests_dir, 'annotations.parquet'), index=False
+        os.path.join(manifests_dir, "annotations.parquet"), index=False
     )
 
 
@@ -866,7 +889,7 @@ def dataset_statistics_from_canonical(canonical_base: str) -> dict:
     ----------
     canonical_base : str
         Path to the canonical dataset containing a ``manifests`` directory
-        with ``frames.parquet`` and ``cases.parquet`` files.
+        with ``frames.parquet`` and optionally ``cases.parquet`` files.
 
     Returns
     -------
@@ -879,14 +902,18 @@ def dataset_statistics_from_canonical(canonical_base: str) -> dict:
     cases_path = os.path.join(manifests_dir, "cases.parquet")
 
     frames_df = pd.read_parquet(frames_path)
-    cases_df = pd.read_parquet(cases_path)
 
-    pos_df = frames_df[frames_df["has_polyp"]].merge(
-        cases_df[["global_case_id", "dataset", "shape"]],
-        on=["global_case_id", "dataset"],
-        how="left",
-    )
-    pos_df = pos_df.rename(columns={"shape": "morphology_shape"})
+    if os.path.exists(cases_path):
+        cases_df = pd.read_parquet(cases_path)
+        pos_df = frames_df[frames_df["has_polyp"]].merge(
+            cases_df[["global_case_id", "dataset", "shape"]],
+            on=["global_case_id", "dataset"],
+            how="left",
+        )
+        pos_df = pos_df.rename(columns={"shape": "morphology_shape"})
+    else:
+        pos_df = frames_df[frames_df["has_polyp"]].copy()
+        pos_df["morphology_shape"] = None
 
     neg_df = frames_df[~frames_df["has_polyp"]]
     negative_records = neg_df[["global_frame_id", "dataset"]].to_dict("records")
@@ -894,7 +921,7 @@ def dataset_statistics_from_canonical(canonical_base: str) -> dict:
     return dataset_statistics(pos_df, negative_records, negative_original_count=len(neg_df))
 
 
-def dataset_statistics_from_parquets(frames_path: str, cases_path: str) -> dict:
+def dataset_statistics_from_parquets(frames_path: str, cases_path: str | None = None) -> dict:
     """Compute dataset statistics given explicit manifest parquet paths.
 
     Parameters
@@ -903,8 +930,8 @@ def dataset_statistics_from_parquets(frames_path: str, cases_path: str) -> dict:
         Path to ``frames.parquet`` containing per-frame metadata with a
         boolean ``has_polyp`` column.
     cases_path:
-        Path to ``cases.parquet`` containing per-case metadata including
-        ``global_case_id``, ``dataset`` and morphology fields.
+        Optional path to ``cases.parquet`` containing per-case metadata
+        including ``global_case_id``, ``dataset`` and morphology fields.
 
     Returns
     -------
@@ -913,14 +940,18 @@ def dataset_statistics_from_parquets(frames_path: str, cases_path: str) -> dict:
     """
 
     frames_df = pd.read_parquet(frames_path)
-    cases_df = pd.read_parquet(cases_path)
 
-    pos_df = frames_df[frames_df["has_polyp"]].merge(
-        cases_df[["global_case_id", "dataset", "shape"]],
-        on=["global_case_id", "dataset"],
-        how="left",
-    )
-    pos_df = pos_df.rename(columns={"shape": "morphology_shape"})
+    if cases_path and os.path.exists(cases_path):
+        cases_df = pd.read_parquet(cases_path)
+        pos_df = frames_df[frames_df["has_polyp"]].merge(
+            cases_df[["global_case_id", "dataset", "shape"]],
+            on=["global_case_id", "dataset"],
+            how="left",
+        )
+        pos_df = pos_df.rename(columns={"shape": "morphology_shape"})
+    else:
+        pos_df = frames_df[frames_df["has_polyp"]].copy()
+        pos_df["morphology_shape"] = None
 
     neg_df = frames_df[~frames_df["has_polyp"]]
     negative_records = neg_df[["global_frame_id", "dataset"]].to_dict("records")

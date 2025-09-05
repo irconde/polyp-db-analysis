@@ -69,7 +69,8 @@ identifier. During merging every image is copied to ``canonical/images`` and
 renamed using the synthetic lesion key ``NEG_<DATASET>_<GROUP>`` resulting in
 filenames like ``NEG_SUN_clipA.000123.jpg`` or ``NEG_POLAR_negatives.000045.png``.
 Negative entries appear in ``frames.parquet`` with ``has_polyp`` set to ``False``
-and ``global_lesion_id`` left ``NULL``.
+and ``global_lesion_id`` left ``NULL``. If the dataset lacks per-case identifiers,
+the merge step skips generating a ``cases.parquet`` file.
 
 ### Prepare Ultralytics YOLO dataset
 
@@ -118,8 +119,8 @@ polypdb count path/to/dataset
 Compute summary statistics for a fused dataset using the canonical directory or
 explicit manifest parquet files.
 
-- From a canonical directory (expects `manifests/frames.parquet` and
-  `manifests/cases.parquet` inside):
+ - From a canonical directory (expects `manifests/frames.parquet` and
+   optionally `manifests/cases.parquet` inside):
 
 ```bash
 polypdb stats /path/to/canonical
@@ -129,7 +130,7 @@ polypdb stats /path/to/canonical
 
 ```bash
 polypdb stats-manifests --frames /path/to/frames.parquet \
-                        --cases /path/to/cases.parquet \
+                        --cases /path/to/cases.parquet \  # optional
                         --json-out stats.json   # optional
 ```
 
