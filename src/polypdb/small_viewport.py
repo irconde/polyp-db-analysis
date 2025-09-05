@@ -183,6 +183,114 @@ def mask_small_viewport(
     return out, box
 
 
+def find_small_viewport_bbox_permissive(
+    img: np.ndarray,
+    *,
+    roi_frac: tuple[float, float, float, float] = (0.0, 0.45, 0.72, 1.0),
+    seed_min_area_px: int = 800,
+    dilate_px: int = 16,
+    min_side_px: int = 40,
+    min_rel_area: float = 0.002,
+    max_rel_area: float = 0.35,
+    aspect_lo: float = 0.30,
+    aspect_hi: float = 2.8,
+    center_x_max: float = 0.82,
+    center_y_min: float = 0.18,
+    fill_ratio_min: float = 0.12,
+    side_touch_px: int = 8,
+    side_touch_ratio: float = 0.05,
+    pad_px: int = 6,
+) -> t.Optional[tuple[int, int, int, int]]:
+    """Locate a bottom-left viewport using permissive heuristics.
+
+    The detector seeds on green/blue hues, bridges occlusions with a convex
+    hull followed by dilation and applies a set of geometric checks that are
+    tolerant to PolypGen frames where the panel may be partially obstructed.
+    """
+
+    h, w = img.shape[:2]
+    x0, y0 = int(roi_frac[0] * w), int(roi_frac[1] * h)
+    x1, y1 = int(roi_frac[2] * w), int(roi_frac[3] * h)
+    roi = img[y0:y1, x0:x1]
+
+    seed = gb_seed_mask(roi)
+    seed = cv2.morphologyEx(
+        seed, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)), 1
+    )
+    if int(seed.sum() // 255) < seed_min_area_px:
+        return None
+
+    cnts, _ = cv2.findContours(seed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    c = max(cnts, key=cv2.contourArea)
+    hull = cv2.convexHull(c)
+    base = np.zeros(seed.shape, np.uint8)
+    cv2.drawContours(base, [hull], -1, 255, -1)
+    k = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (2 * dilate_px + 1, 2 * dilate_px + 1)
+    )
+    grown = cv2.dilate(base, k, 1)
+
+    cnts, _ = cv2.findContours(grown, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    gx, gy, gw, gh = cv2.boundingRect(max(cnts, key=cv2.contourArea))
+    area = gw * gh
+    if gw < min_side_px or gh < min_side_px:
+        return None
+    if not (min_rel_area * w * h <= area <= max_rel_area * w * h):
+        return None
+    asp = gw / float(gh)
+    if not (aspect_lo <= asp <= aspect_hi):
+        return None
+
+    cx = (gx + gw / 2.0) / max(1e-6, (x1 - x0))
+    cy = (gy + gh / 2.0) / max(1e-6, (y1 - y0))
+    if cx >= center_x_max or cy <= center_y_min:
+        return None
+
+    support = (grown[gy:gy + gh, gx:gx + gw] // 255).astype(np.float32)
+    if support.mean() < fill_ratio_min:
+        return None
+
+    h_sub, w_sub = support.shape
+    left_strip = support[:, : min(side_touch_px, w_sub)]
+    bot_strip = support[-min(side_touch_px, h_sub) :, :]
+    if left_strip.mean() < side_touch_ratio and bot_strip.mean() < side_touch_ratio:
+        return None
+
+    x1b = max(0, x0 + gx - pad_px)
+    y1b = max(0, y0 + gy - pad_px)
+    x2b = min(w, x0 + gx + gw + pad_px)
+    y2b = min(h, y0 + gy + gh + pad_px)
+    return (x1b, y1b, x2b, y2b)
+
+
+def mask_small_viewport_permissive(
+    img: np.ndarray,
+    **find_kw: t.Any,
+) -> tuple[np.ndarray, t.Optional[tuple[int, int, int, int]]]:
+    """Mask the viewport using :func:`find_small_viewport_bbox_permissive`.
+
+    Parameters
+    ----------
+    img:
+        Input BGR image.
+    find_kw:
+        Optional keyword overrides forwarded to
+        :func:`find_small_viewport_bbox_permissive`.
+
+    The region is filled using the dominant dark padding colour so that the
+    result blends in with existing borders.
+    """
+
+    box = find_small_viewport_bbox_permissive(img, **find_kw)
+    if not box:
+        return img, None
+    x1, y1, x2, y2 = box
+    color = darkest_padding_color(img)
+    out = img.copy()
+    out[y1:y2, x1:x2] = color
+    return out, box
+
+
 # ------------------------------ CLI ------------------------------
 
 def main() -> None:  # pragma: no cover - convenience wrapper
