@@ -22,6 +22,7 @@ import cv2
 import pandas as pd
 
 from ..utils import crop_black_padding_band, validate_conversion
+from ..small_viewport import mask_small_viewport
 
 logger = logging.getLogger(__name__)
 
@@ -235,8 +236,9 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
         if img is None:
             continue
         cropped, x_off, y_off = crop_black_padding_band(img)
-        cv2.imwrite(os.path.join(img_dest_dir, row.FRAME), cropped)
-        h, w = cropped.shape[:2]
+        cleaned, _ = mask_small_viewport(cropped)
+        cv2.imwrite(os.path.join(img_dest_dir, row.FRAME), cleaned)
+        h, w = cleaned.shape[:2]
         widths.append(w)
         heights.append(h)
 
