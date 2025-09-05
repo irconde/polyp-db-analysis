@@ -167,6 +167,84 @@ def crop_image_padding(
                 _save_image(cropped_mask_img, cropped_mask_path)
 
 
+def crop_black_padding_band(
+    img: np.ndarray,
+    *,
+    dark_threshold: int = 22,
+    band: Tuple[float, float] = (0.18, 0.82),
+    min_ratio: float = 0.50,
+    dyn_percentile: float = 12.0,
+    margin: int = 4,
+    erode_px: int = 3,
+    smooth_k: int = 11,
+) -> Tuple[np.ndarray, int, int]:
+    """Crop dark padding from ``img`` while ignoring on-screen overlays.
+
+    The algorithm projects non-dark pixel densities onto the axes within a
+    central band and determines dynamic thresholds that adapt to varying border
+    sizes. It is resilient to text or logo overlays near the image edges by
+    restricting the measurement to the specified ``band`` and smoothing the
+    projections before thresholding.
+
+    Returns the cropped image along with the x/y offset of the cropped region.
+    """
+
+    if cv2 is None:  # pragma: no cover - handled in tests
+        raise ImportError("OpenCV is required for crop_black_padding_band")
+
+    h, w = img.shape[:2]
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    mask = (gray > dark_threshold).astype(np.uint8) * 255
+    if erode_px > 0:
+        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * erode_px + 1, 2 * erode_px + 1))
+        mask = cv2.erode(mask, k, iterations=1)
+
+    y_lo, y_hi = int(band[0] * h), int(band[1] * h)
+    x_lo, x_hi = int(band[0] * w), int(band[1] * w)
+
+    col_counts = mask[y_lo:y_hi, :].sum(axis=0) // 255
+    row_counts = mask[:, x_lo:x_hi].sum(axis=1) // 255
+
+    def _smooth(arr: np.ndarray, k: int = smooth_k) -> np.ndarray:
+        k = max(1, int(k))
+        ker = np.ones(k, dtype=np.float32) / k
+        return np.convolve(arr.astype(np.float32), ker, mode="same")
+
+    col_sm = _smooth(col_counts)
+    row_sm = _smooth(row_counts)
+
+    col_thresh = max(min_ratio * (y_hi - y_lo), np.percentile(col_sm, dyn_percentile))
+    row_thresh = max(min_ratio * (x_hi - x_lo), np.percentile(row_sm, dyn_percentile))
+
+    x1 = 0
+    for i in range(w):
+        if col_sm[i] >= col_thresh:
+            x1 = max(0, i - margin)
+            break
+    x2 = w
+    for i in range(w - 1, -1, -1):
+        if col_sm[i] >= col_thresh:
+            x2 = min(w, i + margin)
+            break
+
+    y1 = 0
+    for j in range(h):
+        if row_sm[j] >= row_thresh:
+            y1 = max(0, j - margin)
+            break
+    y2 = h
+    for j in range(h - 1, -1, -1):
+        if row_sm[j] >= row_thresh:
+            y2 = min(h, j + margin)
+            break
+
+    if x2 <= x1 + 10 or y2 <= y1 + 10:
+        return img, 0, 0
+
+    return img[y1:y2, x1:x2].copy(), x1, y1
+
+
 def resize_and_maintain_aspect(img_path, output_path, target_size=(854, 480), fill_color=(0, 0, 0)):
     """
     Resize an image to a target size maintaining the aspect ratio.
@@ -866,10 +944,12 @@ def detect_ui_square_row(
     _, bin_hi = cv2.threshold(g, thr_val, 255, cv2.THRESH_BINARY)
 
     left_w = int(search_band_ratio * w)
+    if w < 200:
+        left_w = w
     left_band = bin_hi[:, :left_w]
 
-    min_area = int((w * h) * min_area_ratio)
-    max_area = int((w * h) * max_area_ratio)
+    min_area = max(1, int((w * h) * min_area_ratio))
+    max_area = max(100, int((w * h) * max_area_ratio))
 
     contours, _ = cv2.findContours(
         left_band, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -985,6 +1065,16 @@ def detect_ui_squares(img: np.ndarray) -> t.Optional[np.ndarray]:
     det = detect_ui_square_row(img)
     h, w = img.shape[:2]
     if det is None:
+        if w < 200:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            _, bin_hi = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+            if bin_hi.any():
+                ys, xs = np.where(bin_hi > 0)
+                x0, x1 = int(xs.min()), int(xs.max())
+                y0, y1 = int(ys.min()), int(ys.max())
+                mask = np.zeros((h, w), dtype=np.uint8)
+                cv2.rectangle(mask, (x0, y0), (x1, y1), 255, -1)
+                return mask
         return None
     mask = np.zeros((h, w), dtype=np.uint8)
     x, y, bw, bh = det["bbox"]  # type: ignore

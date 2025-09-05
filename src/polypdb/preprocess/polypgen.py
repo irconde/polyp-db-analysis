@@ -17,11 +17,11 @@ an ``annotations.xlsx`` file with normalised bounding box coordinates.
 import logging
 import os
 import re
-from concurrent.futures import ThreadPoolExecutor
 
+import cv2
 import pandas as pd
 
-from ..utils import get_image_size, move_images_parallel, validate_conversion
+from ..utils import crop_black_padding_band, validate_conversion
 
 logger = logging.getLogger(__name__)
 
@@ -186,26 +186,44 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
             )
 
     df = pd.DataFrame(rows)
-    if not df.empty:
-        with ThreadPoolExecutor() as executor:
-            sizes = list(executor.map(get_image_size, df["SRC_PATH"]))
-        df["WIDTH"], df["HEIGHT"] = zip(*sizes)
-    else:
-        df["WIDTH"] = []
-        df["HEIGHT"] = []
+    df = df.rename(columns={"BOUNDING BOX": "BOUNDING_BOX"})
 
     out_dir = os.path.join(dest_dir, "polypgen")
     img_dest_dir = os.path.join(out_dir, "img")
-    move_images_parallel(
-        None,
-        img_dest_dir,
-        df,
-        filename_col="FRAME",
-        source_path_col="SRC_PATH",
-        copy=True,
-    )
+    os.makedirs(img_dest_dir, exist_ok=True)
 
+    widths: list[int] = []
+    heights: list[int] = []
+    boxes: list[str] = []
+
+    for row in df.itertuples(index=False):
+        img = cv2.imread(row.SRC_PATH)
+        if img is None:
+            continue
+        cropped, x_off, y_off = crop_black_padding_band(img)
+        cv2.imwrite(os.path.join(img_dest_dir, row.FRAME), cropped)
+        h, w = cropped.shape[:2]
+        widths.append(w)
+        heights.append(h)
+
+        bbox_str = row.BOUNDING_BOX
+        if bbox_str:
+            adj_boxes: list[str] = []
+            for box in bbox_str.split():
+                x1, y1, x2, y2 = map(int, box.split(","))
+                adj_boxes.append(
+                    f"{x1 - x_off},{y1 - y_off},{x2 - x_off},{y2 - y_off}"
+                )
+            boxes.append(" ".join(adj_boxes))
+        else:
+            boxes.append("")
+
+    df["WIDTH"] = widths
+    df["HEIGHT"] = heights
+    df["BOUNDING_BOX"] = boxes
     df = df.drop(columns=["SRC_PATH"], errors="ignore")
+    df = df.rename(columns={"BOUNDING_BOX": "BOUNDING BOX"})
+
     df.to_excel(os.path.join(out_dir, "annotations.xlsx"), index=False)
     validate_conversion(out_dir, df)
     logger.info("Finished PolypGen conversion with %d entries", len(df))
