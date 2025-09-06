@@ -40,9 +40,11 @@ def _run(args) -> None:
             kwargs = {k: v for k, v in src_cfg.items() if k != "path"}
             if "metadata_file" in kwargs:
                 kwargs["metadata_filename"] = kwargs.pop("metadata_file")
-            CONVERTERS[name](src, base_path, **kwargs)
+            converter = CONVERTERS[name](src, base_path, **kwargs)
+            converter.convert()
         else:
-            CONVERTERS[name](src_cfg, base_path)
+            converter = CONVERTERS[name](src_cfg, base_path)
+            converter.convert()
         logger.info("Finished converting %s", name)
 
     from . import merge_datasets
