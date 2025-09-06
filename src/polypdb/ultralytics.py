@@ -9,7 +9,7 @@ import yaml
 from sklearn.model_selection import train_test_split
 import logging
 
-from .utils import resize_with_padding, normalize_image
+from .utils.image_ops import resize_with_padding, normalize_image
 from tqdm import tqdm
 
 

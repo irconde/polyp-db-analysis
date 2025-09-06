@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from polypdb.utils import draw_mask_contours
+from polypdb.utils.masking import draw_mask_contours
 
 
 def test_draw_mask_contours_outline():

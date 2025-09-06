@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
 
-from polypdb.utils import crop_black_padding_band
+from polypdb.utils.image_ops import crop_black_padding_band
 
 
 def test_crop_black_padding_band_ignores_overlays():

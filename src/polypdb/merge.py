@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
-from .utils import draw_bounding_boxes, get_image_size
+from .utils.image_ops import draw_bounding_boxes, get_image_size
 from tqdm import tqdm
 
 from .preprocess.sun import _drop_duplicate_frames

@@ -1,7 +1,7 @@
 import pytest
 from PIL import Image, ImageDraw
 
-from polypdb.utils import mask_corner_artifacts
+from polypdb.utils.masking import mask_corner_artifacts
 
 
 def _make_image(overlays):

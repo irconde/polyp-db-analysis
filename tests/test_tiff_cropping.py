@@ -2,7 +2,7 @@ import numpy as np
 from PIL import Image
 import tifffile
 
-from polypdb.utils import crop_image_padding
+from polypdb.utils.image_ops import crop_image_padding
 
 
 def test_crop_image_padding_tiff(tmp_path):

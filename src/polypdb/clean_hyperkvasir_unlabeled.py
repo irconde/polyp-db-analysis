@@ -15,7 +15,7 @@ from typing import Sequence, Tuple, Optional
 import cv2  # type: ignore
 import numpy as np
 
-from .utils import (
+from .utils.masking import (
     detect_text_boxes,
     detect_ui_squares,
     mask_text_regions,
