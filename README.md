@@ -159,6 +159,16 @@ Export a subset of tables only:
 polypdb export-csv /path/to/canonical /path/to/output_csv_dir --tables frames lesions
 ```
 
+### Export flat classification dataset
+
+Create a simple ``class_0``/``class_1`` folder structure from a canonical
+dataset. Frames where ``has_polyp`` is ``True`` are placed into ``class_1`` and
+all others into ``class_0``:
+
+```bash
+polypdb export-classification-flat /path/to/canonical /path/to/output_dir
+```
+
 ### Full preprocessing pipeline
 
 Run conversion, merging and optional dataset preparation in a single step. The

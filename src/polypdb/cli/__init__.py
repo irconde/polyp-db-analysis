@@ -18,6 +18,7 @@ from ..merge import (  # noqa: F401
     dataset_statistics_from_canonical,
     dataset_statistics_from_parquets,
     export_manifests_to_csv,
+    export_binary_classification_dataset,
 )
 
 
@@ -54,6 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
         validate_canonical,
         write_checksums,
         export_csv,
+        export_classification_flat,
     )
 
     modules = [
@@ -70,6 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
         validate_canonical,
         write_checksums,
         export_csv,
+        export_classification_flat,
     ]
 
     for mod in modules:

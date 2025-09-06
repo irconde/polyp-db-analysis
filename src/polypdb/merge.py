@@ -1067,6 +1067,45 @@ def export_manifests_to_csv(
     return written
 
 
+def export_binary_classification_dataset(
+    canonical_base: Path | str, out_dir: Path | str
+) -> None:
+    """Export images into binary class folders for classification tasks.
+
+    This helper copies each image referenced in ``frames.parquet`` into either
+    ``class_1`` (polyp) or ``class_0`` (non‑polyp) within ``out_dir`` based on
+    the ``has_polyp`` flag.  The ``frames.parquet`` file is expected inside the
+    ``manifests`` subdirectory of ``canonical_base`` and must provide ``img_path``
+    entries relative to ``canonical_base``.
+
+    Parameters
+    ----------
+    canonical_base:
+        Path to the canonical dataset directory containing ``images`` and
+        ``manifests/frames.parquet``.
+    out_dir:
+        Destination directory where class folders will be created.
+    """
+
+    canonical_base = Path(canonical_base)
+    out_dir = Path(out_dir)
+
+    frames_path = canonical_base / "manifests" / "frames.parquet"
+    frames_df = pd.read_parquet(frames_path, columns=["img_path", "has_polyp"])
+
+    class_dirs = {
+        True: out_dir / "class_1",
+        False: out_dir / "class_0",
+    }
+    for d in class_dirs.values():
+        d.mkdir(parents=True, exist_ok=True)
+
+    for img_rel, has_polyp in frames_df.itertuples(index=False):
+        src = canonical_base / img_rel
+        dest = class_dirs[bool(has_polyp)] / Path(img_rel).name
+        shutil.copy(src, dest)
+
+
 def merge_datasets(config: MergeConfig):
     """Merge and standardize multiple datasets."""
 
