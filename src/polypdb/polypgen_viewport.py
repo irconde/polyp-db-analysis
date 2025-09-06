@@ -3,9 +3,8 @@
 This module provides a colour-based detector for the small inset viewport
 present in many PolypGen frames.  The detector anchors on characteristic
 teal/blue colours and validates the candidate region with geometric heuristics
-before masking it using the dominant dark padding colour.  It is an alternative
-implementation to :mod:`polypdb.small_viewport` tuned specifically for the
-PolypGen dataset.
+before masking it using the dominant dark padding colour.  This implementation
+is tuned specifically for the PolypGen dataset.
 """
 
 from __future__ import annotations
