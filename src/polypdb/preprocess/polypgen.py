@@ -21,6 +21,7 @@ import re
 import cv2
 import pandas as pd
 
+from .base import DatasetConverter
 from ..utils import crop_black_padding_band, validate_conversion
 from ..polypgen_viewport import mask_small_viewport
 
@@ -179,98 +180,96 @@ def _parse_bbox_file(path: Path | str) -> str:
     return ";".join(boxes)
 
 
-def convert_to_standard_layout(src_dir: Path | str, dest_dir: Path | str) -> None:
-    """Convert PolypGen dataset to the standard directory layout.
+class PolypGenConverter(DatasetConverter):
+    """Converter for the PolypGen dataset."""
 
-    Only single-frame data under ``data_C1`` … ``data_C6`` is processed.  The
-    resulting images are copied to ``dest_dir/polypgen/img`` and an
-    ``annotations.xlsx`` file is created with one row per frame including the
-    centre identifier, bounding boxes, image dimensions and metadata columns
-    required by the rest of the pipeline.  Frames listed in ``EXCLUDED_FRAMES``
-    are skipped to remove known artefacts.  All images are white-light and the
-    dataset does not provide a polyp identifier.
-    """
-
-    logger.info("Converting PolypGen dataset from %s to %s", src_dir, dest_dir)
-
-    src_dir = Path(src_dir)
-    dest_dir = Path(dest_dir)
-    rows: list[dict] = []
-    for centre in range(1, 7):
-        centre_name = f"C{centre}"
-        centre_dir = src_dir / f"data_{centre_name}"
-        img_dir = centre_dir / f"images_{centre_name}"
-        bbox_dir = centre_dir / f"bbox_{centre_name}"
-        if not img_dir.is_dir() or not bbox_dir.is_dir():
-            continue
-        for img_file in sorted(f.name for f in img_dir.iterdir() if f.is_file()):
-            if not img_file.lower().endswith((".jpg", ".jpeg", ".png")):
+    def load_metadata(self) -> pd.DataFrame:
+        rows: list[dict] = []
+        for centre in range(1, 7):
+            centre_name = f"C{centre}"
+            centre_dir = self.src_dir / f"data_{centre_name}"
+            img_dir = centre_dir / f"images_{centre_name}"
+            bbox_dir = centre_dir / f"bbox_{centre_name}"
+            if not img_dir.is_dir() or not bbox_dir.is_dir():
                 continue
-            base = Path(img_file).stem
-            if base in EXCLUDED_FRAMES.get(centre_name, set()):
-                continue
-            # Some centres save bbox files with a '_mask' suffix
-            bbox_file = bbox_dir / f"{base}.txt"
-            if not bbox_file.exists():
-                alt_bbox = bbox_dir / f"{base}_mask.txt"
-                if alt_bbox.exists():
-                    bbox_file = alt_bbox
-            bbox = _parse_bbox_file(bbox_file)
-            src_path = img_dir / img_file
-            rows.append(
-                {
-                    "FRAME": img_file,
-                    # PolypGen has no lesion identifiers; leave missing.
-                    "POLYP ID": pd.NA,
-                    "CENTER": centre_name,
-                    "BOUNDING BOX": bbox,
-                    "SRC_PATH": src_path,
-                    "IMAGE TYPE": "WL",
-                }
-            )
-
-    df = pd.DataFrame(rows)
-    df = df.rename(columns={"BOUNDING BOX": "BOUNDING_BOX"})
-
-    out_dir = dest_dir / "polypgen"
-    img_dest_dir = out_dir / "img"
-    img_dest_dir.mkdir(parents=True, exist_ok=True)
-
-    widths: list[int] = []
-    heights: list[int] = []
-    boxes: list[str] = []
-
-    for row in df.itertuples(index=False):
-        img = cv2.imread(row.SRC_PATH)
-        if img is None:
-            continue
-        cropped, x_off, y_off = crop_black_padding_band(img)
-        cleaned, _ = mask_small_viewport(cropped)
-        cv2.imwrite(str(img_dest_dir / row.FRAME), cleaned)
-        h, w = cleaned.shape[:2]
-        widths.append(w)
-        heights.append(h)
-
-        bbox_str = row.BOUNDING_BOX
-        if bbox_str:
-            adj_boxes: list[str] = []
-            # Support both whitespace and semicolon separated lists
-            for box in re.split(r"[\s;]+", bbox_str.strip()):
-                x1, y1, x2, y2 = map(int, box.split(","))
-                adj_boxes.append(
-                    f"{x1 - x_off},{y1 - y_off},{x2 - x_off},{y2 - y_off}"
+            for img_file in sorted(f.name for f in img_dir.iterdir() if f.is_file()):
+                if not img_file.lower().endswith((".jpg", ".jpeg", ".png")):
+                    continue
+                base = Path(img_file).stem
+                if base in EXCLUDED_FRAMES.get(centre_name, set()):
+                    continue
+                bbox_file = bbox_dir / f"{base}.txt"
+                if not bbox_file.exists():
+                    alt_bbox = bbox_dir / f"{base}_mask.txt"
+                    if alt_bbox.exists():
+                        bbox_file = alt_bbox
+                bbox = _parse_bbox_file(bbox_file)
+                src_path = img_dir / img_file
+                rows.append(
+                    {
+                        "FRAME": img_file,
+                        "POLYP ID": pd.NA,
+                        "CENTER": centre_name,
+                        "BOUNDING BOX": bbox,
+                        "SRC_PATH": src_path,
+                        "IMAGE TYPE": "WL",
+                    }
                 )
-            # Persist multi-box rows using semicolon separators
-            boxes.append(";".join(adj_boxes))
-        else:
-            boxes.append("")
+        df = pd.DataFrame(rows)
+        return df.rename(columns={"BOUNDING BOX": "BOUNDING_BOX"})
 
-    df["WIDTH"] = widths
-    df["HEIGHT"] = heights
-    df["BOUNDING_BOX"] = boxes
-    df = df.drop(columns=["SRC_PATH"], errors="ignore")
-    df = df.rename(columns={"BOUNDING_BOX": "BOUNDING BOX"})
+    def normalize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        return df
 
-    df.to_excel(out_dir / "annotations.xlsx", index=False)
-    validate_conversion(out_dir, df)
-    logger.info("Finished PolypGen conversion with %d entries", len(df))
+    def compute_dimensions(self, df: pd.DataFrame) -> pd.DataFrame:
+        out_dir = self.dest_dir / "polypgen"
+        img_dest_dir = out_dir / "img"
+        img_dest_dir.mkdir(parents=True, exist_ok=True)
+        self.out_dir = out_dir
+
+        widths: list[int] = []
+        heights: list[int] = []
+        boxes: list[str] = []
+
+        for row in df.itertuples(index=False):
+            img = cv2.imread(str(row.SRC_PATH))
+            if img is None:
+                continue
+            cropped, x_off, y_off = crop_black_padding_band(img)
+            cleaned, _ = mask_small_viewport(cropped)
+            cv2.imwrite(str(img_dest_dir / row.FRAME), cleaned)
+            h, w = cleaned.shape[:2]
+            widths.append(w)
+            heights.append(h)
+
+            bbox_str = row.BOUNDING_BOX
+            if bbox_str:
+                adj_boxes: list[str] = []
+                for box in re.split(r"[\s;]+", bbox_str.strip()):
+                    x1, y1, x2, y2 = map(int, box.split(","))
+                    adj_boxes.append(
+                        f"{x1 - x_off},{y1 - y_off},{x2 - x_off},{y2 - y_off}"
+                    )
+                boxes.append(";".join(adj_boxes))
+            else:
+                boxes.append("")
+
+        df["WIDTH"] = widths
+        df["HEIGHT"] = heights
+        df["BOUNDING_BOX"] = boxes
+        df = df.drop(columns=["SRC_PATH"], errors="ignore")
+        return df
+
+    def write_outputs(self, df: pd.DataFrame) -> None:
+        out_dir = getattr(self, "out_dir", self.dest_dir / "polypgen")
+        df = df.rename(columns={"BOUNDING_BOX": "BOUNDING BOX"})
+        df.to_excel(out_dir / "annotations.xlsx", index=False)
+        validate_conversion(out_dir, df)
+        logger.info("Finished PolypGen conversion with %d entries", len(df))
+
+
+def convert_to_standard_layout(src_dir: Path | str, dest_dir: Path | str) -> None:
+    """Backward compatible wrapper around :class:`PolypGenConverter`."""
+
+    converter = PolypGenConverter(src_dir, dest_dir)
+    converter.convert()

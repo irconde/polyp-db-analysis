@@ -20,6 +20,7 @@ from sklearn.cluster import KMeans
 import cv2
 import logging
 
+from .base import DatasetConverter
 from ..utils import (
     crop_image_padding,
     get_image_size,
@@ -266,39 +267,56 @@ def _finalise_metadata(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+class PiccoloConverter(DatasetConverter):
+    """Converter for the PICCOLO dataset."""
+
+    def __init__(
+        self,
+        src_dir: Path | str,
+        dest_dir: Path | str,
+        metadata_filename: str = "clinical metadata_release0.1.csv",
+    ) -> None:
+        super().__init__(src_dir, dest_dir, metadata_filename=metadata_filename)
+        self.metadata_filename = metadata_filename
+        self._tmpdir: tempfile.TemporaryDirectory[str] | None = None
+        self._img_dir: Path | None = None
+
+    def load_metadata(self) -> pd.DataFrame:
+        meta = _collect_metadata(self.src_dir, self.metadata_filename)
+        frames = _expand_frames(self.src_dir, meta)
+        logger.info("Found %d frames with polyp annotations", len(frames))
+        return frames
+
+    def normalize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        return df
+
+    def compute_dimensions(self, df: pd.DataFrame) -> pd.DataFrame:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        work_dir = Path(self._tmpdir.name)
+        df = _derive_bboxes(df, self.src_dir, work_dir)
+        self._img_dir = work_dir / "cropped_polyps"
+        df["IMAGE TYPE"] = _infer_image_type(self._img_dir, df)
+        df = _finalise_metadata(df)
+        return df
+
+    def write_outputs(self, df: pd.DataFrame) -> None:
+        out_dir = self.dest_dir / "piccolo"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        frames_path = out_dir / "annotations.xlsx"
+        df.to_excel(frames_path, index=False)
+        if self._img_dir is None:
+            raise RuntimeError("compute_dimensions must be called before write_outputs")
+        move_images_parallel(self._img_dir, out_dir / "img", df)
+        validate_conversion(out_dir, df)
+        logger.info("Finished PICCOLO conversion with %d entries", len(df))
+        if self._tmpdir is not None:
+            self._tmpdir.cleanup()
+
+
 def convert_to_standard_layout(
     src_dir: Path | str, dest_dir: Path | str, metadata_filename: str = "clinical metadata_release0.1.csv"
 ) -> None:
-    """Convert PICCOLO dataset to the standard directory layout.
+    """Backward compatible wrapper around :class:`PiccoloConverter`."""
 
-    Args:
-        src_dir: Root directory of the PICCOLO dataset.
-        dest_dir: Directory where the converted dataset will be written.
-        metadata_filename: Name of the CSV file with polyp metadata.
-
-    Returns:
-        None
-    """
-
-    src_dir = Path(src_dir)
-    dest_dir = Path(dest_dir)
-    logger.info("Converting PICCOLO dataset from %s to %s", src_dir, dest_dir)
-    meta = _collect_metadata(src_dir, metadata_filename)
-    frames = _expand_frames(src_dir, meta)
-    logger.info("Found %d frames with polyp annotations", len(frames))
-
-    with tempfile.TemporaryDirectory() as work_dir:
-        frames = _derive_bboxes(frames, src_dir, work_dir)
-
-        img_dir = Path(work_dir) / "cropped_polyps"
-        frames["IMAGE TYPE"] = _infer_image_type(img_dir, frames)
-        frames = _finalise_metadata(frames)
-
-        out_dir = dest_dir / "piccolo"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        frames.to_excel(out_dir / "annotations.xlsx", index=False)
-        move_images_parallel(img_dir, out_dir / "img", frames)
-        validate_conversion(out_dir, frames)
-        logger.info("Finished PICCOLO conversion with %d entries", len(frames))
-
-    # TemporaryDirectory context automatically removes intermediate files
+    converter = PiccoloConverter(src_dir, dest_dir, metadata_filename=metadata_filename)
+    converter.convert()

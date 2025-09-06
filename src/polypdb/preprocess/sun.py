@@ -22,6 +22,7 @@ from PIL import Image
 import imagehash
 from skimage.metrics import structural_similarity
 
+from .base import DatasetConverter
 from ..utils import get_image_size, move_images_parallel, validate_conversion
 
 
@@ -417,6 +418,128 @@ def _extract_bboxes(line: str) -> tuple[str, str]:
     return filename, " ".join(bbox_strings)
 
 
+class SunConverter(DatasetConverter):
+    """Converter for the SUN dataset."""
+
+    def __init__(
+        self,
+        src_dir: Path | str,
+        dest_dir: Path | str,
+        metadata_filename: str = "metadata.csv",
+        hash_type: str = "phash",
+        hash_size: int = 16,
+        hamming_threshold: int = 4,
+        use_ssim: bool = False,
+        ssim_threshold: float = 0.99,
+    ) -> None:
+        super().__init__(
+            src_dir,
+            dest_dir,
+            metadata_filename=metadata_filename,
+            hash_type=hash_type,
+            hash_size=hash_size,
+            hamming_threshold=hamming_threshold,
+            use_ssim=use_ssim,
+            ssim_threshold=ssim_threshold,
+        )
+        self.metadata_filename = metadata_filename
+        self.hash_type = hash_type
+        self.hash_size = hash_size
+        self.hamming_threshold = hamming_threshold
+        self.use_ssim = use_ssim
+        self.ssim_threshold = ssim_threshold
+
+    def load_metadata(self) -> pd.DataFrame:
+        metadata_path = self.src_dir / self.metadata_filename
+        metadata_df = pd.read_csv(metadata_path)
+        metadata_df.columns = [c.upper() for c in metadata_df.columns]
+        metadata_df["SHAPE"] = metadata_df["SHAPE"].replace("IIa(LST-NG)", "IIa")
+        metadata_df = metadata_df.drop(columns=["PATHOLOGICAL DIAGNOSIS"], errors="ignore")
+        if "SIZE" in metadata_df.columns:
+            metadata_df["SIZE"] = pd.to_numeric(
+                metadata_df["SIZE"].astype(str).str.replace(r"[^0-9.]", "", regex=True),
+                errors="coerce",
+            )
+
+        annotation_txt_dir = self.src_dir / "sundatabase_positive" / "annotation_txt"
+
+        def _parse_case_annotation(args: tuple[str, pd.Series]) -> list[dict]:
+            txt_file, meta = args
+            case_rows: list[dict] = []
+            with open(txt_file, "r") as f:
+                for line in f:
+                    filename, bbox = _extract_bboxes(line)
+                    case_rows.append(
+                        {
+                            "FRAME": filename,
+                            "POLYP ID": meta["ID"],
+                            "LOCATION": meta.get("LOCATION"),
+                            "SHAPE": meta.get("SHAPE"),
+                            "SIZE": meta.get("SIZE"),
+                            "BOUNDING BOX": bbox,
+                        }
+                    )
+            return case_rows
+
+        annotation_args: list[tuple[str, pd.Series]] = []
+        for _, row in metadata_df.iterrows():
+            case_id = row["ID"]
+            txt_file = annotation_txt_dir / f"case{case_id}.txt"
+            if txt_file.exists():
+                annotation_args.append((txt_file, row))
+
+        with ThreadPoolExecutor() as executor:
+            parsed_rows = executor.map(_parse_case_annotation, annotation_args)
+        rows = [r for case_rows in parsed_rows for r in case_rows]
+
+        df = pd.DataFrame(rows)
+        df["SRC_PATH"] = df.apply(
+            lambda r: self.src_dir / "sundatabase_positive" / f"case{r['POLYP ID']}" / r["FRAME"],
+            axis=1,
+        )
+        return df
+
+    def normalize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        # No additional column normalisation required beyond load step
+        return df
+
+    def compute_dimensions(self, df: pd.DataFrame) -> pd.DataFrame:
+        with ThreadPoolExecutor() as executor:
+            sizes = list(executor.map(get_image_size, df["SRC_PATH"]))
+        df["WIDTH"], df["HEIGHT"] = zip(*sizes)
+
+        logger.info("Found %d positive images before dropping duplicates", len(df))
+        cache_path = self.src_dir / "sun_hash_cache.csv"
+        df = _drop_duplicate_frames(
+            df,
+            cache_file=cache_path,
+            hash_type=self.hash_type,
+            hash_size=self.hash_size,
+            hamming_threshold=self.hamming_threshold,
+            use_ssim=self.use_ssim,
+            ssim_threshold=self.ssim_threshold,
+        )
+        df["BOUNDING BOX"] = _clip_bboxes(df["BOUNDING BOX"], df["WIDTH"], df["HEIGHT"])
+        df["IMAGE TYPE"] = "WL"
+        return df
+
+    def write_outputs(self, df: pd.DataFrame) -> None:
+        out_dir = self.dest_dir / "sun"
+        img_dest_dir = out_dir / "img"
+        move_images_parallel(
+            None,
+            img_dest_dir,
+            df,
+            filename_col="FRAME",
+            source_path_col="SRC_PATH",
+            copy=True,
+        )
+        df = df.drop(columns=["SRC_PATH"], errors="ignore")
+        df.to_excel(out_dir / "annotations.xlsx", index=False)
+        validate_conversion(out_dir, df)
+        logger.info("Finished SUN conversion with %d entries", len(df))
+
+
 def convert_to_standard_layout(
     src_dir: Path | str,
     dest_dir: Path | str,
@@ -427,116 +550,16 @@ def convert_to_standard_layout(
     use_ssim: bool = False,
     ssim_threshold: float = 0.99,
 ) -> None:
-    """Convert SUN dataset to the standard directory layout.
+    """Backward compatible wrapper around :class:`SunConverter`."""
 
-    ``src_dir`` should contain the ``metadata_filename`` file as well as the
-    ``sundatabase_positive`` folder with ``annotation_txt`` and ``case*``
-    subdirectories. The resulting annotations and images are written under
-    ``dest_dir/sun``.
-
-    Args:
-        src_dir: Root directory of the SUN dataset.
-        dest_dir: Directory where the converted dataset will be written.
-        metadata_filename: Name of the CSV file with polyp metadata.
-        hash_type: Perceptual hash function from ``imagehash`` to use.
-        hash_size: Size parameter for the perceptual hash function.
-        hamming_threshold: Maximum Hamming distance to consider frames duplicates.
-        use_ssim: Whether to confirm perceptual duplicates with SSIM.
-        ssim_threshold: SSIM threshold when ``use_ssim`` is ``True``.
-
-    Returns:
-        None
-    """
-
-    src_dir = Path(src_dir)
-    dest_dir = Path(dest_dir)
-    logger.info("Converting SUN dataset from %s to %s", src_dir, dest_dir)
-    metadata_path = src_dir / metadata_filename
-    metadata_df = pd.read_csv(metadata_path)
-    metadata_df.columns = [c.upper() for c in metadata_df.columns]
-    metadata_df["SHAPE"] = metadata_df["SHAPE"].replace("IIa(LST-NG)", "IIa")
-    metadata_df = metadata_df.drop(
-        columns=["PATHOLOGICAL DIAGNOSIS"], errors="ignore")
-    if "SIZE" in metadata_df.columns:
-        metadata_df["SIZE"] = pd.to_numeric(
-            metadata_df["SIZE"].astype(str).str.replace(
-                r"[^0-9.]", "", regex=True),
-            errors="coerce",
-        )
-
-    annotation_txt_dir = src_dir / "sundatabase_positive" / "annotation_txt"
-
-    def _parse_case_annotation(args: tuple[str, pd.Series]) -> list[dict]:
-        """Parse a single case annotation file into per-frame rows."""
-
-        txt_file, meta = args
-        case_rows: list[dict] = []
-        with open(txt_file, "r") as f:
-            for line in f:
-                filename, bbox = _extract_bboxes(line)
-                case_rows.append(
-                    {
-                        "FRAME": filename,
-                        "POLYP ID": meta["ID"],
-                        "LOCATION": meta.get("LOCATION"),
-                        "SHAPE": meta.get("SHAPE"),
-                        "SIZE": meta.get("SIZE"),
-                        "BOUNDING BOX": bbox,
-                    }
-                )
-        return case_rows
-
-    annotation_args: list[tuple[str, pd.Series]] = []
-    for _, row in metadata_df.iterrows():
-        case_id = row["ID"]
-        txt_file = annotation_txt_dir / f"case{case_id}.txt"
-        if txt_file.exists():
-            annotation_args.append((txt_file, row))
-
-    with ThreadPoolExecutor() as executor:
-        parsed_rows = executor.map(_parse_case_annotation, annotation_args)
-    rows = [r for case_rows in parsed_rows for r in case_rows]
-
-    df = pd.DataFrame(rows)
-
-    df["SRC_PATH"] = df.apply(
-        lambda r: src_dir / "sundatabase_positive" /
-        f"case{r['POLYP ID']}" / r["FRAME"],
-        axis=1,
-    )
-
-    with ThreadPoolExecutor() as executor:
-        sizes = list(executor.map(get_image_size, df["SRC_PATH"]))
-    df["WIDTH"], df["HEIGHT"] = zip(*sizes)
-
-    logger.info("Found %d positive images before dropping duplicates", len(df))
-
-    cache_path = src_dir / "sun_hash_cache.csv"
-    df = _drop_duplicate_frames(
-        df,
-        cache_file=cache_path,
+    converter = SunConverter(
+        src_dir,
+        dest_dir,
+        metadata_filename=metadata_filename,
         hash_type=hash_type,
         hash_size=hash_size,
         hamming_threshold=hamming_threshold,
         use_ssim=use_ssim,
         ssim_threshold=ssim_threshold,
     )
-    df["BOUNDING BOX"] = _clip_bboxes(
-        df["BOUNDING BOX"], df["WIDTH"], df["HEIGHT"])
-    df["IMAGE TYPE"] = "WL"
-
-    out_dir = dest_dir / "sun"
-    img_dest_dir = out_dir / "img"
-    move_images_parallel(
-        None,
-        img_dest_dir,
-        df,
-        filename_col="FRAME",
-        source_path_col="SRC_PATH",
-        copy=True,
-    )
-
-    df = df.drop(columns=["SRC_PATH"], errors="ignore")
-    df.to_excel(out_dir / "annotations.xlsx", index=False)
-    validate_conversion(out_dir, df)
-    logger.info("Finished SUN conversion with %d entries", len(df))
+    converter.convert()
