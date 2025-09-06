@@ -1,4 +1,4 @@
-import os
+from pathlib import Path
 import shutil
 import logging
 import re
@@ -72,7 +72,7 @@ def generate_global_lesion_ids(df: pd.DataFrame) -> list[str]:
 
     return new_ids
 
-def combine_datasets(base_path, datasets, num_elements=None, random_state=None):
+def combine_datasets(base_path: Path | str, datasets, num_elements=None, random_state=None):
     """Merge datasets into a single DataFrame, optionally including a specified
     number of elements from each dataset.
 
@@ -91,16 +91,13 @@ def combine_datasets(base_path, datasets, num_elements=None, random_state=None):
     """
     dataframes = []
 
+    base_path = Path(base_path)
     for dataset in datasets:
-        # Datasets converted to the standard layout may either reside directly
-        # under ``base_path`` or within a ``raw`` sub-directory.  Prefer the
-        # latter for backwards compatibility but fall back to the former when
-        # needed.
         candidates = [
-            os.path.join(base_path, "raw", dataset, "annotations.xlsx"),
-            os.path.join(base_path, dataset, "annotations.xlsx"),
+            base_path / "raw" / dataset / "annotations.xlsx",
+            base_path / dataset / "annotations.xlsx",
         ]
-        spreadsheet_path = next((p for p in candidates if os.path.exists(p)), candidates[0])
+        spreadsheet_path = next((p for p in candidates if p.exists()), candidates[0])
 
         try:
             df = pd.read_excel(spreadsheet_path)
@@ -129,13 +126,13 @@ def combine_datasets(base_path, datasets, num_elements=None, random_state=None):
     return combined_df
 
 
-def save_combined_dataframe(combined_df, base_path, filename='annotations.xlsx'):
-    output_path = os.path.join(base_path, filename)
+def save_combined_dataframe(combined_df, base_path: Path | str, filename='annotations.xlsx'):
+    output_path = Path(base_path) / filename
     combined_df.to_excel(output_path, index=False)
     logger.info("The combined DataFrame has been saved to %s", output_path)
 
 
-def harmonize_metadata(df: pd.DataFrame, image_dir: str) -> pd.DataFrame:
+def harmonize_metadata(df: pd.DataFrame, image_dir: Path | str) -> pd.DataFrame:
     """Convert raw merged annotations to the unified schema.
 
     Parameters
@@ -163,8 +160,9 @@ def harmonize_metadata(df: pd.DataFrame, image_dir: str) -> pd.DataFrame:
     counts = df.groupby('global_lesion_id')['frame'].transform('count')
     # Rows without a case id get n_frames = 1
     df['n_frames'] = counts.fillna(1).astype(int)
+    image_dir = Path(image_dir)
     df['image_paths'] = [
-        [os.path.join(image_dir, fname)] for fname in df['frame']
+        [str(image_dir / fname)] for fname in df['frame']
     ]
 
     if 'BOUNDING BOX' in df.columns:
@@ -233,7 +231,7 @@ def harmonize_metadata(df: pd.DataFrame, image_dir: str) -> pd.DataFrame:
     return df[core_cols + other_cols]
 
 
-def validate_harmonised_dataframe(df: pd.DataFrame, image_dir: str) -> None:
+def validate_harmonised_dataframe(df: pd.DataFrame, image_dir: Path | str) -> None:
     """Validate integrity of a harmonised dataframe.
 
     Parameters
@@ -271,13 +269,13 @@ def validate_harmonised_dataframe(df: pd.DataFrame, image_dir: str) -> None:
     if df[non_nullable].isnull().any().any():
         raise ValueError("Null values found in required columns (excluding global_lesion_id)")
 
-    abs_image_dir = os.path.abspath(image_dir)
+    abs_image_dir = Path(image_dir).resolve()
     for paths in df["image_paths"]:
         for path in paths:
-            abs_path = os.path.abspath(path)
-            if os.path.commonpath([abs_path, abs_image_dir]) != abs_image_dir:
+            abs_path = Path(path).resolve()
+            if not abs_path.is_relative_to(abs_image_dir):
                 raise ValueError(f"Image path outside destination directory: {path}")
-            if not os.path.exists(abs_path):
+            if not abs_path.exists():
                 raise FileNotFoundError(f"Referenced image not found: {path}")
 
     for bboxes in df["bounding_boxes"]:
@@ -290,7 +288,7 @@ def validate_harmonised_dataframe(df: pd.DataFrame, image_dir: str) -> None:
                 raise ValueError(f"Invalid bounding box format: {box}")
 
 
-def copy_and_rename_images(df, base_path, dest_dir):
+def copy_and_rename_images(df, base_path: Path | str, dest_dir: Path | str):
     """Copy images from source datasets and assign deterministic names.
 
     Parameters
@@ -302,7 +300,8 @@ def copy_and_rename_images(df, base_path, dest_dir):
     dest_dir : str
         Destination directory where renamed images will be stored.
     """
-    os.makedirs(dest_dir, exist_ok=True)  # Ensure the destination directory exists
+    dest_dir = Path(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
     counters: defaultdict[str, int] = defaultdict(int)
     missing_files = 0
 
@@ -313,24 +312,24 @@ def copy_and_rename_images(df, base_path, dest_dir):
         # Look for the preprocessed images either in ``base_path/raw`` or
         # directly under ``base_path`` to support different directory layouts.
         candidates = [
-            os.path.join(base_path, "raw", dataset_name, "img", row["FRAME"]),
-            os.path.join(base_path, dataset_name, "img", row["FRAME"]),
+            Path(base_path) / "raw" / dataset_name / "img" / row["FRAME"],
+            Path(base_path) / dataset_name / "img" / row["FRAME"],
         ]
-        source_image_path = next((p for p in candidates if os.path.exists(p)), None)
+        source_image_path = next((p for p in candidates if p.exists()), None)
 
         if source_image_path is not None:
             global_id = row["POLYP ID"]
             counters[global_id] += 1
             frame_idx = counters[global_id]
-            ext = os.path.splitext(row["FRAME"])[1].lower()
+            ext = Path(row["FRAME"]).suffix.lower()
             global_frame_id = f"{global_id}.{frame_idx:06d}"
             new_filename = f"{global_frame_id}{ext}"
-            dest_file_path = os.path.join(dest_dir, new_filename)
+            dest_file_path = dest_dir / new_filename
             shutil.copy(source_image_path, dest_file_path)
             df.at[index, "ORIGINAL FRAME"] = row["FRAME"]
             df.at[index, "FRAME"] = new_filename
             df.at[index, "global_frame_id"] = global_frame_id
-            df.at[index, "raw_path"] = source_image_path
+            df.at[index, "raw_path"] = str(source_image_path)
             df.at[index, "dataset"] = dataset
         else:
             missing_files += 1
@@ -341,7 +340,7 @@ def copy_and_rename_images(df, base_path, dest_dir):
 
 
 def copy_and_rename_negative_images(
-    source_dir: str, dest_dir: str, dataset_name: str | None = None
+    source_dir: Path | str, dest_dir: Path | str, dataset_name: str | None = None
 ) -> tuple[list[dict], int]:
     """Copy negative frames into the canonical image directory.
 
@@ -382,30 +381,31 @@ def copy_and_rename_negative_images(
         were seen before dropping duplicates.
     """
 
+    source_dir = Path(source_dir)
+    dest_dir = Path(dest_dir)
     records: list[dict] = []
-    if not os.path.isdir(source_dir):
+    if not source_dir.is_dir():
         return records, 0
 
-    os.makedirs(dest_dir, exist_ok=True)
+    dest_dir.mkdir(parents=True, exist_ok=True)
 
     if dataset_name is not None:
         dataset_entries = [(dataset_name, source_dir)]
     else:
         dataset_entries = [
-            (name, os.path.join(source_dir, name))
-            for name in sorted(os.listdir(source_dir))
-            if os.path.isdir(os.path.join(source_dir, name))
+            (name, source_dir / name)
+            for name in sorted(p.name for p in source_dir.iterdir() if p.is_dir())
         ]
 
     # gather candidate file paths
     candidates: list[dict] = []
     for ds_name, dataset_path in dataset_entries:
-        entries = sorted(os.listdir(dataset_path))
-        subdirs = [e for e in entries if os.path.isdir(os.path.join(dataset_path, e))]
+        dataset_path = Path(dataset_path)
+        entries = sorted(dataset_path.iterdir())
+        subdirs = [e.name for e in entries if e.is_dir()]
         root_files = [
-            e for e in entries
-            if os.path.isfile(os.path.join(dataset_path, e))
-            and os.path.splitext(e)[1].lower() in IMG_EXT
+            e.name for e in entries
+            if e.is_file() and e.suffix.lower() in IMG_EXT
         ]
         groups: list[str | None] = list(subdirs)
         if root_files:
@@ -414,21 +414,20 @@ def copy_and_rename_negative_images(
         for group in groups:
             if group is None:
                 group_path = dataset_path
-                group_name = os.path.basename(dataset_path)
+                group_name = dataset_path.name
                 files = root_files
             else:
-                group_path = os.path.join(dataset_path, group)
+                group_path = dataset_path / group
                 group_name = group
                 files = [
-                    f for f in sorted(os.listdir(group_path))
-                    if os.path.isfile(os.path.join(group_path, f))
-                    and os.path.splitext(f)[1].lower() in IMG_EXT
+                    f.name for f in sorted(group_path.iterdir())
+                    if f.is_file() and f.suffix.lower() in IMG_EXT
                 ]
 
             for fname in files:
                 candidates.append(
                     {
-                        "SRC_PATH": os.path.join(group_path, fname),
+                        "SRC_PATH": str(group_path / fname),
                         "dataset": ds_name.lower(),
                         "group": group_name,
                         "filename": fname,
@@ -448,7 +447,7 @@ def copy_and_rename_negative_images(
         "Found %d negative images before dropping duplicates", original_count
     )
 
-    cache_file = os.path.join(source_dir, "neg_hash_cache.csv")
+    cache_file = source_dir / "neg_hash_cache.csv"
     filtered_df = _drop_duplicate_frames(df, cache_file=cache_file)
     filtered_df = filtered_df.sort_values(["dataset", "group", "filename"])
     logger.info(
@@ -460,12 +459,12 @@ def copy_and_rename_negative_images(
         frame_idx = 0
         for _, row in group_df.iterrows():
             frame_idx += 1
-            src = row["SRC_PATH"]
+            src = Path(row["SRC_PATH"])
             fname = row["filename"]
-            ext = os.path.splitext(fname)[1].lower()
+            ext = Path(fname).suffix.lower()
             global_frame_id = f"{lesion_key}.{frame_idx:06d}"
             dest_name = f"{global_frame_id}{ext}"
-            dest_path = os.path.join(dest_dir, dest_name)
+            dest_path = dest_dir / dest_name
             shutil.copy(src, dest_path)
             records.append(
                 {
@@ -477,7 +476,7 @@ def copy_and_rename_negative_images(
                     "img_width": row["WIDTH"],
                     "img_height": row["HEIGHT"],
                     "filename_ext": ext,
-                    "img_path": os.path.join('images', dest_name),
+                    "img_path": str(Path('images') / dest_name),
                     "modality": None,
                 }
             )
@@ -583,7 +582,7 @@ def standardize_and_override_image(img_path, target_width, target_height):
         return original_width, original_height, new_width, new_height
 
 
-def process_images_and_bboxes(df, source_dir, target_width, target_height):
+def process_images_and_bboxes(df, source_dir: Path | str, target_width, target_height):
     """
     Standardizes and adjusts bounding box coordinates for images in the DataFrame.
     :param df: DataFrame containing image metadata and bounding box coordinates.
@@ -591,9 +590,10 @@ def process_images_and_bboxes(df, source_dir, target_width, target_height):
     :param target_width: Desired width of the standardized images.
     :param target_height: Desired height of the standardized images.
     """
+    source_dir = Path(source_dir)
     for index, row in tqdm(df.iterrows(), total=len(df), desc="Standardizing images"):
-        img_path = os.path.join(source_dir, row['FRAME'])
-        if os.path.exists(img_path):
+        img_path = source_dir / row['FRAME']
+        if img_path.exists():
             orig_width, orig_height, result_width, result_height = standardize_and_override_image(img_path,
                                                                                                   target_width,
                                                                                                   target_height)
@@ -624,7 +624,7 @@ def process_images_and_bboxes(df, source_dir, target_width, target_height):
             logger.warning("File not found: %s", img_path)
 
 
-def process_negative_images(source_dir, target_width, target_height):
+def process_negative_images(source_dir: Path | str, target_width, target_height):
     """Standardize images in ``source_dir`` without bounding boxes.
 
     The function walks the directory tree recursively so negatives may be
@@ -640,18 +640,17 @@ def process_negative_images(source_dir, target_width, target_height):
         Desired output height.
     """
     IMG_EXT = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif"}
-    if os.path.exists(source_dir):
-        file_paths: list[str] = []
-        for root, _, files in os.walk(source_dir):
-            for file in files:
-                ext = os.path.splitext(file)[1].lower()
-                if ext in IMG_EXT:
-                    file_paths.append(os.path.join(root, file))
+    source_dir = Path(source_dir)
+    if source_dir.exists():
+        file_paths: list[Path] = []
+        for p in source_dir.rglob('*'):
+            if p.is_file() and p.suffix.lower() in IMG_EXT:
+                file_paths.append(p)
         for source_file_path in tqdm(file_paths, desc="Processing negatives", total=len(file_paths)):
             standardize_and_override_image(source_file_path, target_width, target_height)
 
 
-def cleanup_temp_artifacts(base_path: str, destination_folder: str) -> None:
+def cleanup_temp_artifacts(base_path: Path | str, destination_folder: Path | str) -> None:
     """Remove temporary directories created during dataset merging.
 
     Parameters
@@ -663,20 +662,22 @@ def cleanup_temp_artifacts(base_path: str, destination_folder: str) -> None:
         may exist alongside or within this directory.
     """
 
+    base_path = Path(base_path)
+    destination_folder = Path(destination_folder)
     temp_dirs = [
-        os.path.join(base_path, 'img_bbox'),
-        os.path.join(base_path, destination_folder, 'resized'),
-        os.path.join(base_path, destination_folder, 'bbox_preview'),
+        base_path / 'img_bbox',
+        base_path / destination_folder / 'resized',
+        base_path / destination_folder / 'bbox_preview',
     ]
 
     for temp_dir in temp_dirs:
-        if os.path.isdir(temp_dir):
+        if temp_dir.is_dir():
             shutil.rmtree(temp_dir)
             logger.info("Removed temporary directory %s", temp_dir)
 
 
 def export_parquet_metadata(
-    df: pd.DataFrame, canonical_base: str, negative_frames: list[dict] | None = None
+    df: pd.DataFrame, canonical_base: Path | str, negative_frames: list[dict] | None = None
 ) -> None:
     """Write canonical metadata tables to Parquet files.
 
@@ -689,15 +690,16 @@ def export_parquet_metadata(
         sub-directories are expected beneath this path.
     """
 
-    images_dir = os.path.join(canonical_base, 'images')
-    manifests_dir = os.path.join(canonical_base, 'manifests')
-    os.makedirs(manifests_dir, exist_ok=True)
+    canonical_base = Path(canonical_base)
+    images_dir = canonical_base / 'images'
+    manifests_dir = canonical_base / 'manifests'
+    manifests_dir.mkdir(parents=True, exist_ok=True)
 
     # Note: ingest metadata removed per user request
 
     frame_records = []
     for _, row in df.iterrows():
-        canonical_path = os.path.join(images_dir, row["frame"])
+        canonical_path = images_dir / row["frame"]
         with Image.open(canonical_path) as img:
             width, height = img.size
 
@@ -715,8 +717,8 @@ def export_parquet_metadata(
             'source_frame_id': row['original_frame'],
             'img_width': width,
             'img_height': height,
-            'filename_ext': os.path.splitext(row['frame'])[1].lower(),
-            'img_path': os.path.join('images', row['frame']),
+            'filename_ext': Path(row['frame']).suffix.lower(),
+            'img_path': str(Path('images') / row['frame']),
             'modality': row.get('image_type'),
             'has_polyp': has_polyp,
         })
@@ -727,7 +729,7 @@ def export_parquet_metadata(
             rec.update({'has_polyp': False})
             frame_records.append(rec)
     pd.DataFrame(frame_records).to_parquet(
-        os.path.join(manifests_dir, 'frames.parquet'), index=False
+        manifests_dir / 'frames.parquet', index=False
     )
 
     case_records: list[dict] = []
@@ -750,7 +752,7 @@ def export_parquet_metadata(
 
     if case_records:
         pd.DataFrame(case_records).to_parquet(
-            os.path.join(manifests_dir, "cases.parquet"), index=False
+            manifests_dir / "cases.parquet", index=False
         )
     else:
         logger.info(
@@ -780,7 +782,7 @@ def export_parquet_metadata(
             )
 
     pd.DataFrame(ann_records).to_parquet(
-        os.path.join(manifests_dir, "annotations.parquet"), index=False
+        manifests_dir / "annotations.parquet", index=False
     )
 
 
@@ -912,7 +914,7 @@ def dataset_statistics(
     return stats
 
 
-def dataset_statistics_from_canonical(canonical_base: str) -> dict:
+def dataset_statistics_from_canonical(canonical_base: Path | str) -> dict:
     """Compute dataset statistics from a canonical dataset directory.
 
     Parameters
@@ -927,13 +929,13 @@ def dataset_statistics_from_canonical(canonical_base: str) -> dict:
         Summary statistics in the same format as :func:`dataset_statistics`.
     """
 
-    manifests_dir = os.path.join(canonical_base, "manifests")
-    frames_path = os.path.join(manifests_dir, "frames.parquet")
-    cases_path = os.path.join(manifests_dir, "cases.parquet")
+    manifests_dir = Path(canonical_base) / "manifests"
+    frames_path = manifests_dir / "frames.parquet"
+    cases_path = manifests_dir / "cases.parquet"
 
     frames_df = pd.read_parquet(frames_path)
 
-    if os.path.exists(cases_path):
+    if cases_path.exists():
         cases_df = pd.read_parquet(cases_path)
         pos_df = frames_df[frames_df["has_polyp"]].merge(
             cases_df[["global_case_id", "dataset", "shape"]],
@@ -951,7 +953,7 @@ def dataset_statistics_from_canonical(canonical_base: str) -> dict:
     return dataset_statistics(pos_df, negative_records, negative_original_count=len(neg_df))
 
 
-def dataset_statistics_from_parquets(frames_path: str, cases_path: str | None = None) -> dict:
+def dataset_statistics_from_parquets(frames_path: Path | str, cases_path: Path | str | None = None) -> dict:
     """Compute dataset statistics given explicit manifest parquet paths.
 
     Parameters
@@ -971,7 +973,7 @@ def dataset_statistics_from_parquets(frames_path: str, cases_path: str | None = 
 
     frames_df = pd.read_parquet(frames_path)
 
-    if cases_path and os.path.exists(cases_path):
+    if cases_path and Path(cases_path).exists():
         cases_df = pd.read_parquet(cases_path)
         pos_df = frames_df[frames_df["has_polyp"]].merge(
             cases_df[["global_case_id", "dataset", "shape"]],
@@ -990,7 +992,7 @@ def dataset_statistics_from_parquets(frames_path: str, cases_path: str | None = 
 
 
 def export_manifests_to_csv(
-    canonical_base: str, out_dir: str, tables: list[str] | None = None
+    canonical_base: Path | str, out_dir: Path | str, tables: list[str] | None = None
 ) -> dict[str, str]:
     """Export manifest parquet files to CSV.
 
@@ -1012,8 +1014,10 @@ def export_manifests_to_csv(
         Mapping from table name to the written CSV path.
     """
 
-    manifests_dir = os.path.join(canonical_base, "manifests")
-    os.makedirs(out_dir, exist_ok=True)
+    canonical_base = Path(canonical_base)
+    out_dir = Path(out_dir)
+    manifests_dir = canonical_base / "manifests"
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     supported = ["frames", "cases", "annotations"]
     if tables is None:
@@ -1025,14 +1029,14 @@ def export_manifests_to_csv(
 
     written: dict[str, str] = {}
     for t in tables:
-        parquet_path = os.path.join(manifests_dir, f"{t}.parquet")
-        if not os.path.exists(parquet_path):
+        parquet_path = manifests_dir / f"{t}.parquet"
+        if not parquet_path.exists():
             logger.warning("Parquet not found for table %s: %s (skipping)", t, parquet_path)
             continue
         df = pd.read_parquet(parquet_path)
-        csv_path = os.path.join(out_dir, f"{t}.csv")
+        csv_path = out_dir / f"{t}.csv"
         df.to_csv(csv_path, index=False)
-        written[t] = csv_path
+        written[t] = str(csv_path)
         logger.info("Wrote %s CSV to %s", t, csv_path)
 
     if not written:
@@ -1041,7 +1045,7 @@ def export_manifests_to_csv(
 
 
 def merge_datasets(
-    base_path,
+    base_path: Path | str,
     datasets: list[str],
     num_elements=None,
     plot_images=False,
@@ -1066,6 +1070,7 @@ def merge_datasets(
     """
     # process_negative_images(base_path, 588, 478)
 
+    base_path = Path(base_path)
     combined_df = combine_datasets(base_path, datasets, num_elements=num_elements)
     output_filename = 'metadata.xlsx' if num_elements is None else 'output_' + str(num_elements) + '.xlsx'
 
@@ -1098,8 +1103,8 @@ def merge_datasets(
 
     # Copy and rename images into canonical layout
     logger.info("COPYING IMAGES")
-    canonical_base = os.path.join(base_path, 'canonical')
-    images_dir = os.path.join(canonical_base, 'images')
+    canonical_base = base_path / 'canonical'
+    images_dir = canonical_base / 'images'
     copy_and_rename_images(combined_df, base_path, images_dir)
 
     # Calculate target size
@@ -1115,9 +1120,9 @@ def merge_datasets(
     negative_original_count = 0
     if num_elements is None and negative_sources:
         for ds_name, src in negative_sources.items():
-            src_dir = os.path.expanduser(src)
-            if not os.path.isabs(src_dir):
-                src_dir = os.path.join(base_path, src_dir)
+            src_dir = Path(src).expanduser()
+            if not src_dir.is_absolute():
+                src_dir = base_path / src_dir
             process_negative_images(src_dir, target_width, target_height)
             recs, orig_count = copy_and_rename_negative_images(
                 src_dir, images_dir, dataset_name=ds_name
@@ -1143,12 +1148,12 @@ def merge_datasets(
     # Loop through the DataFrame and draw bounding boxes on each image
     if plot_images:
         # Create the destination directory if it doesn't exist
-        bbox_dest_dir = os.path.join(base_path, 'img_bbox')
-        os.makedirs(bbox_dest_dir, exist_ok=True)
+        bbox_dest_dir = base_path / 'img_bbox'
+        bbox_dest_dir.mkdir(parents=True, exist_ok=True)
         for index, row in tqdm(combined_df.iterrows(), total=len(combined_df), desc="Drawing bounding boxes"):
             image_filename = row['frame']
-            input_frame_path = os.path.join(images_dir, image_filename)
-            output_frame_path = os.path.join(bbox_dest_dir, image_filename)
+            input_frame_path = images_dir / image_filename
+            output_frame_path = bbox_dest_dir / image_filename
             draw_bounding_boxes(row['BOUNDING BOX'], input_frame_path, output_frame_path)
 
-    cleanup_temp_artifacts(base_path, os.path.join('canonical', 'images'))
+    cleanup_temp_artifacts(base_path, Path('canonical') / 'images')

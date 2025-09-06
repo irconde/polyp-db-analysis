@@ -7,7 +7,7 @@ from ``(x, y, w, h)`` coordinates. Image dimensions are also recorded so the
 resulting ``annotations.xlsx`` closely matches the notebook output.
 """
 
-import os
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import numpy as np
@@ -103,8 +103,8 @@ SHAPE_MAP = {
 
 
 def convert_to_standard_layout(
-    src_dir: str,
-    dest_dir: str,
+    src_dir: Path | str,
+    dest_dir: Path | str,
     metadata_filename: str = "piba_db_dump.xlsx",
     db_config: dict | None = None,
 ) -> None:
@@ -125,9 +125,11 @@ def convert_to_standard_layout(
     Returns:
         None
     """
+    src_dir = Path(src_dir)
+    dest_dir = Path(dest_dir)
     logger.info("Converting PIBA dataset from %s to %s", src_dir, dest_dir)
-    meta_path = os.path.join(src_dir, metadata_filename)
-    if os.path.exists(meta_path):
+    meta_path = src_dir / metadata_filename
+    if meta_path.exists():
         df = pd.read_excel(meta_path)
     elif db_config is not None:
         df = _fetch_metadata_from_db(db_config)
@@ -143,7 +145,7 @@ def convert_to_standard_layout(
     df["FRAME"] = df["FRAME"].apply(lambda x: f"{x}.png")
 
     def _size(frame: str) -> tuple[int, int]:
-        return get_image_size(os.path.join(src_dir, "media", frame))
+        return get_image_size(src_dir / "media" / frame)
 
     with ThreadPoolExecutor() as executor:
         sizes = list(executor.map(_size, df["FRAME"]))
@@ -162,12 +164,12 @@ def convert_to_standard_layout(
         columns=["X", "Y", "BBOX WIDTH", "BBOX HEIGHT", "MANUAL SELECTION"]
     )
 
-    out_dir = os.path.join(dest_dir, "piba")
-    os.makedirs(out_dir, exist_ok=True)
-    df.to_excel(os.path.join(out_dir, "annotations.xlsx"), index=False)
+    out_dir = dest_dir / "piba"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    df.to_excel(out_dir / "annotations.xlsx", index=False)
     move_images_parallel(
-        os.path.join(src_dir, "media"),
-        os.path.join(out_dir, "img"),
+        src_dir / "media",
+        out_dir / "img",
         df,
         copy=True,
     )

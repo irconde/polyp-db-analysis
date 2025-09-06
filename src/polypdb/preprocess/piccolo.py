@@ -8,7 +8,7 @@ segmentation masks and records the image dimensions of the cropped samples.
 
 from __future__ import annotations
 
-import os
+from pathlib import Path
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 
@@ -31,7 +31,7 @@ from ..utils import (
 logger = logging.getLogger(__name__)
 
 
-def _collect_metadata(src_dir: str, metadata_filename: str = "clinical metadata_release0.1.csv") -> pd.DataFrame:
+def _collect_metadata(src_dir: Path | str, metadata_filename: str = "clinical metadata_release0.1.csv") -> pd.DataFrame:
     """Load and clean the raw annotation CSV.
 
     The original CSV uses ``;`` as a delimiter and contains a number of empty
@@ -46,7 +46,8 @@ def _collect_metadata(src_dir: str, metadata_filename: str = "clinical metadata_
         ``pandas.DataFrame`` with normalised metadata columns.
     """
 
-    df = pd.read_csv(os.path.join(src_dir, metadata_filename),
+    src_dir = Path(src_dir)
+    df = pd.read_csv(src_dir / metadata_filename,
                      delimiter=";", encoding="latin1")
     df = df.replace("-", pd.NA).dropna(how="all").dropna(axis=1, how="all")
     df = df.drop(
@@ -73,7 +74,7 @@ def _collect_metadata(src_dir: str, metadata_filename: str = "clinical metadata_
     return df
 
 
-def _expand_frames(src_dir: str, meta_df: pd.DataFrame) -> pd.DataFrame:
+def _expand_frames(src_dir: Path | str, meta_df: pd.DataFrame) -> pd.DataFrame:
     """Gather frame level information from the dataset structure.
 
     Args:
@@ -86,11 +87,12 @@ def _expand_frames(src_dir: str, meta_df: pd.DataFrame) -> pd.DataFrame:
     """
 
     frames = []
+    src_dir = Path(src_dir)
     for split in ["test", "train", "validation"]:
-        polyp_dir = os.path.join(src_dir, split, "polyps")
-        if not os.path.isdir(polyp_dir):
+        polyp_dir = src_dir / split / "polyps"
+        if not polyp_dir.is_dir():
             continue
-        files = [f for f in os.listdir(polyp_dir) if f.endswith(".png")]
+        files = [f.name for f in polyp_dir.iterdir() if f.name.endswith(".png")]
         if not files:
             continue
         frame_df = pd.DataFrame({"FRAME": files, "SET": split})
@@ -118,7 +120,7 @@ def _expand_frames(src_dir: str, meta_df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _derive_bboxes(df: pd.DataFrame, src_dir: str, work_dir: str) -> pd.DataFrame:
+def _derive_bboxes(df: pd.DataFrame, src_dir: Path | str, work_dir: Path | str) -> pd.DataFrame:
     """Crop images, compute bounding boxes and image dimensions.
 
     Args:
@@ -131,20 +133,21 @@ def _derive_bboxes(df: pd.DataFrame, src_dir: str, work_dir: str) -> pd.DataFram
         cropped frame. Images without masks are filtered out.
     """
 
-    cropped_frame_dir = os.path.join(work_dir, "cropped_polyps")
-    cropped_mask_dir = os.path.join(work_dir, "cropped_masks")
-    os.makedirs(cropped_frame_dir, exist_ok=True)
-    os.makedirs(cropped_mask_dir, exist_ok=True)
+    src_dir = Path(src_dir)
+    work_dir = Path(work_dir)
+    cropped_frame_dir = work_dir / "cropped_polyps"
+    cropped_mask_dir = work_dir / "cropped_masks"
+    cropped_frame_dir.mkdir(parents=True, exist_ok=True)
+    cropped_mask_dir.mkdir(parents=True, exist_ok=True)
 
     def _process(row) -> tuple[str, int, int]:
-        frame_path = os.path.join(src_dir, row.SET, "polyps", row.FRAME)
-        mask_path = os.path.join(
-            src_dir, row.SET, "masks", row.FRAME.replace(
+        frame_path = src_dir / row.SET / "polyps" / row.FRAME
+        mask_path = (
+            src_dir / row.SET / "masks" / row.FRAME.replace(
                 ".png", "_Corrected.tif")
         )
-        cropped_frame_path = os.path.join(cropped_frame_dir, row.FRAME)
-        cropped_mask_path = os.path.join(
-            cropped_mask_dir, row.FRAME.replace(".png", ".tif"))
+        cropped_frame_path = cropped_frame_dir / row.FRAME
+        cropped_mask_path = cropped_mask_dir / row.FRAME.replace(".png", ".tif")
 
         crop_image_padding(
             frame_path,
@@ -225,7 +228,7 @@ def _infer_image_type(img_dir: str, df: pd.DataFrame) -> pd.Series:
         return hist
 
     for idx, frame in enumerate(df["FRAME"]):
-        path = os.path.join(img_dir, frame)
+        path = Path(img_dir) / frame
         try:
             with Image.open(path) as img:
                 hist = extract_color_histogram(img)
@@ -263,7 +266,7 @@ def _finalise_metadata(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def convert_to_standard_layout(
-    src_dir: str, dest_dir: str, metadata_filename: str = "clinical metadata_release0.1.csv"
+    src_dir: Path | str, dest_dir: Path | str, metadata_filename: str = "clinical metadata_release0.1.csv"
 ) -> None:
     """Convert PICCOLO dataset to the standard directory layout.
 
@@ -276,6 +279,8 @@ def convert_to_standard_layout(
         None
     """
 
+    src_dir = Path(src_dir)
+    dest_dir = Path(dest_dir)
     logger.info("Converting PICCOLO dataset from %s to %s", src_dir, dest_dir)
     meta = _collect_metadata(src_dir, metadata_filename)
     frames = _expand_frames(src_dir, meta)
@@ -284,14 +289,14 @@ def convert_to_standard_layout(
     with tempfile.TemporaryDirectory() as work_dir:
         frames = _derive_bboxes(frames, src_dir, work_dir)
 
-        img_dir = os.path.join(work_dir, "cropped_polyps")
+        img_dir = Path(work_dir) / "cropped_polyps"
         frames["IMAGE TYPE"] = _infer_image_type(img_dir, frames)
         frames = _finalise_metadata(frames)
 
-        out_dir = os.path.join(dest_dir, "piccolo")
-        os.makedirs(out_dir, exist_ok=True)
-        frames.to_excel(os.path.join(out_dir, "annotations.xlsx"), index=False)
-        move_images_parallel(img_dir, os.path.join(out_dir, "img"), frames)
+        out_dir = dest_dir / "piccolo"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        frames.to_excel(out_dir / "annotations.xlsx", index=False)
+        move_images_parallel(img_dir, out_dir / "img", frames)
         validate_conversion(out_dir, frames)
         logger.info("Finished PICCOLO conversion with %d entries", len(frames))
 

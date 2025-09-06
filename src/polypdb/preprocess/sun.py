@@ -10,7 +10,7 @@ that logic so that the dataset can be converted automatically without having
 to rely on the notebook.
 """
 
-import os
+from pathlib import Path
 import logging
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
@@ -68,16 +68,16 @@ LOSSLESS_EXTS = {".png", ".bmp", ".tiff", ".tif"}
 IMG_EXT = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif"}
 
 
-def _rank_key(path: str, width: int, height: int, filesize: int) -> tuple:
+def _rank_key(path: Path | str, width: int, height: int, filesize: int) -> tuple:
     """Ranking key used to pick the canonical frame within duplicates."""
-    ext = os.path.splitext(path)[1].lower()
+    ext = Path(path).suffix.lower()
     is_lossy = 1 if ext not in LOSSLESS_EXTS else 0
-    return (-height * width, is_lossy, -filesize, path)
+    return (-height * width, is_lossy, -filesize, str(path))
 
 
 def _drop_duplicate_frames(
     df: pd.DataFrame,
-    cache_file: str | None = None,
+    cache_file: Path | str | None = None,
     hash_type: str = "phash",
     hash_size: int = 16,
     hamming_threshold: int = 4,
@@ -104,9 +104,10 @@ def _drop_duplicate_frames(
         raise ValueError(f"Unknown hash type: {hash_type}") from exc
 
     cache_cols = ["SRC_PATH", "_pixel_hash", "_perceptual_hash", "_filesize", "_drop"]
-    if cache_file and os.path.exists(cache_file):
+    cache_path = Path(cache_file) if cache_file is not None else None
+    if cache_path and cache_path.exists():
         try:
-            cache_df = pd.read_csv(cache_file)
+            cache_df = pd.read_csv(cache_path)
             if "_perceptual_hash" in cache_df.columns:
                 cache_df["_perceptual_hash"] = cache_df["_perceptual_hash"].astype(str)
         except Exception:
@@ -122,8 +123,9 @@ def _drop_duplicate_frames(
     rows_to_update: list[dict] = []
     drop_paths: set[str] = set()
     for path in df["SRC_PATH"]:
-        filesize = os.path.getsize(path)
-        cached = cache_df[cache_df["SRC_PATH"] == path]
+        p = Path(path)
+        filesize = p.stat().st_size
+        cached = cache_df[cache_df["SRC_PATH"] == str(p)]
         if (
             not cached.empty
             and bool(cached["_drop"].iloc[0])
@@ -139,7 +141,7 @@ def _drop_duplicate_frames(
         if needs_update:
             rows_to_update.append(
                 {
-                    "SRC_PATH": path,
+                    "SRC_PATH": str(p),
                     "_pixel_hash": _pixel_hash(path),
                     "_perceptual_hash": _perceptual_hash(
                         path, hash_func, hash_type, hash_size
@@ -160,8 +162,8 @@ def _drop_duplicate_frames(
             [cache_df[~cache_df["SRC_PATH"].isin(update_df["SRC_PATH"])], update_df],
             ignore_index=True,
         )
-        if cache_file:
-            cache_df.to_csv(cache_file, index=False)
+        if cache_path:
+            cache_df.to_csv(cache_path, index=False)
 
     df = df.merge(cache_df, on="SRC_PATH", how="left")
 
@@ -179,7 +181,7 @@ def _drop_duplicate_frames(
                 r.SRC_PATH,
                 r.WIDTH,
                 r.HEIGHT,
-                getattr(r, "_filesize", os.path.getsize(r.SRC_PATH)),
+                getattr(r, "_filesize", Path(r.SRC_PATH).stat().st_size),
             ),
         )
         duplicates.extend(r.SRC_PATH for r in ranked[1:])
@@ -193,8 +195,9 @@ def _drop_duplicate_frames(
 
     # Cluster by perceptual hash for near duplicates
     if hamming_threshold is not None and hamming_threshold >= 0:
-        indices = df.index.tolist()
-        hashes = [imagehash.hex_to_hash(h) for h in df["_perceptual_hash"]]
+        valid = df["_perceptual_hash"].notna()
+        indices = df.index[valid].tolist()
+        hashes = [imagehash.hex_to_hash(h) for h in df.loc[valid, "_perceptual_hash"]]
         parent = {idx: idx for idx in indices}
 
         def find(x):
@@ -238,7 +241,7 @@ def _drop_duplicate_frames(
                     r.SRC_PATH,
                     r.WIDTH,
                     r.HEIGHT,
-                    getattr(r, "_filesize", os.path.getsize(r.SRC_PATH)),
+                    getattr(r, "_filesize", Path(r.SRC_PATH).stat().st_size),
                 ),
             )
             near_dupes.extend(r.SRC_PATH for r in ranked[1:])
@@ -250,15 +253,15 @@ def _drop_duplicate_frames(
             df = df[~df["SRC_PATH"].isin(near_dupes)]
             cache_df.loc[cache_df["SRC_PATH"].isin(near_dupes), "_drop"] = True
 
-    if cache_file:
-        cache_df.to_csv(cache_file, index=False)
+    if cache_path:
+        cache_df.to_csv(cache_path, index=False)
 
     return df.drop(columns=["_pixel_hash", "_perceptual_hash", "_filesize", "_drop"])
 
 
 def drop_duplicate_negative_images(
-    src_dir: str,
-    cache_file: str | None = None,
+    src_dir: Path | str,
+    cache_file: Path | str | None = None,
     hash_type: str = "phash",
     hash_size: int = 16,
     hamming_threshold: int = 4,
@@ -293,12 +296,11 @@ def drop_duplicate_negative_images(
         stacklevel=2,
     )
 
+    src_dir = Path(src_dir)
     file_paths: list[str] = []
-    for root, _, files in os.walk(src_dir):
-        for fname in files:
-            ext = os.path.splitext(fname)[1].lower()
-            if ext in IMG_EXT:
-                file_paths.append(os.path.join(root, fname))
+    for p in src_dir.rglob("*"):
+        if p.is_file() and p.suffix.lower() in IMG_EXT:
+            file_paths.append(str(p))
 
     if not file_paths:
         return 0
@@ -311,7 +313,9 @@ def drop_duplicate_negative_images(
     logger.info("Found %d negative images before dropping duplicates", len(df))
 
     if cache_file is None:
-        cache_file = os.path.join(src_dir, "sun_neg_hash_cache.csv")
+        cache_file = src_dir / "sun_neg_hash_cache.csv"
+    else:
+        cache_file = Path(cache_file)
 
     filtered_df = _drop_duplicate_frames(
         df,
@@ -327,7 +331,7 @@ def drop_duplicate_negative_images(
     removed = 0
     for path in file_paths:
         if path not in keep:
-            os.remove(path)
+            Path(path).unlink()
             removed += 1
 
     return removed
@@ -409,8 +413,8 @@ def _extract_bboxes(line: str) -> tuple[str, str]:
 
 
 def convert_to_standard_layout(
-    src_dir: str,
-    dest_dir: str,
+    src_dir: Path | str,
+    dest_dir: Path | str,
     metadata_filename: str = "metadata.csv",
     hash_type: str = "phash",
     hash_size: int = 16,
@@ -439,8 +443,10 @@ def convert_to_standard_layout(
         None
     """
 
+    src_dir = Path(src_dir)
+    dest_dir = Path(dest_dir)
     logger.info("Converting SUN dataset from %s to %s", src_dir, dest_dir)
-    metadata_path = os.path.join(src_dir, metadata_filename)
+    metadata_path = src_dir / metadata_filename
     metadata_df = pd.read_csv(metadata_path)
     metadata_df.columns = [c.upper() for c in metadata_df.columns]
     metadata_df["SHAPE"] = metadata_df["SHAPE"].replace("IIa(LST-NG)", "IIa")
@@ -451,9 +457,7 @@ def convert_to_standard_layout(
             errors="coerce",
         )
 
-    annotation_txt_dir = os.path.join(
-        src_dir, "sundatabase_positive", "annotation_txt"
-    )
+    annotation_txt_dir = src_dir / "sundatabase_positive" / "annotation_txt"
 
     def _parse_case_annotation(args: tuple[str, pd.Series]) -> list[dict]:
         """Parse a single case annotation file into per-frame rows."""
@@ -478,8 +482,8 @@ def convert_to_standard_layout(
     annotation_args: list[tuple[str, pd.Series]] = []
     for _, row in metadata_df.iterrows():
         case_id = row["ID"]
-        txt_file = os.path.join(annotation_txt_dir, f"case{case_id}.txt")
-        if os.path.exists(txt_file):
+        txt_file = annotation_txt_dir / f"case{case_id}.txt"
+        if txt_file.exists():
             annotation_args.append((txt_file, row))
 
     with ThreadPoolExecutor() as executor:
@@ -489,9 +493,7 @@ def convert_to_standard_layout(
     df = pd.DataFrame(rows)
 
     df["SRC_PATH"] = df.apply(
-        lambda r: os.path.join(
-            src_dir, "sundatabase_positive", f"case{r['POLYP ID']}", r["FRAME"]
-        ),
+        lambda r: src_dir / "sundatabase_positive" / f"case{r['POLYP ID']}" / r["FRAME"],
         axis=1,
     )
 
@@ -501,7 +503,7 @@ def convert_to_standard_layout(
 
     logger.info("Found %d positive images before dropping duplicates", len(df))
 
-    cache_path = os.path.join(src_dir, "sun_hash_cache.csv")
+    cache_path = src_dir / "sun_hash_cache.csv"
     df = _drop_duplicate_frames(
         df,
         cache_file=cache_path,
@@ -514,8 +516,8 @@ def convert_to_standard_layout(
     df["BOUNDING BOX"] = _clip_bboxes(df["BOUNDING BOX"], df["WIDTH"], df["HEIGHT"])
     df["IMAGE TYPE"] = "WL"
 
-    out_dir = os.path.join(dest_dir, "sun")
-    img_dest_dir = os.path.join(out_dir, "img")
+    out_dir = dest_dir / "sun"
+    img_dest_dir = out_dir / "img"
     move_images_parallel(
         None,
         img_dest_dir,
@@ -526,6 +528,6 @@ def convert_to_standard_layout(
     )
 
     df = df.drop(columns=["SRC_PATH"], errors="ignore")
-    df.to_excel(os.path.join(out_dir, "annotations.xlsx"), index=False)
+    df.to_excel(out_dir / "annotations.xlsx", index=False)
     validate_conversion(out_dir, df)
     logger.info("Finished SUN conversion with %d entries", len(df))

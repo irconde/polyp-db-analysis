@@ -10,7 +10,7 @@ other datasets in the project.
 
 from __future__ import annotations
 
-import os
+from pathlib import Path
 import pandas as pd
 import logging
 import numpy as np
@@ -44,7 +44,7 @@ SHAPE_MAP = {
 
 
 def convert_to_standard_layout(
-    src_dir: str, dest_dir: str, metadata_filename: str = "polar_annotations.xlsx"
+    src_dir: Path | str, dest_dir: Path | str, metadata_filename: str = "polar_annotations.xlsx"
 ) -> None:
     """Convert POLAR dataset to the standard directory layout.
 
@@ -61,14 +61,16 @@ def convert_to_standard_layout(
         None
     """
 
+    src_dir = Path(src_dir)
+    dest_dir = Path(dest_dir)
     logger.info("Converting POLAR dataset from %s to %s", src_dir, dest_dir)
     df = pd.read_excel(
-        os.path.join(src_dir, metadata_filename),
+        src_dir / metadata_filename,
         sheet_name="validation_set",
     )
 
     # Note: Morphology information is only in the validation_set tab of the spreadsheet
-    validation_dir = os.path.join(src_dir, "validation_set")
+    validation_dir = src_dir / "validation_set"
 
     df = df.rename(columns=RENAME_COLUMNS)
 
@@ -85,7 +87,7 @@ def convert_to_standard_layout(
     # Determine image dimensions for each frame. Images are organised in
     # sub-folders per patient, so construct the path accordingly.
     df["SRC_PATH"] = [
-        os.path.join(validation_dir, str(pid), polyp_id + ".png")
+        validation_dir / str(pid) / f"{polyp_id}.png"
         for pid, polyp_id in zip(df["PATIENT_ID"], df["POLYP ID"].astype(str))
     ]
 
@@ -117,8 +119,8 @@ def convert_to_standard_layout(
     )
     df = df.assign(**{"BOUNDING BOX": bbox_strings})
 
-    out_dir = os.path.join(dest_dir, "polar")
-    out_img_dir = os.path.join(out_dir, "img")
+    out_dir = dest_dir / "polar"
+    out_img_dir = out_dir / "img"
     move_images_parallel(
         None,
         out_img_dir,
@@ -143,7 +145,7 @@ def convert_to_standard_layout(
         errors="ignore",
     )
 
-    df.to_excel(os.path.join(out_dir, "annotations.xlsx"), index=False)
+    df.to_excel(out_dir / "annotations.xlsx", index=False)
     validate_conversion(out_dir, df)
     logger.info("Finished POLAR conversion with %d entries", len(df))
 

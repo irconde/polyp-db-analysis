@@ -1,7 +1,7 @@
 """Dataset preparation helpers for Ultralytics and classification experiments."""
 
 import pandas as pd
-import os
+from pathlib import Path
 from shutil import copy2
 from PIL import Image
 import numpy as np
@@ -246,35 +246,37 @@ def convert_bbox_to_yolo_format(bbox, image_width, image_height):
     return x_center, y_center, width, height
 
 
-def create_folder_hierarchy(save_path, create_test_dir=False):
+def create_folder_hierarchy(save_path: Path | str, create_test_dir=False):
     """Create YOLO-style folder structure under ``save_path``."""
-    train_dir = os.path.join(save_path, 'images/train/')
-    val_dir = os.path.join(save_path, 'images/val/')
-    os.makedirs(train_dir, exist_ok=True)
-    os.makedirs(val_dir, exist_ok=True)
-    os.makedirs(train_dir.replace('images', 'labels'), exist_ok=True)
-    os.makedirs(val_dir.replace('images', 'labels'), exist_ok=True)
+    save_path = Path(save_path)
+    train_dir = save_path / 'images/train'
+    val_dir = save_path / 'images/val'
+    train_dir.mkdir(parents=True, exist_ok=True)
+    val_dir.mkdir(parents=True, exist_ok=True)
+    (save_path / 'labels/train').mkdir(parents=True, exist_ok=True)
+    (save_path / 'labels/val').mkdir(parents=True, exist_ok=True)
     test_dir = None
     if create_test_dir:
-        test_dir = os.path.join(save_path, 'images/test/')
-        os.makedirs(test_dir, exist_ok=True)
-        os.makedirs(test_dir.replace('images', 'labels'), exist_ok=True)
-    return train_dir, val_dir, test_dir
+        test_dir = save_path / 'images/test'
+        test_dir.mkdir(parents=True, exist_ok=True)
+        (save_path / 'labels/test').mkdir(parents=True, exist_ok=True)
+    return str(train_dir), str(val_dir), str(test_dir) if test_dir else None
 
 
-def process_img(train_df, val_df, test_df, classes, source_path, save_path):
+def process_img(train_df, val_df, test_df, classes, source_path: Path | str, save_path: Path | str):
     """Copy images and create YOLO labels for each dataset split."""
+    source_path = Path(source_path)
+    save_path = Path(save_path)
     for subset, data in zip(('train', 'val', 'test'), (train_df, val_df, test_df)):
         if data is not None and not data.empty:
-            dest_dir = os.path.join(save_path, f'images/{subset}/')
+            dest_dir = save_path / f'images/{subset}'
             for index, row in tqdm(data.iterrows(), total=len(data), desc=f"{subset} images"):
-                image_path = os.path.join(source_path, row['FRAME'])
-                dest_image_path = os.path.join(dest_dir, row['FRAME'])
-                dest_label_path = dest_image_path.replace('images', 'labels').replace('.png', '.txt')
+                image_path = source_path / row['FRAME']
+                dest_image_path = dest_dir / row['FRAME']
+                dest_label_path = (save_path / f'labels/{subset}' / row['FRAME']).with_suffix('.txt')
 
                 # Copy image to the corresponding directory
                 copy2(image_path, dest_image_path)
-                # Get image dimensions
                 with Image.open(image_path) as img:
                     image_width, image_height = img.size
                 # Convert bounding box to YOLO format
@@ -293,10 +295,10 @@ def process_img(train_df, val_df, test_df, classes, source_path, save_path):
                     f.write(annotation_line)
 
 
-def save_dataset_config_file(save_path, train_path, val_path, test_path, classes):
+def save_dataset_config_file(save_path: Path | str, train_path, val_path, test_path, classes):
     """Write a Ultralytics ``data.yaml`` description file."""
-    # Path for the YAML configuration file to be used in training
-    yaml_path = os.path.join(save_path, 'data.yaml')
+    save_path = Path(save_path)
+    yaml_path = save_path / 'data.yaml'
     # data for yaml dataset configuration file
     dataset_config = {
         'train': train_path,
@@ -341,10 +343,10 @@ def calculate_negative_split_sizes(sizes, config):
     return neg_sizes
 
 
-def split_negative_data(negative_sample_path, split_sizes):
+def split_negative_data(negative_sample_path: Path | str, split_sizes):
     """Split negative images into train/val/test lists."""
-    negative_img_paths = [os.path.join(negative_sample_path, f) for f in os.listdir(negative_sample_path) if
-                          f.endswith('.jpg')]
+    negative_sample_path = Path(negative_sample_path)
+    negative_img_paths = [p for p in negative_sample_path.iterdir() if p.suffix == '.jpg']
     total_samples = sum(split_sizes)
     total_img_count = len(negative_img_paths)
     if total_samples > total_img_count:
@@ -362,22 +364,21 @@ def split_negative_data(negative_sample_path, split_sizes):
     return [neg_train_split, neg_val_split, neg_test_split]
 
 
-def process_negative_samples(negative_splits, save_path):
+def process_negative_samples(negative_splits, save_path: Path | str):
     """Copy negative images into dataset structure and create empty labels."""
     split_types = ['train', 'val', 'test']
     for index, split in enumerate(negative_splits):
         # Corresponding folder for the split
         split_type = split_types[index]
-        img_dest_dir = os.path.join(save_path, f'images/{split_type}/')
-        label_dest_dir = os.path.join(save_path, f'labels/{split_type}/')
+        img_dest_dir = Path(save_path) / f'images/{split_type}'
+        label_dest_dir = Path(save_path) / f'labels/{split_type}'
         for img_path in split:
             # Copy image to the corresponding directory
-            filename = os.path.basename(img_path)
-            dest_path = os.path.join(img_dest_dir, filename)
+            filename = Path(img_path).name
+            dest_path = img_dest_dir / filename
             copy2(img_path, dest_path)
-            # Create an empty annotation file
-            label_path = os.path.join(label_dest_dir, filename.replace('.jpg', '.txt'))
-            open(label_path, 'w').close()  # Create an empty file for YOLO
+            label_path = label_dest_dir / Path(filename).with_suffix('.txt')
+            open(label_path, 'w').close()
 
 
 def _save_full_frame_image(image_path, dest_path, output_size=(224, 224)):
@@ -400,22 +401,23 @@ def _save_full_frame_image(image_path, dest_path, output_size=(224, 224)):
         std = np.array([0.229, 0.224, 0.225]).reshape(1, 1, 3)
         unnormalized = np.clip((normalized * std + mean) * 255, 0, 255).astype(np.uint8)
 
-        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
         Image.fromarray(unnormalized).save(dest_path, format='JPEG')
 
 
 def process_classification_images(train_df, val_df, test_df, source_path, save_path,
                                   classification_type, ng_img_src_path=None, negative_cfg=None):
     """Create a HyperKvasir-style dataset for classification."""
-    root = os.path.join(save_path, 'labeled-images')
+    save_path = Path(save_path)
+    root = save_path / 'labeled-images'
     for subset, data in zip(('train', 'val', 'test'), (train_df, val_df, test_df)):
         if data is not None and not data.empty:
             for _, row in data.iterrows():
-                img_path = os.path.join(source_path, row['FRAME'])
+                img_path = Path(source_path) / row['FRAME']
                 cls = 'polyp' if classification_type == 'BINARY' else row['SHAPE']
-                dest_dir = os.path.join(root, subset, 'pathological-findings', cls)
-                dest_name = os.path.splitext(row['FRAME'])[0] + '.jpg'
-                dest_path = os.path.join(dest_dir, dest_name)
+                dest_dir = root / subset / 'pathological-findings' / cls
+                dest_name = Path(row['FRAME']).stem + '.jpg'
+                dest_path = dest_dir / dest_name
                 _save_full_frame_image(img_path, dest_path)
 
     if classification_type == 'BINARY' and ng_img_src_path is not None and negative_cfg is not None:
@@ -424,10 +426,10 @@ def process_classification_images(train_df, val_df, test_df, source_path, save_p
         )
         neg_splits = split_negative_data(ng_img_src_path, neg_sizes)
         for subset, split in zip(('train', 'val', 'test'), neg_splits):
-            dest_dir = os.path.join(root, subset, 'pathological-findings', 'negative')
-            os.makedirs(dest_dir, exist_ok=True)
+            dest_dir = root / subset / 'pathological-findings' / 'negative'
+            dest_dir.mkdir(parents=True, exist_ok=True)
             for img_path in split:
-                copy2(img_path, os.path.join(dest_dir, os.path.basename(img_path)))
+                copy2(img_path, dest_dir / Path(img_path).name)
 
 
 def prepare_dataset(config_file):
@@ -443,12 +445,13 @@ def prepare_dataset(config_file):
         classes = {'IIa': 0, 'IIb': 1, 'IIc': 2, 'III': 3,
                    'Ip': 4, 'Is': 5, 'Isp': 6}
 
-    img_src_path = os.path.join(src_path, 'img/')
-    ng_img_src_path = os.path.join(src_path, 'negative_img/')
-    save_path = os.path.dirname(os.path.abspath(config_file))
+    src_path = Path(src_path)
+    img_src_path = src_path / 'img'
+    ng_img_src_path = src_path / 'negative_img'
+    save_path = Path(config_file).resolve().parent
 
     # Load the Excel file
-    excel_path = os.path.join(src_path, 'metadata.xlsx')
+    excel_path = src_path / 'metadata.xlsx'
     df = pd.read_excel(excel_path)
 
     # Split the data according to the configuration
@@ -474,28 +477,28 @@ def prepare_dataset(config_file):
     save_dataset_config_file(save_path, train_path, val_path, test_path, classes)
 
 
-def prepare_classification_dataset(config_file):
+def prepare_classification_dataset(config_file: Path | str):
     """Prepare a HyperKvasir-style dataset for classification."""
     config = load_config(config_file)
-    src_path = config['src_path']
+    src_path = Path(config['src_path'])
 
     if config['classification_type'] == 'BINARY':
         classes = ['polyp', 'negative']
     else:
         classes = ['IIa', 'IIb', 'IIc', 'III', 'Ip', 'Is', 'Isp']
 
-    img_src_path = os.path.join(src_path, 'img/')
-    ng_img_src_path = os.path.join(src_path, 'negative_img/')
-    save_path = os.path.dirname(os.path.abspath(config_file))
+    img_src_path = src_path / 'img'
+    ng_img_src_path = src_path / 'negative_img'
+    save_path = Path(config_file).resolve().parent
 
-    df = pd.read_excel(os.path.join(src_path, 'metadata.xlsx'))
+    df = pd.read_excel(src_path / 'metadata.xlsx')
 
     train_df, val_df, test_df = split_data(df, config)
 
-    root = os.path.join(save_path, 'labeled-images')
+    root = save_path / 'labeled-images'
     for subset in ('train', 'val', 'test'):
         for cls in classes:
-            os.makedirs(os.path.join(root, subset, 'pathological-findings', cls), exist_ok=True)
+            (root / subset / 'pathological-findings' / cls).mkdir(parents=True, exist_ok=True)
 
     process_classification_images(
         train_df,
