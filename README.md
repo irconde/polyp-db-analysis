@@ -4,6 +4,14 @@ Utilities for merging colonoscopy polyp datasets and preparing them for object d
 
 ## Installation
 
+An optional Conda environment specification is provided at
+`environment.yml` for a reproducible setup:
+
+```bash
+conda env create -f environment.yml
+conda activate polyp-db-processing
+```
+
 Install the package and its dependencies.  The OCR utilities rely on
 `PaddleOCR`, which in turn requires the `paddlepaddle` runtime.  Install
 `paddlepaddle` first, then the package itself:
