@@ -15,7 +15,7 @@ an ``annotations.xlsx`` file with normalised bounding box coordinates.
 """
 
 import logging
-import os
+from pathlib import Path
 import re
 
 import cv2
@@ -140,7 +140,7 @@ EXCLUDED_FRAMES: dict[str, set[str]] = {
 }
 
 
-def _parse_bbox_file(path: str) -> str:
+def _parse_bbox_file(path: Path | str) -> str:
     """Return bounding boxes from ``path`` normalised to ``x1,y1,x2,y2`` format.
 
     Lines in the file may optionally start with a class label.  Coordinates are
@@ -149,7 +149,8 @@ def _parse_bbox_file(path: str) -> str:
     result in an empty string.
     """
 
-    if not os.path.exists(path):
+    path = Path(path)
+    if not path.exists():
         return ""
 
     boxes: list[str] = []
@@ -178,7 +179,7 @@ def _parse_bbox_file(path: str) -> str:
     return ";".join(boxes)
 
 
-def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
+def convert_to_standard_layout(src_dir: Path | str, dest_dir: Path | str) -> None:
     """Convert PolypGen dataset to the standard directory layout.
 
     Only single-frame data under ``data_C1`` … ``data_C6`` is processed.  The
@@ -192,28 +193,30 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
 
     logger.info("Converting PolypGen dataset from %s to %s", src_dir, dest_dir)
 
+    src_dir = Path(src_dir)
+    dest_dir = Path(dest_dir)
     rows: list[dict] = []
     for centre in range(1, 7):
         centre_name = f"C{centre}"
-        centre_dir = os.path.join(src_dir, f"data_{centre_name}")
-        img_dir = os.path.join(centre_dir, f"images_{centre_name}")
-        bbox_dir = os.path.join(centre_dir, f"bbox_{centre_name}")
-        if not os.path.isdir(img_dir) or not os.path.isdir(bbox_dir):
+        centre_dir = src_dir / f"data_{centre_name}"
+        img_dir = centre_dir / f"images_{centre_name}"
+        bbox_dir = centre_dir / f"bbox_{centre_name}"
+        if not img_dir.is_dir() or not bbox_dir.is_dir():
             continue
-        for img_file in sorted(os.listdir(img_dir)):
+        for img_file in sorted(f.name for f in img_dir.iterdir() if f.is_file()):
             if not img_file.lower().endswith((".jpg", ".jpeg", ".png")):
                 continue
-            base = os.path.splitext(img_file)[0]
+            base = Path(img_file).stem
             if base in EXCLUDED_FRAMES.get(centre_name, set()):
                 continue
             # Some centres save bbox files with a '_mask' suffix
-            bbox_file = os.path.join(bbox_dir, base + ".txt")
-            if not os.path.exists(bbox_file):
-                alt_bbox = os.path.join(bbox_dir, base + "_mask.txt")
-                if os.path.exists(alt_bbox):
+            bbox_file = bbox_dir / f"{base}.txt"
+            if not bbox_file.exists():
+                alt_bbox = bbox_dir / f"{base}_mask.txt"
+                if alt_bbox.exists():
                     bbox_file = alt_bbox
             bbox = _parse_bbox_file(bbox_file)
-            src_path = os.path.join(img_dir, img_file)
+            src_path = img_dir / img_file
             rows.append(
                 {
                     "FRAME": img_file,
@@ -229,9 +232,9 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
     df = pd.DataFrame(rows)
     df = df.rename(columns={"BOUNDING BOX": "BOUNDING_BOX"})
 
-    out_dir = os.path.join(dest_dir, "polypgen")
-    img_dest_dir = os.path.join(out_dir, "img")
-    os.makedirs(img_dest_dir, exist_ok=True)
+    out_dir = dest_dir / "polypgen"
+    img_dest_dir = out_dir / "img"
+    img_dest_dir.mkdir(parents=True, exist_ok=True)
 
     widths: list[int] = []
     heights: list[int] = []
@@ -243,7 +246,7 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
             continue
         cropped, x_off, y_off = crop_black_padding_band(img)
         cleaned, _ = mask_small_viewport(cropped)
-        cv2.imwrite(os.path.join(img_dest_dir, row.FRAME), cleaned)
+        cv2.imwrite(str(img_dest_dir / row.FRAME), cleaned)
         h, w = cleaned.shape[:2]
         widths.append(w)
         heights.append(h)
@@ -268,6 +271,6 @@ def convert_to_standard_layout(src_dir: str, dest_dir: str) -> None:
     df = df.drop(columns=["SRC_PATH"], errors="ignore")
     df = df.rename(columns={"BOUNDING_BOX": "BOUNDING BOX"})
 
-    df.to_excel(os.path.join(out_dir, "annotations.xlsx"), index=False)
+    df.to_excel(out_dir / "annotations.xlsx", index=False)
     validate_conversion(out_dir, df)
     logger.info("Finished PolypGen conversion with %d entries", len(df))
