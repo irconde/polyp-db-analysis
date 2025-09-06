@@ -7,6 +7,7 @@ import os
 
 from ..preprocess import CONVERTERS
 from ..ultralytics import prepare_classification_dataset, prepare_dataset
+from ..config_models import MergeConfig, PrepareConfig
 from .common import load_config
 
 logger = logging.getLogger(__name__)
@@ -56,12 +57,13 @@ def _run(args) -> None:
         ns_val = negative_sources.get(args.dataset)
         negative_sources = {args.dataset: ns_val} if ns_val else None
 
-    merge_datasets(
+    merge_cfg = MergeConfig(
         base_path=base_path,
         datasets=datasets,
         num_elements=cfg.get("num_elements"),
-        negative_sources=negative_sources,
+        negative_sources=negative_sources or {},
     )
+    merge_datasets(merge_cfg)
 
     if cfg.get("prepare"):
         prepare_cfg = cfg.get("prepare_config")
@@ -75,7 +77,7 @@ def _run(args) -> None:
             prepare_classification_dataset(prepare_cfg)
         else:
             logger.info("Preparing detection dataset")
-            prepare_dataset(prepare_cfg)
+            prepare_dataset(load_config(prepare_cfg, PrepareConfig))
 
 
 __all__ = ["register"]

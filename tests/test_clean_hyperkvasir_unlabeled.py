@@ -1,7 +1,10 @@
 import sys
 import types
 
-sys.modules.setdefault("cv2", types.SimpleNamespace())
+try:
+    import cv2  # noqa: F401
+except Exception:  # pragma: no cover - used when OpenCV is missing
+    sys.modules.setdefault("cv2", types.SimpleNamespace())
 
 import numpy as np
 from polypdb import clean_hyperkvasir_unlabeled as ch

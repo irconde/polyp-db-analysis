@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .common import load_config
+from ..config_models import MergeConfig
 
 
 def register(subparsers) -> None:
@@ -16,8 +17,8 @@ def register(subparsers) -> None:
 def _run(args) -> None:
     from . import merge_datasets
 
-    cfg = load_config(args.config)
-    merge_datasets(**cfg)
+    cfg = load_config(args.config, MergeConfig)
+    merge_datasets(cfg)
 
 
 __all__ = ["register"]

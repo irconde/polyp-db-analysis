@@ -23,11 +23,11 @@ def test_pipeline_passes_negative_sources(tmp_path, monkeypatch):
 
     captured = {}
 
-    def fake_merge_datasets(**kwargs):
-        captured.update(kwargs)
+    def fake_merge_datasets(cfg):
+        captured['cfg'] = cfg
 
     monkeypatch.setattr(cli, 'merge_datasets', fake_merge_datasets)
     monkeypatch.setattr(sys, 'argv', ['prog', 'pipeline', str(cfg_path)])
     cli.main()
 
-    assert captured['negative_sources'] == {'sun': 'sun_negatives'}
+    assert captured['cfg'].negative_sources == {'sun': 'sun_negatives'}
