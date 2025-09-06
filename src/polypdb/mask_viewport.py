@@ -5,7 +5,7 @@ from pathlib import Path
 
 import cv2  # type: ignore
 
-from .utils import mask_viewport_auto_color_safe
+from .utils.masking import mask_viewport_auto_color_safe
 
 
 def batch_mask_viewport(input_dir: str, output_dir: str, ext: str = ".jpg") -> None:

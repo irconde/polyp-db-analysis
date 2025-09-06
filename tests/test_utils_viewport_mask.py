@@ -1,6 +1,6 @@
 import numpy as np
 
-from polypdb.utils import mask_viewport_auto_color_safe
+from polypdb.utils.masking import mask_viewport_auto_color_safe
 
 
 def test_mask_viewport_applies():

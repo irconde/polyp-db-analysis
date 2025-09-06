@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from polypdb.utils import preprocess_for_text
+from polypdb.utils.masking import preprocess_for_text
 
 
 def test_preprocess_for_text_shape():

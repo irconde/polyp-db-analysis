@@ -3,7 +3,7 @@ from PIL import Image, ImageDraw
 
 import pytest
 
-from polypdb.utils import create_text_mask, create_text_masks
+from polypdb.utils.masking import create_text_mask, create_text_masks
 
 
 class DummyOCR:
@@ -39,7 +39,7 @@ def test_create_text_mask_expansion(tmp_path):
     img_path = tmp_path / "img.png"
     mask_path = tmp_path / "mask.png"
     Image.new("RGB", (30, 30), color=(0, 0, 0)).save(img_path)
-    from polypdb import utils
+    import polypdb.utils.masking as utils
 
     utils.detect_text_boxes, orig = fake_detect, utils.detect_text_boxes
     try:
@@ -72,7 +72,7 @@ def test_create_text_mask_left_edge(tmp_path):
     img_path = tmp_path / "img.png"
     mask_path = tmp_path / "mask.png"
     Image.new("RGB", (30, 30), color=(0, 0, 0)).save(img_path)
-    from polypdb import utils
+    import polypdb.utils.masking as utils
 
     utils.detect_text_boxes, orig = fake_detect, utils.detect_text_boxes
     try:
@@ -96,7 +96,7 @@ def test_create_text_mask_ui_squares(tmp_path):
         draw.rectangle((x, 5, x + 10, 15), fill=(255, 255, 255))
     img.save(img_path)
 
-    from polypdb import utils
+    import polypdb.utils.masking as utils
 
     utils.detect_text_boxes, orig = (
         lambda img, ocr, **kwargs: ([], None),
@@ -120,7 +120,7 @@ def test_create_text_mask_debug(tmp_path):
 
     Image.new("RGB", (30, 30), color=(0, 0, 0)).save(img_path)
 
-    from polypdb import utils
+    import polypdb.utils.masking as utils
 
     def fake_detect(img, ocr, **kwargs):
         return [(10, 10, 20, 20)], None
@@ -129,7 +129,6 @@ def test_create_text_mask_debug(tmp_path):
         m = np.zeros((img.shape[0], img.shape[1]), dtype=np.uint8)
         m[5:15, 2:8] = 255
         return m
-
     utils.detect_text_boxes, orig_detect = fake_detect, utils.detect_text_boxes
     utils.detect_ui_squares, orig_ui = fake_ui_squares, utils.detect_ui_squares
     try:
@@ -175,7 +174,7 @@ def test_create_text_masks_debug_dir(tmp_path):
     mask_dst.mkdir()
     Image.new("RGB", (30, 30)).save(src / "a.png")
 
-    from polypdb import utils
+    import polypdb.utils.masking as utils
 
     utils.detect_text_boxes, orig = (
         lambda img, ocr, **kwargs: ([], None),
