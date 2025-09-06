@@ -7,4 +7,3 @@ write_cases: false
 num_elements: null
 prepare: false
 drop_multi_bboxes: false
-clean_artifacts: true

@@ -6,5 +6,6 @@ base_path: /Users/irconde/Desktop/sssl-polyps/polyp-datasets
 datasets: [sun]
 num_elements: null
 prepare: false
+drop_multi_bboxes: false
 negative_sources:
   sun: /Users/irconde/Desktop/sssl-polyps/polyp-datasets/raw/sun/sundatabase_negative
