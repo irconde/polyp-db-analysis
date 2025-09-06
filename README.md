@@ -192,6 +192,13 @@ Execute the pipeline:
 polypdb pipeline pipeline_config.yaml
 ```
 
+To preprocess only one dataset from the configuration and generate its
+standardised output without merging others, provide the dataset name:
+
+```bash
+polypdb pipeline --dataset polypgen pipeline_config.yaml
+```
+
 ## Image preprocessing utilities
 
 `mask_corner_artifacts` removes static overlays such as timestamps or patient

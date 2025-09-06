@@ -1,10 +1,15 @@
 import sys
+import types
 import yaml
-
-from polypdb import cli
+import importlib
 
 
 def test_pipeline_passes_negative_sources(tmp_path, monkeypatch):
+    sys.modules['polypdb.preprocess.polypgen'] = types.SimpleNamespace(
+        convert_to_standard_layout=lambda *a, **k: None
+    )
+    cli = importlib.import_module('polypdb.cli')
+
     cfg = {
         'raw_sources': {},
         'base_path': str(tmp_path),
