@@ -183,6 +183,34 @@ def _parse_bbox_file(path: Path | str) -> str:
 class PolypGenConverter(DatasetConverter):
     """Converter for the PolypGen dataset."""
 
+    def __init__(
+        self,
+        src_dir: Path | str,
+        dest_dir: Path | str,
+        *,
+        save_raw: bool = False,
+        skip_cleaning: bool = False,
+        **kwargs,
+    ) -> None:
+        """Create a converter for the PolypGen dataset.
+
+        Parameters
+        ----------
+        src_dir, dest_dir:
+            Source and destination directories.
+        save_raw:
+            When ``True`` the original, unmodified frames are copied to a
+            ``raw_img`` directory and their dimensions/bounding boxes are
+            recorded in additional columns.
+        skip_cleaning:
+            Bypass black band cropping and viewport masking entirely. The
+            images written to ``img`` will be identical to the originals.
+        """
+
+        super().__init__(src_dir, dest_dir, **kwargs)
+        self.save_raw = save_raw
+        self.skip_cleaning = skip_cleaning
+
     def load_metadata(self) -> pd.DataFrame:
         rows: list[dict] = []
         for centre in range(1, 7):
@@ -227,6 +255,11 @@ class PolypGenConverter(DatasetConverter):
         img_dest_dir.mkdir(parents=True, exist_ok=True)
         self.out_dir = out_dir
 
+        raw_dest_dir = out_dir / "raw_img"
+        raw_widths: list[int] = []
+        raw_heights: list[int] = []
+        raw_boxes: list[str] = []
+
         widths: list[int] = []
         heights: list[int] = []
         boxes: list[str] = []
@@ -235,15 +268,29 @@ class PolypGenConverter(DatasetConverter):
             img = cv2.imread(str(row.SRC_PATH))
             if img is None:
                 continue
-            cropped, x_off, y_off = crop_black_padding_band(img)
-            cleaned, _ = mask_small_viewport(cropped)
+
+            if self.save_raw:
+                raw_dest_dir.mkdir(parents=True, exist_ok=True)
+                cv2.imwrite(str(raw_dest_dir / row.FRAME), img)
+                rh, rw = img.shape[:2]
+                raw_widths.append(rw)
+                raw_heights.append(rh)
+                raw_boxes.append(row.BOUNDING_BOX or "")
+
+            if self.skip_cleaning:
+                cleaned = img
+                x_off = y_off = 0
+            else:
+                cropped, x_off, y_off = crop_black_padding_band(img)
+                cleaned, _ = mask_small_viewport(cropped)
+
             cv2.imwrite(str(img_dest_dir / row.FRAME), cleaned)
             h, w = cleaned.shape[:2]
             widths.append(w)
             heights.append(h)
 
             bbox_str = row.BOUNDING_BOX
-            if bbox_str:
+            if bbox_str and not self.skip_cleaning:
                 adj_boxes: list[str] = []
                 for box in re.split(r"[\s;]+", bbox_str.strip()):
                     x1, y1, x2, y2 = map(int, box.split(","))
@@ -252,24 +299,45 @@ class PolypGenConverter(DatasetConverter):
                     )
                 boxes.append(";".join(adj_boxes))
             else:
-                boxes.append("")
+                boxes.append(bbox_str or "")
 
         df["WIDTH"] = widths
         df["HEIGHT"] = heights
         df["BOUNDING_BOX"] = boxes
+
+        if self.save_raw:
+            df["RAW_WIDTH"] = raw_widths
+            df["RAW_HEIGHT"] = raw_heights
+            df["RAW_BOUNDING_BOX"] = raw_boxes
+
         df = df.drop(columns=["SRC_PATH"], errors="ignore")
         return df
 
     def write_outputs(self, df: pd.DataFrame) -> None:
         out_dir = getattr(self, "out_dir", self.dest_dir / "polypgen")
-        df = df.rename(columns={"BOUNDING_BOX": "BOUNDING BOX"})
+        rename_map = {"BOUNDING_BOX": "BOUNDING BOX"}
+        if "RAW_BOUNDING_BOX" in df.columns:
+            rename_map["RAW_BOUNDING_BOX"] = "RAW BOUNDING BOX"
+        if "RAW_WIDTH" in df.columns:
+            rename_map["RAW_WIDTH"] = "RAW WIDTH"
+        if "RAW_HEIGHT" in df.columns:
+            rename_map["RAW_HEIGHT"] = "RAW HEIGHT"
+        df = df.rename(columns=rename_map)
         df.to_excel(out_dir / "annotations.xlsx", index=False)
         validate_conversion(out_dir, df)
         logger.info("Finished PolypGen conversion with %d entries", len(df))
 
 
-def convert_to_standard_layout(src_dir: Path | str, dest_dir: Path | str) -> None:
+def convert_to_standard_layout(
+    src_dir: Path | str,
+    dest_dir: Path | str,
+    *,
+    save_raw: bool = False,
+    skip_cleaning: bool = False,
+) -> None:
     """Backward compatible wrapper around :class:`PolypGenConverter`."""
 
-    converter = PolypGenConverter(src_dir, dest_dir)
+    converter = PolypGenConverter(
+        src_dir, dest_dir, save_raw=save_raw, skip_cleaning=skip_cleaning
+    )
     converter.convert()
