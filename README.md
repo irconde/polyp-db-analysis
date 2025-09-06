@@ -209,6 +209,15 @@ standardised output without merging others, provide the dataset name:
 polypdb pipeline --dataset polypgen pipeline_config.yaml
 ```
 
+The PolypGen converter crops black padding and masks the dataset's small
+bottom-left viewport by default. To also export the untouched frames, add
+``save_raw: true`` under ``raw_sources.polypgen`` in the configuration. The
+raw images will be written to a ``raw_img`` directory alongside the cleaned
+versions, and their original dimensions and boxes are included in the
+annotations file. To build a dataset without any cleaning, set
+``skip_cleaning: true`` instead, which bypasses both preprocessing steps and
+stores the raw frames in ``img``.
+
 ## Image preprocessing utilities
 
 `mask_corner_artifacts` removes static overlays such as timestamps or patient
