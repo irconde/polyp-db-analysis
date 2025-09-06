@@ -100,7 +100,8 @@ def convert_to_standard_layout(
     df["IMAGE TYPE"] = "NBI"
 
     # Parse bounding box values and adjust them to stay inside image bounds
-    coords = df["BOUNDING BOX"].str.strip("[]").str.split(",", expand=True).astype(int)
+    coords = df["BOUNDING BOX"].str.strip(
+        "[]").str.split(",", expand=True).astype(int)
     df["x"] = coords[0]
     df["y"] = coords[1]
     df["w"] = coords[2]
@@ -112,7 +113,8 @@ def convert_to_standard_layout(
     df = df[(df["x"] >= 0) & (df["y"] >= 0) & (df["w"] >= 0) & (df["h"] >= 0)]
 
     bbox_strings = (
-        df.assign(x2=df["x"] + df["w"], y2=df["y"] + df["h"])[["x", "y", "x2", "y2"]]
+        df.assign(x2=df["x"] + df["w"], y2=df["y"] +
+                  df["h"])[["x", "y", "x2", "y2"]]
         .astype(int)
         .astype(str)
         .agg(",".join, axis=1)
@@ -148,4 +150,3 @@ def convert_to_standard_layout(
     df.to_excel(out_dir / "annotations.xlsx", index=False)
     validate_conversion(out_dir, df)
     logger.info("Finished POLAR conversion with %d entries", len(df))
-

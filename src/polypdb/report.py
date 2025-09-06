@@ -146,7 +146,8 @@ where `<GROUP>` comes from the directory name that contained the negatives.
     logger.info("Wrote README to %s", out_path)
     # Also emit schema and meta alongside
     write_schema_yaml(canonical_base, os.path.join(manifests, "schema.yaml"))
-    write_dataset_meta(canonical_base, os.path.join(manifests, "dataset_meta.json"))
+    write_dataset_meta(canonical_base, os.path.join(
+        manifests, "dataset_meta.json"))
     return out_path
 
 
@@ -173,7 +174,8 @@ def validate_canonical(canonical_base: str) -> dict:
     if cases is not None:
         # Ignore frames without a case id when checking foreign keys
         frm_nonnull = frames["global_case_id"].notnull()
-        missing_cases = set(frames.loc[frm_nonnull, "global_case_id"]) - set(cases["global_case_id"])
+        missing_cases = set(
+            frames.loc[frm_nonnull, "global_case_id"]) - set(cases["global_case_id"])
         if missing_cases:
             issues.append(
                 f"Frames reference {len(missing_cases)} cases missing in cases.parquet"
@@ -181,7 +183,8 @@ def validate_canonical(canonical_base: str) -> dict:
     else:
         issues.append("cases.parquet missing; skipping case validation")
     if ann is not None:
-        missing_frames = set(ann["global_frame_id"]) - set(frames["global_frame_id"])
+        missing_frames = set(ann["global_frame_id"]) - \
+            set(frames["global_frame_id"])
         if missing_frames:
             issues.append(
                 f"Annotations reference {len(missing_frames)} frames missing in frames.parquet"
@@ -194,7 +197,8 @@ def validate_canonical(canonical_base: str) -> dict:
         if not os.path.exists(abs_path):
             missing_files.append(rel)
     if missing_files:
-        issues.append(f"Missing image files: {len(missing_files)} (e.g., {missing_files[:3]})")
+        issues.append(
+            f"Missing image files: {len(missing_files)} (e.g., {missing_files[:3]})")
 
     ok = len(issues) == 0
     result = {"ok": ok, "issues": issues}

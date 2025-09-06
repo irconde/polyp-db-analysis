@@ -103,13 +103,15 @@ def _drop_duplicate_frames(
     except AttributeError as exc:
         raise ValueError(f"Unknown hash type: {hash_type}") from exc
 
-    cache_cols = ["SRC_PATH", "_pixel_hash", "_perceptual_hash", "_filesize", "_drop"]
+    cache_cols = ["SRC_PATH", "_pixel_hash",
+                  "_perceptual_hash", "_filesize", "_drop"]
     cache_path = Path(cache_file) if cache_file is not None else None
     if cache_path and cache_path.exists():
         try:
             cache_df = pd.read_csv(cache_path)
             if "_perceptual_hash" in cache_df.columns:
-                cache_df["_perceptual_hash"] = cache_df["_perceptual_hash"].astype(str)
+                cache_df["_perceptual_hash"] = cache_df["_perceptual_hash"].astype(
+                    str)
         except Exception:
             cache_df = pd.DataFrame(columns=cache_cols)
     else:
@@ -159,7 +161,8 @@ def _drop_duplicate_frames(
     if rows_to_update:
         update_df = pd.DataFrame(rows_to_update)
         cache_df = pd.concat(
-            [cache_df[~cache_df["SRC_PATH"].isin(update_df["SRC_PATH"])], update_df],
+            [cache_df[~cache_df["SRC_PATH"].isin(
+                update_df["SRC_PATH"])], update_df],
             ignore_index=True,
         )
         if cache_path:
@@ -197,7 +200,8 @@ def _drop_duplicate_frames(
     if hamming_threshold is not None and hamming_threshold >= 0:
         valid = df["_perceptual_hash"].notna()
         indices = df.index[valid].tolist()
-        hashes = [imagehash.hex_to_hash(h) for h in df.loc[valid, "_perceptual_hash"]]
+        hashes = [imagehash.hex_to_hash(h)
+                  for h in df.loc[valid, "_perceptual_hash"]]
         parent = {idx: idx for idx in indices}
 
         def find(x):
@@ -381,7 +385,8 @@ def _clip_bboxes(bboxes: pd.Series, widths: pd.Series, heights: pd.Series) -> pd
         if not bbox:
             result.append("")
             continue
-        coords = np.fromstring(bbox.replace(" ", ","), sep=",", dtype=int).reshape(-1, 4)
+        coords = np.fromstring(bbox.replace(" ", ","),
+                               sep=",", dtype=int).reshape(-1, 4)
         coords[:, [0, 2]] = coords[:, [0, 2]].clip(0, w)
         coords[:, [1, 3]] = coords[:, [1, 3]].clip(0, h)
         result.append(" ".join(",".join(map(str, c)) for c in coords))
@@ -450,10 +455,12 @@ def convert_to_standard_layout(
     metadata_df = pd.read_csv(metadata_path)
     metadata_df.columns = [c.upper() for c in metadata_df.columns]
     metadata_df["SHAPE"] = metadata_df["SHAPE"].replace("IIa(LST-NG)", "IIa")
-    metadata_df = metadata_df.drop(columns=["PATHOLOGICAL DIAGNOSIS"], errors="ignore")
+    metadata_df = metadata_df.drop(
+        columns=["PATHOLOGICAL DIAGNOSIS"], errors="ignore")
     if "SIZE" in metadata_df.columns:
         metadata_df["SIZE"] = pd.to_numeric(
-            metadata_df["SIZE"].astype(str).str.replace(r"[^0-9.]", "", regex=True),
+            metadata_df["SIZE"].astype(str).str.replace(
+                r"[^0-9.]", "", regex=True),
             errors="coerce",
         )
 
@@ -493,7 +500,8 @@ def convert_to_standard_layout(
     df = pd.DataFrame(rows)
 
     df["SRC_PATH"] = df.apply(
-        lambda r: src_dir / "sundatabase_positive" / f"case{r['POLYP ID']}" / r["FRAME"],
+        lambda r: src_dir / "sundatabase_positive" /
+        f"case{r['POLYP ID']}" / r["FRAME"],
         axis=1,
     )
 
@@ -513,7 +521,8 @@ def convert_to_standard_layout(
         use_ssim=use_ssim,
         ssim_threshold=ssim_threshold,
     )
-    df["BOUNDING BOX"] = _clip_bboxes(df["BOUNDING BOX"], df["WIDTH"], df["HEIGHT"])
+    df["BOUNDING BOX"] = _clip_bboxes(
+        df["BOUNDING BOX"], df["WIDTH"], df["HEIGHT"])
     df["IMAGE TYPE"] = "WL"
 
     out_dir = dest_dir / "sun"

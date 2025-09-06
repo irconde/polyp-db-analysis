@@ -45,7 +45,7 @@ def snap_into_dark_frame(
     steps = 0
     # Snap downwards
     while steps < max_snap:
-        row = V[min(h - 1, y2) : min(h, y2 + 1), x1:x2]
+        row = V[min(h - 1, y2): min(h, y2 + 1), x1:x2]
         if row.size == 0 or (row < v_dark).mean() < min_dark_frac:
             break
         y2 += 1
@@ -54,7 +54,7 @@ def snap_into_dark_frame(
     steps = 0
     # Snap leftwards
     while steps < max_snap:
-        col = V[y1:y2, max(0, x1 - 1) : x1]
+        col = V[y1:y2, max(0, x1 - 1): x1]
         if col.size == 0 or (col < v_dark).mean() < min_dark_frac:
             break
         x1 -= 1
@@ -110,7 +110,8 @@ def edge_density(gray_roi: np.ndarray) -> float:
 
 
 def rectangularity(bin_mask: np.ndarray) -> float:
-    cnts, _ = cv2.findContours(bin_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    cnts, _ = cv2.findContours(
+        bin_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not cnts:
         return 0.0
     c = max(cnts, key=cv2.contourArea)
@@ -137,9 +138,9 @@ def border_contrast_ok(
     if y1 - band < 0 or x2 + band >= w:
         return False
     inside_top = V[y1:y1 + band, x1:x2]
-    outside_top = V[max(0, y1 - band) : y1, x1:x2]
-    inside_r = V[y1:y2, max(0, x2 - band) : x2]
-    outside_r = V[y1:y2, x2 : min(w, x2 + band)]
+    outside_top = V[max(0, y1 - band): y1, x1:x2]
+    inside_r = V[y1:y2, max(0, x2 - band): x2]
+    outside_r = V[y1:y2, x2: min(w, x2 + band)]
     dt = inside_top - outside_top
     dr = inside_r - outside_r
     m_t, s_t = float(np.mean(dt)), float(np.std(dt))
@@ -155,7 +156,8 @@ def border_contrast_ok(
 # Panel colour prototypes (RGB). Green/teal from examples; blue from overlays.
 GREEN_PROTOS = [(30, 229, 188), (6, 175, 144), (14, 219, 178)]
 BLUE_PROTOS = [(60, 102, 179), (52, 117, 216), (44, 134, 229)]
-LAB_PROTOS = np.vstack([rgb_to_lab_triplets(GREEN_PROTOS), rgb_to_lab_triplets(BLUE_PROTOS)])
+LAB_PROTOS = np.vstack([rgb_to_lab_triplets(
+    GREEN_PROTOS), rgb_to_lab_triplets(BLUE_PROTOS)])
 
 
 def grow_box(
@@ -219,7 +221,8 @@ def detect_small_viewport(
     ky = max(3, int(round(H * 0.01)))
     k = cv2.getStructuringElement(cv2.MORPH_RECT, (kx | 1, ky | 1))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k, iterations=2)
-    cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    cnts, _ = cv2.findContours(
+        mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not cnts:
         return None
     c = max(cnts, key=cv2.contourArea)
@@ -241,7 +244,7 @@ def detect_small_viewport(
     # 5) Dominance & flatness computed on the component only
     comp_roi = np.zeros(mask.shape, np.uint8)
     cv2.drawContours(comp_roi, [c], -1, 255, -1)
-    comp_box = comp_roi[(Y1 - y0) : (Y2 - y0), (X1 - x0) : (X2 - x0)] > 0
+    comp_box = comp_roi[(Y1 - y0): (Y2 - y0), (X1 - x0): (X2 - x0)] > 0
 
     roi_box = img_bgr[Y1:Y2, X1:X2]
     lab_box = cv2.cvtColor(roi_box, cv2.COLOR_BGR2LAB).astype(np.float32)

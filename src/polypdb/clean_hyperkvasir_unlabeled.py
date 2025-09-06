@@ -37,7 +37,8 @@ def _estimate_padding_rgb(img: np.ndarray, band_frac: float = 0.04) -> Tuple[int
         ],
         axis=0,
     )
-    return tuple(np.median(border, axis=0).astype(np.uint8).tolist())  # type: ignore[return-value]
+    # type: ignore[return-value]
+    return tuple(np.median(border, axis=0).astype(np.uint8).tolist())
 
 
 def _crop_padding(
@@ -71,9 +72,11 @@ def _crop_padding(
     # content mask (uint8) and clean small specks
     content = (~pad_like).astype(np.uint8) * 255
     if erode_iter > 0:
-        content = cv2.erode(content, np.ones((3, 3), np.uint8), iterations=erode_iter)
+        content = cv2.erode(content, np.ones(
+            (3, 3), np.uint8), iterations=erode_iter)
     if open_kernel > 0:
-        content = cv2.morphologyEx(content, cv2.MORPH_OPEN, np.ones((open_kernel, open_kernel), np.uint8))
+        content = cv2.morphologyEx(content, cv2.MORPH_OPEN, np.ones(
+            (open_kernel, open_kernel), np.uint8))
 
     h, w = content.shape
     min_nonpad_row = max(1, int(w * min_row_frac))
@@ -150,7 +153,8 @@ def _clean_frame(
         # OpenCV drawing functions do not accept. Ensure contiguity before
         # drawing the bounding box for debugging.
         img = np.ascontiguousarray(img)
-        cv2.rectangle(img, (ui_rect[0], ui_rect[1]), (ui_rect[2], ui_rect[3]), (0, 255, 0), 1)
+        cv2.rectangle(img, (ui_rect[0], ui_rect[1]),
+                      (ui_rect[2], ui_rect[3]), (0, 255, 0), 1)
     if img.shape[0] > 10 and img.shape[1] > 10:
         img = img[5:-5, 5:-5]
     img = _crop_padding(img)
@@ -193,7 +197,8 @@ def batch_clean_hyperkvasir_unlabeled(
             ) from exc
         inpaint_model = SimpleLama()
     extensions = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
-    img_paths = [p for p in sorted(src.iterdir()) if p.suffix.lower() in extensions]
+    img_paths = [p for p in sorted(
+        src.iterdir()) if p.suffix.lower() in extensions]
     if resume:
         img_paths = [p for p in img_paths if not (dst / p.name).exists()]
 

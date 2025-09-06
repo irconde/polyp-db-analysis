@@ -138,7 +138,8 @@ def convert_to_standard_layout(
             f"Metadata file '{metadata_filename}' not found and no db_config provided"
         )
     df = df.rename(columns=RENAME_COLUMNS)
-    df["IMAGE TYPE"] = np.where(df["IMAGE TYPE"].str.contains("WL"), "WL", "NBI")
+    df["IMAGE TYPE"] = np.where(
+        df["IMAGE TYPE"].str.contains("WL"), "WL", "NBI")
     df["SIZE"] = df["SIZE"].astype("Int64")
     df = df.dropna(subset=["SHAPE"])
     df["SHAPE"] = df["SHAPE"].replace(SHAPE_MAP)

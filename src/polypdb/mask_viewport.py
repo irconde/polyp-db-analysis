@@ -42,8 +42,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Safely mask bottom-left viewports from endoscopic images."
     )
-    parser.add_argument("input_dir", type=str, help="Path to folder with input images")
-    parser.add_argument("output_dir", type=str, help="Path to save masked images")
+    parser.add_argument("input_dir", type=str,
+                        help="Path to folder with input images")
+    parser.add_argument("output_dir", type=str,
+                        help="Path to save masked images")
     parser.add_argument(
         "--ext", type=str, default=".jpg", help="Image file extension (e.g. .jpg, .png)"
     )
@@ -54,4 +56,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

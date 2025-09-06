@@ -147,7 +147,8 @@ def _derive_bboxes(df: pd.DataFrame, src_dir: Path | str, work_dir: Path | str) 
                 ".png", "_Corrected.tif")
         )
         cropped_frame_path = cropped_frame_dir / row.FRAME
-        cropped_mask_path = cropped_mask_dir / row.FRAME.replace(".png", ".tif")
+        cropped_mask_path = cropped_mask_dir / \
+            row.FRAME.replace(".png", ".tif")
 
         crop_image_padding(
             frame_path,

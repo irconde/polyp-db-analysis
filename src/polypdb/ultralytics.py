@@ -68,12 +68,14 @@ def stratified_split_if_possible(df, id_col, stratify_col, ratios, random_state=
         polyp_count = len(polyps)
 
         if polyp_count < num_splits:
-            raise ValueError(f"Not enough polyps for shape '{shape}'. At least 3 polyps are required.")
+            raise ValueError(
+                f"Not enough polyps for shape '{shape}'. At least 3 polyps are required.")
 
         if polyp_count >= min_samples:
             # Perform stratified split
             if ratios[2] > 0:
-                train_val_polyps, test_polyps = train_test_split(polyps, test_size=ratios[2], random_state=random_state)
+                train_val_polyps, test_polyps = train_test_split(
+                    polyps, test_size=ratios[2], random_state=random_state)
             else:
                 train_val_polyps, test_polyps = polyps, []
 
@@ -88,7 +90,8 @@ def stratified_split_if_possible(df, id_col, stratify_col, ratios, random_state=
 
         else:
             # Evenly distribute polyps across splits if stratified split is not possible
-            train_set, val_set, test_set = _evenly_distribute_polyps(df, polyps, id_col, ratios, num_splits, random_state)
+            train_set, val_set, test_set = _evenly_distribute_polyps(
+                df, polyps, id_col, ratios, num_splits, random_state)
             train_dfs.append(train_set)
             val_dfs.append(val_set)
             if not test_set.empty:
@@ -97,7 +100,8 @@ def stratified_split_if_possible(df, id_col, stratify_col, ratios, random_state=
     # Concatenate all dataframes for each split
     train_df = pd.concat(train_dfs, ignore_index=True)
     val_df = pd.concat(val_dfs, ignore_index=True)
-    test_df = pd.concat(test_dfs, ignore_index=True) if test_dfs else pd.DataFrame()
+    test_df = pd.concat(
+        test_dfs, ignore_index=True) if test_dfs else pd.DataFrame()
 
     return train_df, val_df, test_df
 
@@ -134,7 +138,8 @@ def _evenly_distribute_polyps(df, polyps, id_col, ratios, num_splits, random_sta
     # Create splits by selecting data for each polyp ID
     train_set = df[df[id_col].isin(polyps[:n_train])]
     val_set = df[df[id_col].isin(polyps[n_train:n_train + n_val])]
-    test_set = df[df[id_col].isin(polyps[n_train + n_val:])] if n_test > 0 else pd.DataFrame()
+    test_set = df[df[id_col].isin(
+        polyps[n_train + n_val:])] if n_test > 0 else pd.DataFrame()
 
     return train_set, val_set, test_set
 
@@ -145,7 +150,8 @@ def split_by_field(df, group_field, ratios, random_state=42):
     train_ratio, validation_ratio, test_ratio = ratios
     grouped = df.groupby(group_field)
     group_keys = list(grouped.groups.keys())
-    np.random.shuffle(group_keys)  # Shuffle to avoid any inherent ordering bias
+    # Shuffle to avoid any inherent ordering bias
+    np.random.shuffle(group_keys)
 
     # Split group_keys into train and remaining sets
     train_keys, remaining_keys = train_test_split(group_keys, test_size=1 - train_ratio, stratify=None,
@@ -174,14 +180,17 @@ def polyp_level_split(df, ratios, stratify_by_shape=False):
     random_state = 42
     train_ratio, validation_ratio, test_ratio = ratios
     if not np.isclose(train_ratio + validation_ratio + test_ratio, 1.0, atol=0.01):
-        raise ValueError("The sum of train, validation, and test ratios must be close to 1")
+        raise ValueError(
+            "The sum of train, validation, and test ratios must be close to 1")
 
     if stratify_by_shape:
         train_df, val_df, test_df = stratified_split_if_possible(df, 'POLYP ID', 'SHAPE',
-                                                                 (train_ratio, validation_ratio, test_ratio),
+                                                                 (train_ratio,
+                                                                  validation_ratio, test_ratio),
                                                                  random_state)
     else:
-        train_df, val_df, test_df = split_by_field(df, 'POLYP ID', ratios, random_state)
+        train_df, val_df, test_df = split_by_field(
+            df, 'POLYP ID', ratios, random_state)
 
     return train_df, val_df, test_df
 
@@ -190,12 +199,14 @@ def polyp_level_split(df, ratios, stratify_by_shape=False):
 def image_level_split(df, ratios, stratify_by_shape=False):
     train_ratio, validation_ratio, test_ratio = ratios
     if not np.isclose(train_ratio + validation_ratio + test_ratio, 1.0, atol=0.01):
-        raise ValueError("The sum of train, validation, and test ratios must be close to 1")
+        raise ValueError(
+            "The sum of train, validation, and test ratios must be close to 1")
 
         # Check if stratification is requested and feasible
     if stratify_by_shape:
         if df['SHAPE'].nunique() < 2 or any(df['SHAPE'].value_counts() < 2):
-            raise ValueError("Stratification by shape not possible due to insufficient data per class.")
+            raise ValueError(
+                "Stratification by shape not possible due to insufficient data per class.")
 
         # Stratification column
     stratify_col = df['SHAPE'] if stratify_by_shape else None
@@ -273,7 +284,8 @@ def process_img(train_df, val_df, test_df, classes, source_path: Path | str, sav
             for index, row in tqdm(data.iterrows(), total=len(data), desc=f"{subset} images"):
                 image_path = source_path / row['FRAME']
                 dest_image_path = dest_dir / row['FRAME']
-                dest_label_path = (save_path / f'labels/{subset}' / row['FRAME']).with_suffix('.txt')
+                dest_label_path = (
+                    save_path / f'labels/{subset}' / row['FRAME']).with_suffix('.txt')
 
                 # Copy image to the corresponding directory
                 copy2(image_path, dest_image_path)
@@ -281,7 +293,8 @@ def process_img(train_df, val_df, test_df, classes, source_path: Path | str, sav
                     image_width, image_height = img.size
                 # Convert bounding box to YOLO format
                 bbox = [float(x) for x in
-                        row['BOUNDING BOX'].split(',')]  # Assuming bbox is stored as "x_min,y_min,x_max,y_max"
+                        # Assuming bbox is stored as "x_min,y_min,x_max,y_max"
+                        row['BOUNDING BOX'].split(',')]
                 x_center_norm, y_center_norm, width_norm, height_norm = convert_bbox_to_yolo_format(bbox,
                                                                                                     image_width,
                                                                                                     image_height)
@@ -320,7 +333,8 @@ def calculate_negative_split_sizes(sizes, config):
     distribution = config['distribution']
     total_positives = sum(sizes)
     if total_positives == 0:
-        raise ValueError("Total size of splits must be greater than zero to allocate negative samples.")
+        raise ValueError(
+            "Total size of splits must be greater than zero to allocate negative samples.")
 
     if distribution == "SPLIT-RATIO":
         proportions = [size / total_positives for size in sizes]
@@ -331,7 +345,8 @@ def calculate_negative_split_sizes(sizes, config):
         raise ValueError("Unsupported distribution type specified.")
 
     total_negatives = int(total_positives * negative_ratio)
-    neg_sizes = [int(total_positives * prop * negative_ratio) for prop in proportions]
+    neg_sizes = [int(total_positives * prop * negative_ratio)
+                 for prop in proportions]
     rounding_correction = total_negatives - sum(neg_sizes)
     # Apply rounding correction to the last non-zero split
     if rounding_correction != 0:
@@ -346,11 +361,13 @@ def calculate_negative_split_sizes(sizes, config):
 def split_negative_data(negative_sample_path: Path | str, split_sizes):
     """Split negative images into train/val/test lists."""
     negative_sample_path = Path(negative_sample_path)
-    negative_img_paths = [p for p in negative_sample_path.iterdir() if p.suffix == '.jpg']
+    negative_img_paths = [
+        p for p in negative_sample_path.iterdir() if p.suffix == '.jpg']
     total_samples = sum(split_sizes)
     total_img_count = len(negative_img_paths)
     if total_samples > total_img_count:
-        raise ValueError("Not enough negative samples to fulfill the requested split sizes.")
+        raise ValueError(
+            "Not enough negative samples to fulfill the requested split sizes.")
 
     np.random.shuffle(negative_img_paths)  # Shuffle to ensure randomness
 
@@ -399,7 +416,8 @@ def _save_full_frame_image(image_path, dest_path, output_size=(224, 224)):
         # Convert back to uint8 for saving
         mean = np.array([0.485, 0.456, 0.406]).reshape(1, 1, 3)
         std = np.array([0.229, 0.224, 0.225]).reshape(1, 1, 3)
-        unnormalized = np.clip((normalized * std + mean) * 255, 0, 255).astype(np.uint8)
+        unnormalized = np.clip((normalized * std + mean)
+                               * 255, 0, 255).astype(np.uint8)
 
         Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
         Image.fromarray(unnormalized).save(dest_path, format='JPEG')
@@ -457,12 +475,16 @@ def prepare_dataset(config_file):
     # Split the data according to the configuration
     train_df, val_df, test_df = split_data(df, config)
 
-    logger.info("Train distribution:\n%s", train_df.groupby('SHAPE')['POLYP ID'].count())
-    logger.info("Validation distribution:\n%s", val_df.groupby('SHAPE')['POLYP ID'].count())
-    logger.info("Test distribution:\n%s", test_df.groupby('SHAPE')['POLYP ID'].count())
+    logger.info("Train distribution:\n%s",
+                train_df.groupby('SHAPE')['POLYP ID'].count())
+    logger.info("Validation distribution:\n%s",
+                val_df.groupby('SHAPE')['POLYP ID'].count())
+    logger.info("Test distribution:\n%s",
+                test_df.groupby('SHAPE')['POLYP ID'].count())
 
     # Create folder hierarchy
-    train_path, val_path, test_path = create_folder_hierarchy(save_path, len(test_df.index) > 0)
+    train_path, val_path, test_path = create_folder_hierarchy(
+        save_path, len(test_df.index) > 0)
 
     # Split images accordingly
     process_img(train_df, val_df, test_df, classes, img_src_path, save_path)
@@ -474,7 +496,8 @@ def prepare_dataset(config_file):
     process_negative_samples(neg_splits, save_path)
 
     # Save dataset summary in configuration file
-    save_dataset_config_file(save_path, train_path, val_path, test_path, classes)
+    save_dataset_config_file(save_path, train_path,
+                             val_path, test_path, classes)
 
 
 def prepare_classification_dataset(config_file: Path | str):
@@ -498,7 +521,8 @@ def prepare_classification_dataset(config_file: Path | str):
     root = save_path / 'labeled-images'
     for subset in ('train', 'val', 'test'):
         for cls in classes:
-            (root / subset / 'pathological-findings' / cls).mkdir(parents=True, exist_ok=True)
+            (root / subset / 'pathological-findings' /
+             cls).mkdir(parents=True, exist_ok=True)
 
     process_classification_images(
         train_df,
@@ -510,4 +534,3 @@ def prepare_classification_dataset(config_file: Path | str):
         ng_img_src_path,
         config.get('negative_sampling'),
     )
-

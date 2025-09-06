@@ -72,6 +72,7 @@ def generate_global_lesion_ids(df: pd.DataFrame) -> list[str]:
 
     return new_ids
 
+
 def combine_datasets(base_path: Path | str, datasets, num_elements=None, random_state=None):
     """Merge datasets into a single DataFrame, optionally including a specified
     number of elements from each dataset.
@@ -97,7 +98,8 @@ def combine_datasets(base_path: Path | str, datasets, num_elements=None, random_
             base_path / "raw" / dataset / "annotations.xlsx",
             base_path / dataset / "annotations.xlsx",
         ]
-        spreadsheet_path = next((p for p in candidates if p.exists()), candidates[0])
+        spreadsheet_path = next(
+            (p for p in candidates if p.exists()), candidates[0])
 
         try:
             df = pd.read_excel(spreadsheet_path)
@@ -260,21 +262,24 @@ def validate_harmonised_dataframe(df: pd.DataFrame, image_dir: Path | str) -> No
         "lesion_id",
     ]
 
-    missing_columns = [col for col in required_columns if col not in df.columns]
+    missing_columns = [
+        col for col in required_columns if col not in df.columns]
     if missing_columns:
         raise ValueError(f"Missing required columns: {missing_columns}")
 
     # Allow null case ids (global_lesion_id) for datasets without cases
     non_nullable = [c for c in required_columns if c != "global_lesion_id"]
     if df[non_nullable].isnull().any().any():
-        raise ValueError("Null values found in required columns (excluding global_lesion_id)")
+        raise ValueError(
+            "Null values found in required columns (excluding global_lesion_id)")
 
     abs_image_dir = Path(image_dir).resolve()
     for paths in df["image_paths"]:
         for path in paths:
             abs_path = Path(path).resolve()
             if not abs_path.is_relative_to(abs_image_dir):
-                raise ValueError(f"Image path outside destination directory: {path}")
+                raise ValueError(
+                    f"Image path outside destination directory: {path}")
             if not abs_path.exists():
                 raise FileNotFoundError(f"Referenced image not found: {path}")
 
@@ -451,7 +456,8 @@ def copy_and_rename_negative_images(
     filtered_df = _drop_duplicate_frames(df, cache_file=cache_file)
     filtered_df = filtered_df.sort_values(["dataset", "group", "filename"])
     logger.info(
-        "Retained %d negative images after dropping duplicates", len(filtered_df)
+        "Retained %d negative images after dropping duplicates", len(
+            filtered_df)
     )
 
     for (ds_name, group_name), group_df in filtered_df.groupby(["dataset", "group"]):
@@ -507,10 +513,12 @@ def calculate_target_size(df, width_percentile=0, height_percentile=0):
     # Adjust target dimensions to maintain the median aspect ratio
     if median_aspect_ratio > 1:
         # Landscape orientation, adjust width based on aspect ratio and height percentile
-        target_width = max(target_width, int(target_height * median_aspect_ratio))
+        target_width = max(target_width, int(
+            target_height * median_aspect_ratio))
     else:
         # Portrait orientation, adjust height based on aspect ratio and width percentile
-        target_height = max(target_height, int(target_width / median_aspect_ratio))
+        target_height = max(target_height, int(
+            target_width / median_aspect_ratio))
 
     return target_width, target_height
 
@@ -569,7 +577,8 @@ def standardize_and_override_image(img_path, target_width, target_height):
             new_width = target_width
             new_height = int(new_width / img_aspect)
 
-        resized_img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        resized_img = img.resize(
+            (new_width, new_height), Image.Resampling.LANCZOS)
 
         # Add padding if necessary
         result_img = Image.new("RGB", (target_width, target_height), "black")
@@ -598,7 +607,8 @@ def process_images_and_bboxes(df, source_dir: Path | str, target_width, target_h
                                                                                                   target_width,
                                                                                                   target_height)
             new_bbox = None
-            bbox_val = str(row['BOUNDING BOX']) if not pd.isna(row['BOUNDING BOX']) else ''
+            bbox_val = str(row['BOUNDING BOX']) if not pd.isna(
+                row['BOUNDING BOX']) else ''
             if bbox_val:
                 parts = re.split(r"[;\s]+", bbox_val.strip())
                 new_parts: list[str] = []
@@ -647,7 +657,8 @@ def process_negative_images(source_dir: Path | str, target_width, target_height)
             if p.is_file() and p.suffix.lower() in IMG_EXT:
                 file_paths.append(p)
         for source_file_path in tqdm(file_paths, desc="Processing negatives", total=len(file_paths)):
-            standardize_and_override_image(source_file_path, target_width, target_height)
+            standardize_and_override_image(
+                source_file_path, target_width, target_height)
 
 
 def cleanup_temp_artifacts(base_path: Path | str, destination_folder: Path | str) -> None:
@@ -811,7 +822,8 @@ def dataset_statistics(
     """
     # Determine positives (frames with at least one bbox) when available; otherwise assume df is positives
     if "bounding_boxes" in df.columns:
-        pos_mask = df["bounding_boxes"].apply(lambda v: isinstance(v, (list, tuple)) and len(v) > 0)
+        pos_mask = df["bounding_boxes"].apply(
+            lambda v: isinstance(v, (list, tuple)) and len(v) > 0)
     else:
         pos_mask = pd.Series(True, index=df.index)
 
@@ -824,11 +836,13 @@ def dataset_statistics(
     total_after = total_positive + total_negative
 
     positive_cases = df_cases["global_case_id"].nunique()
-    neg_case_ids = [rec["global_frame_id"].split(".")[0] for rec in negative_frames]
+    neg_case_ids = [rec["global_frame_id"].split(
+        ".")[0] for rec in negative_frames]
     negative_cases = len(set(neg_case_ids))
     total_cases = positive_cases + negative_cases
 
-    case_distribution = {"positive": positive_cases, "negative": negative_cases}
+    case_distribution = {"positive": positive_cases,
+                         "negative": negative_cases}
 
     if len(df_cases) > 0:
         morph_counts = (
@@ -842,7 +856,8 @@ def dataset_statistics(
 
     # Positive and negative case counts per dataset
     pos_case_by_dataset = (
-        df_cases.drop_duplicates("global_case_id")["dataset"].value_counts().to_dict()
+        df_cases.drop_duplicates("global_case_id")[
+            "dataset"].value_counts().to_dict()
         if len(df_cases) > 0
         else {}
     )
@@ -865,14 +880,17 @@ def dataset_statistics(
 
     pos_frame_counts = df_cases.groupby("global_case_id").size()
     neg_frame_counts = Counter(neg_case_ids)
-    all_frame_counts = pd.concat([pos_frame_counts, pd.Series(neg_frame_counts)])
+    all_frame_counts = pd.concat(
+        [pos_frame_counts, pd.Series(neg_frame_counts)])
 
     # Frame distributions by dataset: positives from df (pos_mask), negatives from df (no bboxes) + external negatives
-    pos_frames_by_dataset = df.loc[pos_mask, "dataset"].value_counts().to_dict()
+    pos_frames_by_dataset = df.loc[pos_mask,
+                                   "dataset"].value_counts().to_dict()
     neg_frames_from_df = df.loc[~pos_mask, "dataset"].value_counts().to_dict()
     from collections import Counter
     neg_frames_by_dataset = Counter(neg_frames_from_df)
-    neg_frames_by_dataset.update(Counter(rec["dataset"] for rec in negative_frames))
+    neg_frames_by_dataset.update(
+        Counter(rec["dataset"] for rec in negative_frames))
     dataset_frame_distribution = {}
     for ds in set(pos_frames_by_dataset) | set(neg_frames_by_dataset):
         dataset_frame_distribution[ds] = {
@@ -948,7 +966,8 @@ def dataset_statistics_from_canonical(canonical_base: Path | str) -> dict:
         pos_df["morphology_shape"] = None
 
     neg_df = frames_df[~frames_df["has_polyp"]]
-    negative_records = neg_df[["global_frame_id", "dataset"]].to_dict("records")
+    negative_records = neg_df[[
+        "global_frame_id", "dataset"]].to_dict("records")
 
     return dataset_statistics(pos_df, negative_records, negative_original_count=len(neg_df))
 
@@ -986,7 +1005,8 @@ def dataset_statistics_from_parquets(frames_path: Path | str, cases_path: Path |
         pos_df["morphology_shape"] = None
 
     neg_df = frames_df[~frames_df["has_polyp"]]
-    negative_records = neg_df[["global_frame_id", "dataset"]].to_dict("records")
+    negative_records = neg_df[[
+        "global_frame_id", "dataset"]].to_dict("records")
 
     return dataset_statistics(pos_df, negative_records, negative_original_count=len(neg_df))
 
@@ -1031,7 +1051,8 @@ def export_manifests_to_csv(
     for t in tables:
         parquet_path = manifests_dir / f"{t}.parquet"
         if not parquet_path.exists():
-            logger.warning("Parquet not found for table %s: %s (skipping)", t, parquet_path)
+            logger.warning(
+                "Parquet not found for table %s: %s (skipping)", t, parquet_path)
             continue
         df = pd.read_parquet(parquet_path)
         csv_path = out_dir / f"{t}.csv"
@@ -1040,7 +1061,8 @@ def export_manifests_to_csv(
         logger.info("Wrote %s CSV to %s", t, csv_path)
 
     if not written:
-        logger.warning("No CSV files were written; check your canonical directory")
+        logger.warning(
+            "No CSV files were written; check your canonical directory")
     return written
 
 
@@ -1071,14 +1093,17 @@ def merge_datasets(
     # process_negative_images(base_path, 588, 478)
 
     base_path = Path(base_path)
-    combined_df = combine_datasets(base_path, datasets, num_elements=num_elements)
-    output_filename = 'metadata.xlsx' if num_elements is None else 'output_' + str(num_elements) + '.xlsx'
+    combined_df = combine_datasets(
+        base_path, datasets, num_elements=num_elements)
+    output_filename = 'metadata.xlsx' if num_elements is None else 'output_' + \
+        str(num_elements) + '.xlsx'
 
     # Keep only entries with a single bounding box for non-PolypGen datasets.
     # PolypGen can legitimately contain multiple boxes per frame; preserve them.
     before_bb_filter = len(combined_df)
     is_polypgen = combined_df['ORIGINAL DATASET'].str.lower() == 'polypgen'
-    has_multiple = combined_df['BOUNDING BOX'].astype(str).str.contains(r"[;\s]")
+    has_multiple = combined_df['BOUNDING BOX'].astype(
+        str).str.contains(r"[;\s]")
     combined_df = combined_df[is_polypgen | ~has_multiple]
     dropped_bb = before_bb_filter - len(combined_df)
     if dropped_bb:
@@ -1094,6 +1119,7 @@ def merge_datasets(
     # For naming frames we still need a grouping key; if global_lesion_id is
     # missing, use a dataset-specific placeholder that does NOT propagate to
     # manifests as a case id.
+
     def _frame_group_id(row: pd.Series) -> str:
         if pd.notna(row['global_lesion_id']):
             return str(row['global_lesion_id'])
@@ -1114,7 +1140,8 @@ def merge_datasets(
 
     # Standardize and adjust images and bounding boxes
     logger.info("STANDARDIZING IMAGES")
-    process_images_and_bboxes(combined_df, images_dir, target_width, target_height)
+    process_images_and_bboxes(combined_df, images_dir,
+                              target_width, target_height)
 
     negative_records: list[dict] = []
     negative_original_count = 0
@@ -1142,7 +1169,8 @@ def merge_datasets(
     export_parquet_metadata(combined_df, canonical_base, negative_records)
 
     # Compute statistics using the new 'global_case_id' terminology without fallbacks
-    stats_df = combined_df.rename(columns={"global_lesion_id": "global_case_id"})
+    stats_df = combined_df.rename(
+        columns={"global_lesion_id": "global_case_id"})
     dataset_statistics(stats_df, negative_records, negative_original_count)
 
     # Loop through the DataFrame and draw bounding boxes on each image
@@ -1154,6 +1182,7 @@ def merge_datasets(
             image_filename = row['frame']
             input_frame_path = images_dir / image_filename
             output_frame_path = bbox_dest_dir / image_filename
-            draw_bounding_boxes(row['BOUNDING BOX'], input_frame_path, output_frame_path)
+            draw_bounding_boxes(row['BOUNDING BOX'],
+                                input_frame_path, output_frame_path)
 
     cleanup_temp_artifacts(base_path, Path('canonical') / 'images')
