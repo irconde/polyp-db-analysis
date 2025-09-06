@@ -25,10 +25,12 @@ def test_pipeline_single_dataset_filters_sources(tmp_path, monkeypatch):
 
     captured = {}
 
-    def fake_merge_datasets(**kwargs):
-        captured.update(kwargs)
+    def fake_merge_datasets(cfg):
+        captured['cfg'] = cfg
 
-    fake_converters = {'polypgen': lambda *args, **kwargs: None}
+    fake_converters = {
+        'polypgen': lambda *args, **kwargs: types.SimpleNamespace(convert=lambda: None)
+    }
 
     monkeypatch.setattr(cli, 'merge_datasets', fake_merge_datasets)
     monkeypatch.setattr(pipeline_mod, 'CONVERTERS', fake_converters)
@@ -39,8 +41,8 @@ def test_pipeline_single_dataset_filters_sources(tmp_path, monkeypatch):
     )
     cli.main()
 
-    assert captured['datasets'] == ['polypgen']
-    assert captured['negative_sources'] == {'polypgen': 'pg_neg'}
+    assert captured['cfg'].datasets == ['polypgen']
+    assert captured['cfg'].negative_sources == {'polypgen': 'pg_neg'}
 
 
 def test_pipeline_unknown_dataset_errors(tmp_path, monkeypatch):
@@ -61,8 +63,8 @@ def test_pipeline_unknown_dataset_errors(tmp_path, monkeypatch):
     cfg_path.write_text(yaml.dump(cfg))
 
     fake_converters = {
-        'polypgen': lambda *args, **kwargs: None,
-        'polar': lambda *args, **kwargs: None,
+        'polypgen': lambda *args, **kwargs: types.SimpleNamespace(convert=lambda: None),
+        'polar': lambda *args, **kwargs: types.SimpleNamespace(convert=lambda: None),
     }
     monkeypatch.setattr(pipeline_mod, 'CONVERTERS', fake_converters)
     monkeypatch.setattr(

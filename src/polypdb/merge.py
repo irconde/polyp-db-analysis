@@ -13,6 +13,7 @@ from .utils.image_ops import draw_bounding_boxes, get_image_size
 from tqdm import tqdm
 
 from .preprocess.sun import _drop_duplicate_frames
+from .config_models import MergeConfig
 
 
 logger = logging.getLogger(__name__)
@@ -1066,37 +1067,15 @@ def export_manifests_to_csv(
     return written
 
 
-def merge_datasets(
-    base_path: Path | str,
-    datasets: list[str],
-    num_elements=None,
-    plot_images=False,
-    negative_sources: dict[str, str] | None = None,
-):
-    """Merge and standardize multiple datasets.
+def merge_datasets(config: MergeConfig):
+    """Merge and standardize multiple datasets."""
 
-    Parameters
-    ----------
-    base_path : str
-        Base directory where the dataset folders are located.
-    datasets : list of str
-        Names of datasets to merge.
-    num_elements : int, optional
-        Number of samples to include from each dataset. All samples are used if ``None``.
-    plot_images : bool, optional
-        If ``True``, bounding boxes are drawn on images for visual inspection.
-    negative_sources : dict, optional
-        Mapping of dataset names to directories containing negative frames. Paths
-        may be absolute or relative to ``base_path`` and must contain
-        sub‑directories for deterministic groups (e.g. video ids).
-    """
-    # process_negative_images(base_path, 588, 478)
-
-    base_path = Path(base_path)
+    base_path = Path(config.base_path)
     combined_df = combine_datasets(
-        base_path, datasets, num_elements=num_elements)
-    output_filename = 'metadata.xlsx' if num_elements is None else 'output_' + \
-        str(num_elements) + '.xlsx'
+        base_path, config.datasets, num_elements=config.num_elements)
+    output_filename = (
+        "metadata.xlsx" if config.num_elements is None else f"output_{config.num_elements}.xlsx"
+    )
 
     # Keep only entries with a single bounding box for non-PolypGen datasets.
     # PolypGen can legitimately contain multiple boxes per frame; preserve them.
@@ -1145,8 +1124,8 @@ def merge_datasets(
 
     negative_records: list[dict] = []
     negative_original_count = 0
-    if num_elements is None and negative_sources:
-        for ds_name, src in negative_sources.items():
+    if config.num_elements is None and config.negative_sources:
+        for ds_name, src in config.negative_sources.items():
             src_dir = Path(src).expanduser()
             if not src_dir.is_absolute():
                 src_dir = base_path / src_dir
@@ -1174,7 +1153,7 @@ def merge_datasets(
     dataset_statistics(stats_df, negative_records, negative_original_count)
 
     # Loop through the DataFrame and draw bounding boxes on each image
-    if plot_images:
+    if config.plot_images:
         # Create the destination directory if it doesn't exist
         bbox_dest_dir = base_path / 'img_bbox'
         bbox_dest_dir.mkdir(parents=True, exist_ok=True)

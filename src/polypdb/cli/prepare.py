@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .common import load_config
+from ..config_models import PrepareConfig
 from ..ultralytics import prepare_dataset
 
 
@@ -14,7 +16,8 @@ def register(subparsers) -> None:
 
 
 def _run(args) -> None:
-    prepare_dataset(args.config)
+    cfg = load_config(args.config, PrepareConfig)
+    prepare_dataset(cfg)
 
 
 __all__ = ["register"]

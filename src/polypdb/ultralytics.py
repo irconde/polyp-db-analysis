@@ -8,9 +8,11 @@ import numpy as np
 import yaml
 from sklearn.model_selection import train_test_split
 import logging
+from dataclasses import asdict
 
 from .utils.image_ops import resize_with_padding, normalize_image
 from tqdm import tqdm
+from .config_models import PrepareConfig
 
 
 logger = logging.getLogger(__name__)
@@ -450,14 +452,13 @@ def process_classification_images(train_df, val_df, test_df, source_path, save_p
                 copy2(img_path, dest_dir / Path(img_path).name)
 
 
-def prepare_dataset(config_file):
-    """Prepare dataset for Ultralytics YOLO training based on a YAML configuration."""
-    # Load the configuration options
-    config = load_config(config_file)
-    src_path = config['src_path']
+def prepare_dataset(config: PrepareConfig):
+    """Prepare dataset for Ultralytics YOLO training based on a typed configuration."""
+
+    src_path = config.src_path
 
     # Define class labels and corresponding IDs
-    if config['classification_type'] == 'BINARY':
+    if config.classification_type == 'BINARY':
         classes = {'polyp': 0}
     else:
         classes = {'IIa': 0, 'IIb': 1, 'IIc': 2, 'III': 3,
@@ -466,14 +467,18 @@ def prepare_dataset(config_file):
     src_path = Path(src_path)
     img_src_path = src_path / 'img'
     ng_img_src_path = src_path / 'negative_img'
-    save_path = Path(config_file).resolve().parent
+    save_path = (
+        config.config_path.resolve().parent
+        if config.config_path is not None
+        else Path.cwd()
+    )
 
     # Load the Excel file
     excel_path = src_path / 'metadata.xlsx'
     df = pd.read_excel(excel_path)
 
     # Split the data according to the configuration
-    train_df, val_df, test_df = split_data(df, config)
+    train_df, val_df, test_df = split_data(df, {"splitting_options": asdict(config.splitting_options)})
 
     logger.info("Train distribution:\n%s",
                 train_df.groupby('SHAPE')['POLYP ID'].count())
@@ -490,8 +495,10 @@ def prepare_dataset(config_file):
     process_img(train_df, val_df, test_df, classes, img_src_path, save_path)
 
     # Process negative samples
-    neg_split_sizes = calculate_negative_split_sizes([len(train_df), len(val_df), len(test_df)],
-                                                     config['negative_sampling'])
+    neg_split_sizes = calculate_negative_split_sizes(
+        [len(train_df), len(val_df), len(test_df)],
+        asdict(config.negative_sampling),
+    )
     neg_splits = split_negative_data(ng_img_src_path, neg_split_sizes)
     process_negative_samples(neg_splits, save_path)
 
