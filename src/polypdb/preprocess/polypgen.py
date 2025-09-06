@@ -22,7 +22,7 @@ import cv2
 import pandas as pd
 
 from ..utils import crop_black_padding_band, validate_conversion
-from ..small_viewport import mask_small_viewport
+from ..polypgen_viewport import mask_small_viewport
 
 logger = logging.getLogger(__name__)
 
