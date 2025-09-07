@@ -14,7 +14,6 @@ from pathlib import Path
 import logging
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
-import warnings
 
 import numpy as np
 import pandas as pd
@@ -264,82 +263,7 @@ def _drop_duplicate_frames(
     return df.drop(columns=["_pixel_hash", "_perceptual_hash", "_filesize", "_drop"])
 
 
-def drop_duplicate_negative_images(
-    src_dir: Path | str,
-    cache_file: Path | str | None = None,
-    hash_type: str = "phash",
-    hash_size: int = 16,
-    hamming_threshold: int = 4,
-    use_ssim: bool = False,
-    ssim_threshold: float = 0.99,
-) -> int:
-    """DEPRECATED: remove duplicate negative images in ``src_dir``.
-
-    This function mutates ``src_dir`` in-place and will be removed in a future
-    release. Use :func:`copy_and_rename_negative_images` which performs
-    de-duplication without deleting the originals.
-
-    Parameters
-    ----------
-    src_dir:
-        Root directory containing negative images.
-    cache_file:
-        Optional CSV cache path used to store hashes. When ``None`` a cache
-        file named ``sun_neg_hash_cache.csv`` is created inside ``src_dir``.
-    hash_type, hash_size, hamming_threshold, use_ssim, ssim_threshold:
-        Forwarded to :func:`_drop_duplicate_frames`.
-
-    Returns
-    -------
-    int
-        Number of files deleted as duplicates.
-    """
-
-    warnings.warn(
-        "drop_duplicate_negative_images is deprecated and will be removed in a future release",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-
-    src_dir = Path(src_dir)
-    file_paths: list[str] = []
-    for p in src_dir.rglob("*"):
-        if p.is_file() and p.suffix.lower() in IMG_EXT:
-            file_paths.append(str(p))
-
-    if not file_paths:
-        return 0
-
-    df = pd.DataFrame({"SRC_PATH": file_paths})
-    with ThreadPoolExecutor() as executor:
-        sizes = list(executor.map(get_image_size, df["SRC_PATH"]))
-    df["WIDTH"], df["HEIGHT"] = zip(*sizes)
-
-    logger.info("Found %d negative images before dropping duplicates", len(df))
-
-    if cache_file is None:
-        cache_file = src_dir / "sun_neg_hash_cache.csv"
-    else:
-        cache_file = Path(cache_file)
-
-    filtered_df = _drop_duplicate_frames(
-        df,
-        cache_file=cache_file,
-        hash_type=hash_type,
-        hash_size=hash_size,
-        hamming_threshold=hamming_threshold,
-        use_ssim=use_ssim,
-        ssim_threshold=ssim_threshold,
-    )
-
-    keep: set[str] = set(filtered_df["SRC_PATH"])
-    removed = 0
-    for path in file_paths:
-        if path not in keep:
-            Path(path).unlink()
-            removed += 1
-
-    return removed
+# Note: negative de-duplication is handled centrally in merge.copy_and_rename_negative_images
 
 
 def _clip_bbox(bbox: str, width: int, height: int) -> str:

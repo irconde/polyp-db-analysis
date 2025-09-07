@@ -453,7 +453,12 @@ def copy_and_rename_negative_images(
         "Found %d negative images before dropping duplicates", original_count
     )
 
+    # Prefer a dataset-specific negative cache when available (e.g., SUN)
     cache_file = source_dir / "neg_hash_cache.csv"
+    if dataset_name is not None and str(dataset_name).lower() == "sun":
+        sun_cache = source_dir / "sun_neg_hash_cache.csv"
+        if sun_cache.exists():
+            cache_file = sun_cache
     filtered_df = _drop_duplicate_frames(df, cache_file=cache_file)
     filtered_df = filtered_df.sort_values(["dataset", "group", "filename"])
     logger.info(
