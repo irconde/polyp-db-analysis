@@ -76,9 +76,26 @@ directory. In the latter case the directory name itself acts as the group
 identifier. During merging every image is copied to ``canonical/images`` and
 renamed using the synthetic lesion key ``NEG_<DATASET>_<GROUP>`` resulting in
 filenames like ``NEG_SUN_clipA.000123.jpg`` or ``NEG_POLAR_negatives.000045.png``.
-Negative entries appear in ``frames.parquet`` with ``has_polyp`` set to ``False``
-and ``global_lesion_id`` left ``NULL``. If the dataset lacks per-case identifiers,
-the merge step skips generating a ``cases.parquet`` file.
+Negative handling and has_polyp
+
+- has_polyp: Frames from spreadsheets are marked positive if they contain at
+  least one bounding box; otherwise they are marked negative in
+  ``frames.parquet`` (``has_polyp = False``).
+- External negatives: Images supplied via ``negative_sources`` are de‑duplicated
+  and ingested as negatives as well (``has_polyp = False``) under synthetic
+  case keys ``NEG_<DATASET>_<GROUP>``.
+- SUN cache: when a SUN negatives cache file ``sun_neg_hash_cache.csv`` exists
+  under the negative source, it is reused to skip re‑hashing on subsequent runs.
+- Cases: Datasets without case/lesion ids may result in frames with
+  ``global_case_id = NULL``. Validation and statistics skip case foreign‑key
+  checks for such frames, and ``cases.parquet`` may be omitted entirely when no
+  per‑case data is available.
+
+PolypGen specifics
+
+- Multiple boxes per frame are preserved (semicolon‑separated in ``BOUNDING BOX``).
+- Bounding box files are looked up as ``<image>.txt`` and, if missing, as
+  ``<image>_mask.txt``.
 
 ### Prepare Ultralytics YOLO dataset
 
@@ -156,7 +173,7 @@ polypdb export-csv /path/to/canonical /path/to/output_csv_dir
 Export a subset of tables only:
 
 ```bash
-polypdb export-csv /path/to/canonical /path/to/output_csv_dir --tables frames lesions
+polypdb export-csv /path/to/canonical /path/to/output_csv_dir --tables frames cases annotations
 ```
 
 ### Export flat classification dataset
@@ -182,7 +199,12 @@ pointing to the Ultralytics configuration file (absolute or relative to
 raw_sources:
   piba:
     path: /path/to/raw/piba
-    metadata_file: piba_db_dump.xlsx
+    # Prefer fetching from the database when the Excel dump is unavailable
+    db_config:
+      host: localhost
+      user: myuser
+      password: mypass
+      database: pibadb
   polar:
     path: /path/to/raw/polar
     metadata_file: polar_annotations.xlsx
@@ -282,6 +304,32 @@ viewport masking helper in ``tests/test_utils_viewport_mask.py``:
 pytest
 ```
 
+### Convert datasets
+
+Convert one or more raw datasets to the standardized layout without merging or
+preparing YOLO datasets:
+
+```bash
+polypdb convert pipeline_config.yaml            # convert all datasets in config
+polypdb convert pipeline_config.yaml --dataset sun  # only SUN
+```
+
+This uses the same YAML structure as the pipeline. Keys under
+``raw_sources.<dataset>`` are forwarded to the dataset converter. For PIBA you
+can fetch metadata directly from MySQL by providing ``db_config``:
+
+```yaml
+raw_sources:
+  piba:
+    path: /path/to/raw/piba
+    db_config:
+      host: localhost
+      user: myuser
+      password: mypass
+      database: pibadb
+base_path: /path/to/standardized
+datasets: [piba]
+```
 ## Contributing
 
 Contributions are welcome! Fork the repository and open a pull request with your
