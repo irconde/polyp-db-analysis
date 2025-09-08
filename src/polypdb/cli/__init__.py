@@ -43,6 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     # without immediately importing all dependencies of every sub‑command.
     from . import (
         merge,
+        convert,
         prepare,
         prepare_classification,
         count,
@@ -60,6 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     modules = [
         merge,
+        convert,
         prepare,
         prepare_classification,
         count,
@@ -96,4 +98,3 @@ def main(argv: list[str] | None = None) -> None:
 
 
 __all__ = ["build_parser", "main"]
-
