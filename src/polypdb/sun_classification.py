@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import random
 import shutil
-from typing import List
+from typing import List, Dict
 
 import pandas as pd
 
@@ -15,6 +15,22 @@ CHUNK_SIZE = 33
 TRAIN_RATIO = 0.7
 VAL_RATIO = 0.15
 TEST_RATIO = 0.15
+
+PARIS_GROUPS: Dict[str, set[str]] = {
+    "polypoid": {"is", "isp", "ip"},
+    "flat": {"iia", "iib"},
+    "depressed": {"iic", "iii"},
+}
+
+
+def _paris_to_group(paris: str | None) -> str | None:
+    if paris is None:
+        return None
+    p = paris.lower()
+    for group, members in PARIS_GROUPS.items():
+        if p in members:
+            return group
+    return None
 
 
 @dataclass
@@ -25,6 +41,7 @@ class _Case:
     frames: pd.DataFrame
     has_polyp: bool
     new_id: str | None = None
+    morphology: str | None = None
 
 
 def _load_metadata(src: Path) -> pd.DataFrame:
@@ -41,8 +58,9 @@ def _load_metadata(src: Path) -> pd.DataFrame:
         cols = ["global_case_id"]
         if "global_lesion_id" in cases_df.columns:
             cols.append("global_lesion_id")
-        cases_df = cases_df[cols]
-        frames_df = frames_df.merge(cases_df, on="global_case_id", how="left")
+        if "paris_class" in cases_df.columns:
+            cols.append("paris_class")
+        frames_df = frames_df.merge(cases_df[cols], on="global_case_id", how="left")
     return frames_df
 
 
@@ -56,7 +74,13 @@ def _build_positive_cases(frames_df: pd.DataFrame, seed: int) -> List[_Case]:
             sampled = sampled.sort_values("global_frame_id")
         else:
             sampled = group_sorted
-        cases.append(_Case(case_id=str(case_id), frames=sampled, has_polyp=True))
+        paris = None
+        if "paris_class" in group.columns:
+            paris = group["paris_class"].iloc[0]
+        morphology = _paris_to_group(paris)
+        cases.append(
+            _Case(case_id=str(case_id), frames=sampled, has_polyp=True, morphology=morphology)
+        )
     return cases
 
 
@@ -98,7 +122,12 @@ def _copy_case(case: _Case, src: Path, dest: Path) -> None:
         shutil.copy(src_path, out_dir / filename)
 
 
-def prepare_sun_classification(src: Path | str, dest: Path | str, seed: int = 0) -> None:
+def prepare_sun_classification(
+    src: Path | str,
+    dest: Path | str,
+    seed: int = 0,
+    stratify_morphology: bool = False,
+) -> None:
     """Prepare SUN dataset for binary classification.
 
     Splits are generated on the case level and balanced so that each split
@@ -112,6 +141,9 @@ def prepare_sun_classification(src: Path | str, dest: Path | str, seed: int = 0)
         Output directory for classification dataset.
     seed:
         Random seed for deterministic sampling.
+    stratify_morphology:
+        If ``True``, positive cases are split stratified by Paris morphology
+        groups (flat vs polypoid).
     """
 
     src = Path(src)
@@ -141,8 +173,31 @@ def prepare_sun_classification(src: Path | str, dest: Path | str, seed: int = 0)
     pos_cases_new = pos_cases_new[:n_balanced]
     neg_cases_new = neg_cases_new[:n_balanced]
 
-    pos_train, pos_val, pos_test = _split_cases(pos_cases_new)
-    neg_train, neg_val, neg_test = _split_cases(neg_cases_new)
+    if stratify_morphology:
+        groups: Dict[str | None, List[_Case]] = {}
+        for case in pos_cases_new:
+            groups.setdefault(case.morphology, []).append(case)
+        pos_train: List[_Case] = []
+        pos_val: List[_Case] = []
+        pos_test: List[_Case] = []
+        for g_cases in groups.values():
+            random.Random(seed).shuffle(g_cases)
+            tr, va, te = _split_cases(g_cases)
+            pos_train.extend(tr)
+            pos_val.extend(va)
+            pos_test.extend(te)
+        random.Random(seed).shuffle(pos_train)
+        random.Random(seed).shuffle(pos_val)
+        random.Random(seed).shuffle(pos_test)
+        n_train = len(pos_train)
+        n_val = len(pos_val)
+        n_test = len(pos_test)
+        neg_train = neg_cases_new[:n_train]
+        neg_val = neg_cases_new[n_train : n_train + n_val]
+        neg_test = neg_cases_new[n_train + n_val : n_train + n_val + n_test]
+    else:
+        pos_train, pos_val, pos_test = _split_cases(pos_cases_new)
+        neg_train, neg_val, neg_test = _split_cases(neg_cases_new)
 
     splits = {
         "train": pos_train + neg_train,
