@@ -101,6 +101,9 @@ def _copy_case(case: _Case, src: Path, dest: Path) -> None:
 def prepare_sun_classification(src: Path | str, dest: Path | str, seed: int = 0) -> None:
     """Prepare SUN dataset for binary classification.
 
+    Splits are generated on the case level and balanced so that each split
+    contains the same number of positive and negative cases.
+
     Parameters
     ----------
     src:
@@ -131,6 +134,12 @@ def prepare_sun_classification(src: Path | str, dest: Path | str, seed: int = 0)
 
     random.Random(seed).shuffle(pos_cases_new)
     random.Random(seed + 1).shuffle(neg_cases_new)
+
+    # Balance splits by truncating the majority class so that positives and
+    # negatives contribute the same number of cases.
+    n_balanced = min(len(pos_cases_new), len(neg_cases_new))
+    pos_cases_new = pos_cases_new[:n_balanced]
+    neg_cases_new = neg_cases_new[:n_balanced]
 
     pos_train, pos_val, pos_test = _split_cases(pos_cases_new)
     neg_train, neg_val, neg_test = _split_cases(neg_cases_new)
