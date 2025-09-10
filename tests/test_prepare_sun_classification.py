@@ -1,6 +1,4 @@
-import shutil
 from pathlib import Path
-
 import pandas as pd
 from PIL import Image
 
@@ -51,15 +49,15 @@ def _create_canonical_dataset(root: Path, n_pos: int = 7, n_neg_cases: int = 7, 
 
 
 def test_prepare_sun_classification(tmp_path):
-    canonical = _create_canonical_dataset(tmp_path / "canonical")
+    canonical = _create_canonical_dataset(tmp_path / "canonical", n_pos=7, n_neg_cases=14)
     out_dir = tmp_path / "out"
     prepare_sun_classification(canonical, out_dir, seed=0)
 
     def count(split: str, cls: str) -> int:
         return len(list((out_dir / split / cls).glob("*.jpg")))
 
-    # expected case counts
-    n_cases = 7
+    # expected case counts after balancing positives and negatives
+    n_cases = min(7, 14)
     train_cases = int(n_cases * 0.7)
     val_cases = int(n_cases * 0.15)
     test_cases = n_cases - train_cases - val_cases
@@ -70,6 +68,9 @@ def test_prepare_sun_classification(tmp_path):
     assert count("val", "non-polyp") == val_cases * 33
     assert count("test", "polyp") == test_cases * 33
     assert count("test", "non-polyp") == test_cases * 33
+
+    for split in ["train", "val", "test"]:
+        assert count(split, "polyp") == count(split, "non-polyp")
 
     # ensure case ids do not appear in multiple splits
     all_cases = {}
