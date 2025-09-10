@@ -210,5 +210,63 @@ def prepare_sun_classification(
         for case in cases:
             _copy_case(case, src, split_dest)
 
+def create_sun_classification_subset(
+    src: Path | str,
+    dest: Path | str,
+    fraction: float,
+    seed: int = 0,
+) -> None:
+    """Create a balanced training subset from a prepared dataset.
 
-__all__ = ["prepare_sun_classification"]
+    The ``src`` directory is expected to follow the layout produced by
+    :func:`prepare_sun_classification`.  Only the training split is
+    subsampled at the *case* level; validation and test splits are copied
+    unchanged.  Positive and negative cases are sampled in equal numbers.
+
+    Parameters
+    ----------
+    src:
+        Path to the source dataset prepared with
+        :func:`prepare_sun_classification`.
+    dest:
+        Output directory for the subset dataset.
+    fraction:
+        Fraction of training cases to include (``0 < fraction <= 1``).
+    seed:
+        Random seed controlling which cases are selected.
+    """
+
+    if not 0 < fraction <= 1:
+        raise ValueError("fraction must be in the (0, 1] range")
+
+    src = Path(src)
+    dest = Path(dest)
+    rng = random.Random(seed)
+
+    classes = ["polyp", "non-polyp"]
+    selected: dict[str, list[str]] = {}
+
+    for cls in classes:
+        img_paths = list((src / "train" / cls).glob("*"))
+        case_ids = sorted({p.stem.split("_")[0] for p in img_paths})
+        total = len(case_ids)
+        n = max(1, round(fraction * total))
+        n = min(n, total)
+        selected[cls] = rng.sample(case_ids, n)
+
+    for split in ["val", "test"]:
+        for cls in classes:
+            src_dir = src / split / cls
+            dst_dir = dest / split / cls
+            shutil.copytree(src_dir, dst_dir, dirs_exist_ok=True)
+
+    for cls in classes:
+        src_dir = src / "train" / cls
+        dst_dir = dest / "train" / cls
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        for case_id in selected[cls]:
+            for img in src_dir.glob(f"{case_id}_*"):
+                shutil.copy(img, dst_dir / img.name)
+
+
+__all__ = ["prepare_sun_classification", "create_sun_classification_subset"]
