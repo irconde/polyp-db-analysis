@@ -1,0 +1,83 @@
+from __future__ import annotations
+
+"""Utilities for building SUN training subsets.
+
+This module constructs reduced training splits from a ``sun_full`` manifest
+pack.  For each percentage and seed, cases are deterministically selected using
+:func:`pick_k` and written to a new pack containing only ``train.csv``.  Metadata
+for ``val`` and ``test`` splits is copied from the original pack without
+duplicating their CSV files.
+"""
+
+from pathlib import Path
+from datetime import datetime, timezone
+import yaml
+
+from ..manifests.core import pick_k, sha256_file
+from ..manifests.io import read_csv, write_csv
+
+
+def build_sun_train_subsets(
+    sun_full_pack: Path, percents: list[int], seeds: list[int], out_dir: Path
+) -> None:
+    """Create training subsets of a ``sun_full`` manifest pack."""
+
+    full_manifest_path = sun_full_pack / "manifest.yaml"
+    full_manifest = yaml.safe_load(full_manifest_path.read_text(encoding="utf-8"))
+    train_rows = read_csv(sun_full_pack / "train.csv")
+
+    cases_by_label: dict[int, set[str]] = {0: set(), 1: set()}
+    for row in train_rows:
+        cases_by_label[row.label].add(row.case_id)
+    case_lists = {label: sorted(ids) for label, ids in cases_by_label.items()}
+
+    for percent in percents:
+        for seed in seeds:
+            selected_cases: set[str] = set()
+            for label, case_ids in case_lists.items():
+                k = round(len(case_ids) * percent / 100)
+                if k:
+                    chosen = pick_k(case_ids, seed, k, key=lambda x: x)
+                    selected_cases.update(chosen)
+            subset_rows = [r for r in train_rows if r.case_id in selected_cases]
+
+            pack_dir = out_dir / f"sun_p{percent:02d}_seed{seed}"
+            pack_dir.mkdir(parents=True, exist_ok=True)
+
+            train_csv = pack_dir / "train.csv"
+            write_csv(subset_rows, train_csv)
+            train_hash = sha256_file(train_csv)
+
+            counts_train = {
+                "frames": len(subset_rows),
+                "pos": sum(1 for r in subset_rows if r.label == 1),
+                "neg": sum(1 for r in subset_rows if r.label == 0),
+                "pos_cases": len({r.case_id for r in subset_rows if r.label == 1}),
+                "neg_cases": len({r.case_id for r in subset_rows if r.label == 0}),
+            }
+
+            manifest = dict(full_manifest)
+            manifest["name"] = f"sun_p{percent:02d}_seed{seed}"
+            manifest["generated_at"] = datetime.now(timezone.utc).isoformat()
+
+            hashes = dict(full_manifest.get("hashes", {}))
+            hashes["train"] = train_hash
+            manifest["hashes"] = hashes
+
+            counts = dict(full_manifest.get("counts", {}))
+            counts["train"] = counts_train
+            manifest["counts"] = counts
+
+            generator = dict(full_manifest.get("generator", {}))
+            generator["command"] = (
+                f"polypdb sun subsets --pack {sun_full_pack} --percents {percent}"
+                f" --seeds {seed} --out {out_dir}"
+            )
+            generator["seed"] = seed
+            manifest["generator"] = generator
+
+            with (pack_dir / "manifest.yaml").open("w", encoding="utf-8") as f:
+                yaml.safe_dump(manifest, f, sort_keys=False)
+
+
+__all__ = ["build_sun_train_subsets"]
