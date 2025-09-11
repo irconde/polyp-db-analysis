@@ -3,6 +3,7 @@ from __future__ import annotations
 """CLI utilities for PolypGen dataset operations."""
 
 from pathlib import Path
+import yaml
 
 from ..datasets.polypgen_build import build_polypgen_eval
 from ..fewshot import build_polypgen_fewshot
@@ -39,10 +40,21 @@ def register(subparsers) -> None:
 def _run_build(args) -> None:
     track = args.track or args.root.name
     build_polypgen_eval(args.root, args.out, track=track)
+    manifest = yaml.safe_load((args.out / "manifest.yaml").read_text(encoding="utf-8"))
+    print(args.out)
+    print(manifest.get("counts", {}))
 
 
 def _run_fewshot(args) -> None:
     build_polypgen_fewshot(args.pack, args.sizes, args.seeds, args.out)
+    for size in args.sizes:
+        for seed in args.seeds:
+            pack_dir = args.out / f"polypgen_fewshot_s{size}_seed{seed}"
+            manifest = yaml.safe_load(
+                (pack_dir / "manifest.yaml").read_text(encoding="utf-8")
+            )
+            print(pack_dir)
+            print(manifest.get("counts", {}))
 
 
 __all__ = ["register"]
