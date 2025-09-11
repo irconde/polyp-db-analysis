@@ -60,6 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
         prepare_sun_classification,
         subset_sun_classification,
         sun,
+        polypgen,
     )
 
     modules = [
@@ -81,6 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
         prepare_sun_classification,
         subset_sun_classification,
         sun,
+        polypgen,
     ]
 
     for mod in modules:
