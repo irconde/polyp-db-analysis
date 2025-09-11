@@ -59,6 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
         export_classification_flat,
         prepare_sun_classification,
         subset_sun_classification,
+        sun,
     )
 
     modules = [
@@ -79,6 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
         export_classification_flat,
         prepare_sun_classification,
         subset_sun_classification,
+        sun,
     ]
 
     for mod in modules:
