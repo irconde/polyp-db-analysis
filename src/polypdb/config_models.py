@@ -48,31 +48,41 @@ class MergeConfig:
 class SplittingOptions:
     """Options controlling how a dataset is split into train/val/test sets."""
 
-    train_ratio: float
-    validation_ratio: float
-    test_ratio: float
     split_type: str
     split_level: str
+    train_ratio: float | None = None
+    validation_ratio: float | None = None
+    test_ratio: float | None = None
+    train_count: int | None = None
+    validation_count: int | None = None
+    test_count: int | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "SplittingOptions":
-        required = {
-            "train_ratio",
-            "validation_ratio",
-            "test_ratio",
-            "split_type",
-            "split_level",
-        }
+        required = {"split_type", "split_level"}
         missing = required - data.keys()
         if missing:
             raise ValueError(
                 "Missing required splitting_options keys: "
                 + ", ".join(sorted(missing))
             )
+
+        has_ratios = all(k in data for k in ("train_ratio", "validation_ratio", "test_ratio"))
+        has_counts = any(
+            k in data for k in ("train_count", "validation_count", "test_count")
+        )
+        if not has_ratios and not has_counts:
+            raise ValueError(
+                "Splitting options require either ratios or counts to be specified"
+            )
+
         return cls(
-            train_ratio=data["train_ratio"],
-            validation_ratio=data["validation_ratio"],
-            test_ratio=data["test_ratio"],
+            train_ratio=data.get("train_ratio"),
+            validation_ratio=data.get("validation_ratio"),
+            test_ratio=data.get("test_ratio"),
+            train_count=data.get("train_count"),
+            validation_count=data.get("validation_count"),
+            test_count=data.get("test_count"),
             split_type=data["split_type"],
             split_level=data["split_level"],
         )
