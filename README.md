@@ -111,6 +111,11 @@ splitting_options:
   test_ratio: 0.1
   split_type: STRATIFIED
   split_level: POLYP ID
+
+  # or specify absolute counts (frame-level only)
+  # train_count: 500
+  # validation_count: 0
+  # split_level: FRAME
 negative_sampling:
   ratio: 0.5
   distribution: SPLIT-RATIO

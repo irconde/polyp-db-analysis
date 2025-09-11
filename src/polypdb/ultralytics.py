@@ -28,15 +28,31 @@ def split_data(df, config):
     """Split ``df`` into train/val/test sets based on ``config`` options."""
     # Extract splitting options for easier access
     splitting_options = config['splitting_options']
-    train_ratio = splitting_options['train_ratio']
-    val_ratio = splitting_options['validation_ratio']
-    test_ratio = splitting_options['test_ratio']
+    train_ratio = splitting_options.get('train_ratio')
+    val_ratio = splitting_options.get('validation_ratio')
+    test_ratio = splitting_options.get('test_ratio')
+    train_count = splitting_options.get('train_count')
+    val_count = splitting_options.get('validation_count')
+    test_count = splitting_options.get('test_count')
     split_type = splitting_options['split_type']
     split_level = splitting_options['split_level']
 
     # Determine if stratification is requested
     stratify_by_shape = (split_type == 'STRATIFIED')
 
+    if any(v is not None for v in (train_count, val_count, test_count)):
+        if split_level != 'FRAME':
+            raise ValueError(
+                "Absolute split counts are currently only supported for split_level 'FRAME'"
+            )
+        # Default counts for missing values
+        train_count = train_count or 0
+        val_count = val_count or 0
+        if test_count is None:
+            test_count = len(df) - train_count - val_count
+        return image_level_split_counts(
+            df, (train_count, val_count, test_count), stratify_by_shape
+        )
     # Call the appropriate function based on the split level
     if split_level == 'POLYP ID':
         return polyp_level_split(df, (train_ratio, val_ratio, test_ratio), stratify_by_shape)
@@ -233,6 +249,54 @@ def image_level_split(df, ratios, stratify_by_shape=False):
             stratify=stratify_col.loc[remaining_df.index] if stratify_col is not None else None
         )
 
+    return train_df, val_df, test_df
+
+
+def image_level_split_counts(df, counts, stratify_by_shape=False):
+    """Split ``df`` into train/val/test using explicit ``counts``."""
+    train_count, val_count, test_count = counts
+    total_requested = train_count + val_count + test_count
+    if total_requested > len(df):
+        raise ValueError("Requested split sizes exceed available samples")
+
+    stratify_col = df['SHAPE'] if stratify_by_shape else None
+    random_state = 42
+
+    train_df, remaining_df = train_test_split(
+        df,
+        train_size=train_count,
+        stratify=stratify_col if stratify_col is not None else None,
+        random_state=random_state,
+    )
+
+    if test_count == 0 and val_count == 0:
+        return train_df, pd.DataFrame(), remaining_df
+
+    if test_count == 0:
+        val_df, _ = train_test_split(
+            remaining_df,
+            train_size=val_count,
+            stratify=stratify_col.loc[remaining_df.index] if stratify_col is not None else None,
+            random_state=random_state,
+        )
+        return train_df, val_df, pd.DataFrame()
+
+    if val_count == 0:
+        _, test_df = train_test_split(
+            remaining_df,
+            test_size=test_count,
+            stratify=stratify_col.loc[remaining_df.index] if stratify_col is not None else None,
+            random_state=random_state,
+        )
+        return train_df, pd.DataFrame(), test_df
+
+    val_df, test_df = train_test_split(
+        remaining_df,
+        train_size=val_count,
+        test_size=test_count,
+        stratify=stratify_col.loc[remaining_df.index] if stratify_col is not None else None,
+        random_state=random_state,
+    )
     return train_df, val_df, test_df
 
 

@@ -21,3 +21,35 @@ def test_prepare_config_requires_splitting(tmp_path):
     cfg_path.write_text(cfg_text)
     with pytest.raises(ValueError, match="splitting_options"):
         load_config(str(cfg_path), PrepareConfig)
+
+
+def test_splitting_options_require_ratios_or_counts(tmp_path):
+    cfg_text = (
+        "src_path: /data\n"
+        "classification_type: BINARY\n"
+        "splitting_options:\n"
+        "  split_type: RANDOM\n"
+        "  split_level: FRAME\n"
+        "negative_sampling:\n  ratio: 0.5\n  distribution: SPLIT-RATIO\n"
+    )
+    cfg_path = tmp_path / "prep.yaml"
+    cfg_path.write_text(cfg_text)
+    with pytest.raises(ValueError, match="either ratios or counts"):
+        load_config(str(cfg_path), PrepareConfig)
+
+
+def test_prepare_config_accepts_counts(tmp_path):
+    cfg_text = (
+        "src_path: /data\n"
+        "classification_type: BINARY\n"
+        "splitting_options:\n"
+        "  train_count: 1\n"
+        "  validation_count: 0\n"
+        "  split_type: RANDOM\n"
+        "  split_level: FRAME\n"
+        "negative_sampling:\n  ratio: 0.5\n  distribution: SPLIT-RATIO\n"
+    )
+    cfg_path = tmp_path / "prep.yaml"
+    cfg_path.write_text(cfg_text)
+    cfg = load_config(str(cfg_path), PrepareConfig)
+    assert cfg.splitting_options.train_count == 1
