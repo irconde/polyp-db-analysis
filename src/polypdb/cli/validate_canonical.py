@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import validate_canonical as validate_canonical_func
+from ..report import validate_canonical as validate_canonical_func
 
 
 def register(subparsers) -> None:
