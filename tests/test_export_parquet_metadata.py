@@ -94,3 +94,47 @@ def test_export_parquet_skips_cases_when_ids_empty(tmp_path):
     assert not (manifests / "cases.parquet").exists()
     frames_df = pd.read_parquet(manifests / "frames.parquet")
     assert frames_df.loc[0, "global_case_id"] == "F1"
+
+
+def test_export_parquet_records_negative_cases(tmp_path):
+    canonical_base = tmp_path
+    images_dir = canonical_base / "images"
+    images_dir.mkdir()
+    Image.new("RGB", (10, 20)).save(images_dir / "neg1.jpg")
+    Image.new("RGB", (10, 20)).save(images_dir / "neg2.jpg")
+
+    df = pd.DataFrame([])
+    negative_frames = [
+        {
+            "global_frame_id": "NEG_SUN_g1.000001",
+            "global_case_id": "NEG_SUN_g1",
+            "dataset": "sun",
+            "source_frame_id": "neg1.jpg",
+            "img_width": 10,
+            "img_height": 20,
+            "filename_ext": ".jpg",
+            "img_path": "images/neg1.jpg",
+            "modality": None,
+        },
+        {
+            "global_frame_id": "NEG_SUN_g1.000002",
+            "global_case_id": "NEG_SUN_g1",
+            "dataset": "sun",
+            "source_frame_id": "neg2.jpg",
+            "img_width": 10,
+            "img_height": 20,
+            "filename_ext": ".jpg",
+            "img_path": "images/neg2.jpg",
+            "modality": None,
+        },
+    ]
+
+    export_parquet_metadata(df, canonical_base.as_posix(), negative_frames)
+
+    manifests = canonical_base / "manifests"
+    frames_df = pd.read_parquet(manifests / "frames.parquet")
+    cases_df = pd.read_parquet(manifests / "cases.parquet")
+    assert len(frames_df) == 2
+    assert len(cases_df) == 1
+    assert cases_df.loc[0, "global_case_id"] == "NEG_SUN_g1"
+    assert cases_df.loc[0, "n_frames"] == 2
