@@ -735,8 +735,13 @@ def relink_negative_cases(canonical_root: Path | str) -> tuple[pd.DataFrame, pd.
     if "group" not in frames_df.columns:
         frames_df["group"] = pd.NA
 
+    # Keep track of original (incorrect) case IDs so their rows can be dropped
+    old_case_ids = frames_df.loc[mask, "global_case_id"].copy()
+
     if mask.any():
-        new_case_ids = frames_df.loc[mask, "global_frame_id"].str.rsplit(".", n=1).str[0]
+        new_case_ids = (
+            frames_df.loc[mask, "global_frame_id"].str.rsplit(".", n=1).str[0]
+        )
         frames_df.loc[mask, "global_case_id"] = new_case_ids
 
         parts = new_case_ids.str.split("_", n=2)
@@ -745,11 +750,50 @@ def relink_negative_cases(canonical_root: Path | str) -> tuple[pd.DataFrame, pd.
 
     frames_df.to_parquet(frames_path, index=False)
 
-    cases_df = (
-        frames_df.groupby(["global_case_id", "dataset"], dropna=False)
-        .size()
-        .reset_index(name="n_frames")
-    )
+    # Load existing cases, preserving columns
+    if cases_path.exists():
+        cases_df = pd.read_parquet(cases_path)
+    else:
+        cases_df = pd.DataFrame()
+
+    required_cols = [
+        "global_case_id",
+        "dataset",
+        "center_id",
+        "shape",
+        "size_mm",
+        "location",
+        "n_frames",
+        "source_lesion_id",
+    ]
+
+    for col in required_cols:
+        if col not in cases_df.columns:
+            cases_df[col] = pd.NA
+
+    # Remove outdated negative case rows
+    if not cases_df.empty and "global_case_id" in cases_df.columns:
+        cases_df = cases_df[~cases_df["global_case_id"].isin(old_case_ids)]
+
+    # Generate new case rows for relinked negatives
+    if mask.any():
+        neg_cases = (
+            frames_df.loc[mask]
+            .groupby(["global_case_id", "dataset"], dropna=False)
+            .size()
+            .reset_index(name="n_frames")
+        )
+        neg_cases["center_id"] = pd.NA
+        neg_cases["shape"] = pd.NA
+        neg_cases["size_mm"] = pd.NA
+        neg_cases["location"] = pd.NA
+        neg_cases["source_lesion_id"] = pd.NA
+
+        # include any additional columns from cases_df
+        neg_cases = neg_cases.reindex(columns=cases_df.columns, fill_value=pd.NA)
+
+        cases_df = pd.concat([cases_df, neg_cases], ignore_index=True)
+
     cases_df.to_parquet(cases_path, index=False)
 
     return frames_df, cases_df
