@@ -1,6 +1,21 @@
 # Polyp DB Analysis
 
-Utilities for merging colonoscopy polyp datasets and preparing them for object detection or classification experiments.
+Toolkit for standardising colonoscopy polyp datasets.  The project includes
+dataset converters for multiple sources, a pipeline for merging and preparing
+data for object detection or image classification, and utilities for cleaning
+and exporting images.
+
+Key features include:
+
+- Convert raw datasets into a canonical directory layout with unified
+  metadata files.
+- Merge datasets and generate training/validation/test splits for object
+  detection or classification experiments.
+- Prepare Ultralytics/YOLO datasets and export images for conventional
+  classification workflows.
+- Preprocess frames by masking viewports, removing overlays and stripping
+  padding.
+- Count class samples, subset datasets and other helper CLI commands.
 
 ## Installation
 
