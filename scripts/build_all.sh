@@ -14,6 +14,9 @@ mkdir -p "$PACKS_DIR"
 SUN_FULL="$PACKS_DIR/sun_full"
 python -m polypdb.cli sun build --root "$SUN_ROOT" --out "$SUN_FULL" --seed "$SUN_SEED"
 
+SUN_MORPH="$PACKS_DIR/sun_morphology"
+python -m polypdb.cli sun morph --root "$SUN_ROOT" --out "$SUN_MORPH" --seed "$SUN_SEED"
+
 SUN_SUBSETS="$PACKS_DIR/sun_subsets"
 python -m polypdb.cli sun subsets --pack "$SUN_FULL" --percents 5 10 25 50 100 --seeds 13 29 47 --out "$SUN_SUBSETS"
 
