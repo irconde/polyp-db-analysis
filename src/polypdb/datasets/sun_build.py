@@ -125,8 +125,35 @@ def build_sun_full(
 
     index = indexer(sun_root)
 
-    pos_ids = sorted([cid for cid, case in index.items() if case.get("label") == 1])
-    neg_ids = sorted([cid for cid, case in index.items() if case.get("label") == 0])
+    # Separate positive and negative cases from the index so that we can
+    # transform the negatives into synthetic "virtual" cases.  The SUN dataset
+    # contains only 13 negative videos which are very long.  For training we
+    # need 100 negative cases with similar size to the positives, so each
+    # negative video is partitioned into non‑overlapping contiguous chunks of
+    # ``frames_per_case`` frames.  Each chunk becomes its own case with a
+    # synthetic identifier derived from the source case id.
+
+    pos_cases = {cid: case for cid, case in index.items() if case.get("label") == 1}
+    neg_cases = {cid: case for cid, case in index.items() if case.get("label") == 0}
+
+    virtual_neg_cases: Dict[str, Dict[str, Any]] = {}
+    for cid, case in neg_cases.items():
+        frames = case["frames"]
+        chunks = len(frames) // frames_per_case
+        for i in range(chunks):
+            start = i * frames_per_case
+            end = start + frames_per_case
+            virtual_id = f"{cid}_v{i:03d}"
+            virtual_neg_cases[virtual_id] = {
+                "label": 0,
+                "frames": frames[start:end],
+            }
+
+    # Replace the original negatives with the virtual cases.
+    index = {**pos_cases, **virtual_neg_cases}
+
+    pos_ids = sorted(pos_cases.keys())
+    neg_ids = sorted(virtual_neg_cases.keys())
 
     pos_selected = pick_k(pos_ids, seed, min(100, len(pos_ids)), key=lambda x: x)
     neg_selected = pick_k(neg_ids, seed, min(100, len(neg_ids)), key=lambda x: x)
