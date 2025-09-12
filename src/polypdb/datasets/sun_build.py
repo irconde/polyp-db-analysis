@@ -13,6 +13,37 @@ Index = Dict[str, Dict[str, Any]]
 Indexer = Callable[[Path], Index]
 
 
+def _shape_to_morphology(value: Any) -> str:
+    """Map raw shape or Paris codes to manifest morphology labels.
+
+    Returns "flat", "polypoid", or an empty string when the value cannot be
+    classified.
+    """
+
+    if value is None:
+        return ""
+    s = str(value).strip().lower()
+    if not s:
+        return ""
+
+    flat = {"iia", "iib", "iic", "iii", "flat", "depressed"}
+    polypoid = {
+        "is",
+        "isp",
+        "ip",
+        "sessile",
+        "pedunculated",
+        "semipedunculated",
+        "polypoid",
+    }
+
+    if s in flat or "flat" in s or "depress" in s:
+        return "flat"
+    if s in polypoid:
+        return "polypoid"
+    return ""
+
+
 def _default_indexer(root: Path) -> Index:
     """Return a case → frame mapping for a canonical SUN dataset.
 
@@ -36,6 +67,21 @@ def _default_indexer(root: Path) -> Index:
         raise FileNotFoundError(f"Cannot locate frames metadata: {frames_path}")
 
     df = pd.read_parquet(frames_path)
+
+    cases_path = root / "manifests" / "cases.parquet"
+    case_morph: Dict[str, str] = {}
+    if cases_path.exists():
+        cases_df = pd.read_parquet(cases_path)
+        if "global_case_id" in cases_df.columns:
+            shape_col = None
+            if "shape" in cases_df.columns:
+                shape_col = "shape"
+            elif "paris_class" in cases_df.columns:
+                shape_col = "paris_class"
+            if shape_col:
+                for row in cases_df[["global_case_id", shape_col]].itertuples(index=False):
+                    cid = str(getattr(row, "global_case_id"))
+                    case_morph[cid] = _shape_to_morphology(getattr(row, shape_col))
 
     index: Index = {}
     for case_id, group in df.groupby("global_case_id"):
@@ -68,6 +114,7 @@ def _default_indexer(root: Path) -> Index:
             morphology = getattr(row, "morphology", getattr(row, "paris_class", ""))
             if morphology is None or (hasattr(morphology, "__float__") and pd.isna(morphology)):
                 morphology = ""
+            morphology = _shape_to_morphology(morphology) or case_morph.get(str(case_id), "")
 
             source_video = getattr(row, "source_video", "")
 
