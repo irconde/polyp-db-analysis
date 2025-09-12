@@ -13,9 +13,78 @@ Index = Dict[str, Dict[str, Any]]
 Indexer = Callable[[Path], Index]
 
 
-def _default_indexer(root: Path) -> Index:  # pragma: no cover - real impl elsewhere
-    """Placeholder indexer for the SUN dataset."""
-    raise NotImplementedError("index_sun is not implemented; provide an indexer")
+def _default_indexer(root: Path) -> Index:
+    """Return a case → frame mapping for a canonical SUN dataset.
+
+    The canonical layout produced by :mod:`polypdb.preprocess.sun` stores
+    frame‑level metadata in ``manifests/frames.parquet``.  This function parses
+    that file and returns the structure expected by :func:`build_sun_full`:
+
+    ``{case_id: {"label": int, "frames": [{...}]}}``
+
+    Only a minimal subset of fields is extracted so that the resulting manifest
+    contains the frame path (relative to ``root``), label, and size information.
+    Missing width/height values are filled by probing the image files when
+    possible; otherwise ``-1`` is used.
+    """
+
+    import pandas as pd
+    from PIL import Image
+
+    frames_path = root / "manifests" / "frames.parquet"
+    if not frames_path.exists():
+        raise FileNotFoundError(f"Cannot locate frames metadata: {frames_path}")
+
+    df = pd.read_parquet(frames_path)
+
+    index: Index = {}
+    for case_id, group in df.groupby("global_case_id"):
+        frames: List[Dict[str, Any]] = []
+        label = 1 if bool(group["has_polyp"].iloc[0]) else 0
+
+        for row in group.itertuples(index=False):
+            frame_path = getattr(row, "img_path", None)
+            if frame_path is None:
+                # fall back to global_frame_id with jpeg extension
+                frame_path = f"images/{row.global_frame_id}.jpg"
+
+            width = getattr(row, "WIDTH", getattr(row, "width", -1))
+            height = getattr(row, "HEIGHT", getattr(row, "height", -1))
+            if (width is None or width <= 0 or height is None or height <= 0):
+                try:
+                    with Image.open(root / frame_path) as im:
+                        width, height = im.size
+                except Exception:  # pragma: no cover - best effort
+                    width, height = -1, -1
+
+            frame_index = -1
+            gfid = getattr(row, "global_frame_id", "")
+            if gfid:
+                try:
+                    frame_index = int(str(gfid).split(".")[-1])
+                except ValueError:
+                    frame_index = -1
+
+            morphology = getattr(row, "morphology", getattr(row, "paris_class", ""))
+            if morphology is None or (hasattr(morphology, "__float__") and pd.isna(morphology)):
+                morphology = ""
+
+            source_video = getattr(row, "source_video", "")
+
+            frames.append(
+                {
+                    "frame_path": Path(frame_path).as_posix(),
+                    "frame_index": int(frame_index),
+                    "width": int(width) if width is not None else -1,
+                    "height": int(height) if height is not None else -1,
+                    "morphology": morphology,
+                    "source_video": source_video,
+                }
+            )
+
+        index[str(case_id)] = {"label": label, "frames": frames}
+
+    return index
 
 
 def _split_cases(case_ids: List[str]) -> tuple[List[str], List[str], List[str]]:
