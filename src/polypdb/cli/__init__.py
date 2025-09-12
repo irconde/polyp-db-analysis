@@ -61,6 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
         subset_sun_classification,
         sun,
         polypgen,
+        relink_negative_cases,
     )
 
     modules = [
@@ -83,6 +84,7 @@ def build_parser() -> argparse.ArgumentParser:
         subset_sun_classification,
         sun,
         polypgen,
+        relink_negative_cases,
     ]
 
     for mod in modules:

@@ -12,7 +12,6 @@ from PIL import Image
 from .utils.image_ops import draw_bounding_boxes, get_image_size
 from tqdm import tqdm
 
-from .preprocess.sun import _drop_duplicate_frames
 from .config_models import MergeConfig
 
 
@@ -459,6 +458,12 @@ def copy_and_rename_negative_images(
         sun_cache = source_dir / "sun_neg_hash_cache.csv"
         if sun_cache.exists():
             cache_file = sun_cache
+    try:  # pragma: no cover - optional dependency chain
+        from .preprocess.sun import _drop_duplicate_frames  # type: ignore
+    except Exception:  # pragma: no cover
+        def _drop_duplicate_frames(df, cache_file=None):
+            return df
+
     filtered_df = _drop_duplicate_frames(df, cache_file=cache_file)
     filtered_df = filtered_df.sort_values(["dataset", "group", "filename"])
     logger.info(
@@ -691,6 +696,63 @@ def cleanup_temp_artifacts(base_path: Path | str, destination_folder: Path | str
         if temp_dir.is_dir():
             shutil.rmtree(temp_dir)
             logger.info("Removed temporary directory %s", temp_dir)
+
+
+def relink_negative_cases(canonical_root: Path | str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Relink negative frame records to synthetic case identifiers.
+
+    This utility adjusts ``frames.parquet`` and ``cases.parquet`` in an
+    existing canonical dataset.  Some negative frames were previously written
+    with ``global_case_id`` equal to ``global_frame_id`` which effectively
+    treated every frame as its own case.  The corrected behaviour groups
+    negative frames by their shared prefix (``NEG_<DATASET>_<GROUP>``).
+
+    Parameters
+    ----------
+    canonical_root:
+        Path to the canonical dataset root containing the ``manifests``
+        directory.
+
+    Returns
+    -------
+    tuple[pandas.DataFrame, pandas.DataFrame]
+        The updated frames and cases DataFrames.
+    """
+
+    canonical_root = Path(canonical_root)
+    manifests_dir = canonical_root / "manifests"
+    frames_path = manifests_dir / "frames.parquet"
+    cases_path = manifests_dir / "cases.parquet"
+
+    frames_df = pd.read_parquet(frames_path)
+
+    # Identify negative frames that were not grouped into cases previously
+    mask = (
+        ~frames_df["has_polyp"].astype(bool)
+        & (frames_df["global_case_id"] == frames_df["global_frame_id"])
+    )
+
+    if "group" not in frames_df.columns:
+        frames_df["group"] = pd.NA
+
+    if mask.any():
+        new_case_ids = frames_df.loc[mask, "global_frame_id"].str.rsplit(".", n=1).str[0]
+        frames_df.loc[mask, "global_case_id"] = new_case_ids
+
+        parts = new_case_ids.str.split("_", n=2)
+        frames_df.loc[mask, "dataset"] = parts.str[1].str.lower()
+        frames_df.loc[mask, "group"] = parts.str[2]
+
+    frames_df.to_parquet(frames_path, index=False)
+
+    cases_df = (
+        frames_df.groupby(["global_case_id", "dataset"], dropna=False)
+        .size()
+        .reset_index(name="n_frames")
+    )
+    cases_df.to_parquet(cases_path, index=False)
+
+    return frames_df, cases_df
 
 
 def export_parquet_metadata(
