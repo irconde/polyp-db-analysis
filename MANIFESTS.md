@@ -12,7 +12,7 @@ Manifest CSV files share a common set of columns.  Required fields are:
 - `store_id`
 
 Optional metadata fields include `morphology`, `source_video`, `frame_index`,
-`width`, `height`, `variant`, and `severity`.
+`width`, `height`, and `variant`.
 
 ## Determinism policy
 - Frames are ranked using HMAC‑SHA256 with a user‑supplied seed.

@@ -27,7 +27,6 @@ def parse_row(data: dict[str, str]) -> ManifestRow:
         width=int(data.get("width", -1)),
         height=int(data.get("height", -1)),
         variant=data.get("variant", ""),
-        severity=data.get("severity", ""),
     )
 
 
