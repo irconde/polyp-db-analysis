@@ -45,6 +45,7 @@ This allows local overrides without editing the manifest.
 Example commands to generate packs:
 
 - **SUN full:** `polypdb sun build --root /path/to/sun --out sun_full --seed 0`
+- **SUN morphology:** `polypdb sun morph --root /path/to/sun --out sun_morph --seed 0`
 - **SUN subsets:** `polypdb sun subsets --pack sun_full --percents 25 50 --seeds 0 1 --out subsets`
 - **SUN corruption:** `polypdb sun corrupt --pack sun_full --out sun_corrupt --variant corrupt`
 - **PolypGen eval:** `polypdb polypgen build --root /path/to/polypgen --out polypgen_eval`

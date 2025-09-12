@@ -141,6 +141,19 @@ def _split_cases(case_ids: List[str]) -> tuple[List[str], List[str], List[str]]:
     return train, val, test
 
 
+def _split_by_ratio(case_ids: List[str]) -> tuple[List[str], List[str], List[str]]:
+    """Split ``case_ids`` into train/val/test using 70/15/15 ratios."""
+
+    n = len(case_ids)
+    n_train = round(n * 0.7)
+    n_val = round(n * 0.15)
+    n_test = n - n_train - n_val
+    train = case_ids[:n_train]
+    val = case_ids[n_train : n_train + n_val]
+    test = case_ids[n_train + n_val : n_train + n_val + n_test]
+    return train, val, test
+
+
 def build_sun_full(
     sun_root: Path,
     out_dir: Path,
@@ -274,4 +287,128 @@ def build_sun_full(
     write_pack(out_dir, splits, meta)
 
 
-__all__ = ["build_sun_full"]
+def build_sun_morphology(
+    sun_root: Path,
+    out_dir: Path,
+    seed: int,
+    frames_per_case: int = 33,
+    *,
+    indexer: Indexer | None = None,
+) -> None:
+    """Build a SUN manifest pack stratified by morphology."""
+
+    if indexer is None:
+        indexer = _default_indexer
+
+    index = indexer(sun_root)
+
+    pos_cases: Dict[str, Dict[str, Any]] = {}
+    neg_cases: Dict[str, Dict[str, Any]] = {}
+    flat_ids: List[str] = []
+    polypoid_ids: List[str] = []
+
+    for cid, case in index.items():
+        if case.get("label") == 1:
+            morph = ""
+            for f in case["frames"]:
+                m = f.get("morphology", "")
+                if m:
+                    morph = m
+                    break
+            case = dict(case)
+            case["morphology"] = morph
+            pos_cases[cid] = case
+            if morph == "flat":
+                flat_ids.append(cid)
+            else:
+                polypoid_ids.append(cid)
+        else:
+            neg_cases[cid] = case
+
+    virtual_neg_cases: Dict[str, Dict[str, Any]] = {}
+    for cid, case in neg_cases.items():
+        frames = case["frames"]
+        chunks = len(frames) // frames_per_case
+        for i in range(chunks):
+            start = i * frames_per_case
+            end = start + frames_per_case
+            vid = f"{cid}_v{i:03d}"
+            virtual_neg_cases[vid] = {"label": 0, "frames": frames[start:end]}
+
+    index = {**pos_cases, **virtual_neg_cases}
+
+    flat_selected = pick_k(sorted(flat_ids), seed, len(flat_ids), key=lambda x: x)
+    polyp_selected = pick_k(sorted(polypoid_ids), seed, len(polypoid_ids), key=lambda x: x)
+    neg_ids = sorted(virtual_neg_cases.keys())
+    neg_selected = pick_k(neg_ids, seed, min(100, len(neg_ids)), key=lambda x: x)
+
+    flat_train, flat_val, flat_test = _split_by_ratio(flat_selected)
+    polyp_train, polyp_val, polyp_test = _split_by_ratio(polyp_selected)
+    neg_train, neg_val, neg_test = _split_by_ratio(neg_selected)
+
+    split_case_ids = {
+        "train": flat_train + polyp_train + neg_train,
+        "val": flat_val + polyp_val + neg_val,
+        "test": flat_test + polyp_test + neg_test,
+    }
+
+    splits: Dict[str, List[ManifestRow]] = {"train": [], "val": [], "test": []}
+
+    for split, case_ids in split_case_ids.items():
+        for case_id in case_ids:
+            case = index[case_id]
+            frames = pick_k(
+                case["frames"], seed, frames_per_case, key=lambda r: r["frame_path"]
+            )
+            for frame in frames:
+                frame_id = f"{case_id}/{frame['frame_path']}"
+                splits[split].append(
+                    ManifestRow(
+                        dataset="SUN",
+                        split=split,
+                        case_id=case_id,
+                        frame_id=frame_id,
+                        frame_path=frame["frame_path"],
+                        label=case["label"],
+                        store_id="sun",
+                        morphology=frame.get("morphology", ""),
+                        source_video=frame.get("source_video", ""),
+                        frame_index=int(frame.get("frame_index", -1)),
+                        width=int(frame.get("width", -1)),
+                        height=int(frame.get("height", -1)),
+                    )
+                )
+
+    command = (
+        f"polypdb sun morph --root {sun_root} --out {out_dir} "
+        f"--seed {seed} --frames-per-case {frames_per_case}"
+    )
+    try:
+        git_commit = (
+            subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+        )
+    except Exception:  # pragma: no cover - fallback when git unavailable
+        git_commit = "unknown"
+
+    meta = {
+        "name": "sun-morphology",
+        "version": "0.0",
+        "generator": {
+            "repo": "polyp-db-analysis",
+            "git_commit": git_commit,
+            "command": command,
+            "seed": seed,
+        },
+        "policy": {
+            "unit_of_split": "case",
+            "frames_per_case": frames_per_case,
+            "balance": "cases_pos=70,cases_neg=70,stratify=morphology",
+            "selection": "hmac_sha256(path,seed)",
+        },
+        "roots": {"sun": str(sun_root)},
+    }
+
+    write_pack(out_dir, splits, meta)
+
+
+__all__ = ["build_sun_full", "build_sun_morphology"]

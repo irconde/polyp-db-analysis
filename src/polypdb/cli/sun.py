@@ -3,7 +3,7 @@
 from pathlib import Path
 import yaml
 
-from ..datasets.sun_build import build_sun_full
+from ..datasets.sun_build import build_sun_full, build_sun_morphology
 from ..datasets.sun_corrupt import build_sun_corrupt
 from ..subsets.sun_subsets import build_sun_train_subsets
 
@@ -22,6 +22,20 @@ def register(subparsers) -> None:
         help="Frames to retain per case (default: 33)",
     )
     build.set_defaults(func=_run_build)
+
+    morph = sub.add_parser(
+        "morph", help="Build SUN morphology-stratified manifest pack"
+    )
+    morph.add_argument("--root", type=Path, required=True, help="Path to SUN dataset root")
+    morph.add_argument("--out", type=Path, required=True, help="Output directory")
+    morph.add_argument("--seed", type=int, required=True, help="Selection seed")
+    morph.add_argument(
+        "--frames-per-case",
+        type=int,
+        default=33,
+        help="Frames to retain per case (default: 33)",
+    )
+    morph.set_defaults(func=_run_morph)
 
     subsets = sub.add_parser("subsets", help="Create SUN train subset packs")
     subsets.add_argument("--pack", type=Path, required=True, help="Path to sun_full pack")
@@ -70,6 +84,18 @@ def _run_subsets(args) -> None:
 
 def _run_corrupt(args) -> None:
     build_sun_corrupt(args.pack, args.out, variant=args.variant)
+    manifest = yaml.safe_load((args.out / "manifest.yaml").read_text(encoding="utf-8"))
+    print(args.out)
+    print(manifest.get("counts", {}))
+
+
+def _run_morph(args) -> None:
+    build_sun_morphology(
+        args.root,
+        args.out,
+        args.seed,
+        frames_per_case=args.frames_per_case,
+    )
     manifest = yaml.safe_load((args.out / "manifest.yaml").read_text(encoding="utf-8"))
     print(args.out)
     print(manifest.get("counts", {}))
