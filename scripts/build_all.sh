@@ -30,13 +30,13 @@ fi
 
 find "$PACKS_DIR" -name manifest.yaml | sort | while read -r man; do
     dir="$(dirname "$man")"
-    counts=$(python - <<'PY'
+    counts=$(python - "$man" <<'PY'
 import sys, yaml
 with open(sys.argv[1], 'r', encoding='utf-8') as f:
     data = yaml.safe_load(f)
 print(data.get('counts', {}))
 PY
-"$man")
+)
     echo "$dir"
     echo "$counts"
 done
