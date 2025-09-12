@@ -30,8 +30,21 @@ def test_relink_negative_cases(tmp_path):
         ]
     )
     frames.to_parquet(manifests / "frames.parquet", index=False)
-    # existing cases.parquet (will be overwritten)
-    pd.DataFrame().to_parquet(manifests / "cases.parquet")
+    # existing cases.parquet containing positive case metadata
+    pd.DataFrame(
+        [
+            {
+                "global_case_id": "P1",
+                "dataset": "sun",
+                "center_id": None,
+                "shape": "sessile",
+                "size_mm": 5.0,
+                "location": "rectum",
+                "n_frames": 1,
+                "source_lesion_id": "1",
+            }
+        ]
+    ).to_parquet(manifests / "cases.parquet", index=False)
 
     relink_negative_cases(tmp_path)
 
@@ -50,8 +63,8 @@ def test_relink_negative_cases(tmp_path):
     assert neg_cases["dataset"].unique().tolist() == ["sun"]
     assert neg_cases["group"].unique().tolist() == ["g1"]
 
-    # cases regenerated
+    # cases merged without losing positive metadata
     assert set(cases_df["global_case_id"]) == {"P1", "NEG_SUN_g1"}
     assert cases_df.loc[cases_df["global_case_id"] == "NEG_SUN_g1", "n_frames"].item() == 2
     assert cases_df.loc[cases_df["global_case_id"] == "P1", "n_frames"].item() == 1
-    assert cases_df.loc[cases_df["global_case_id"] == "P1", "dataset"].item() == "sun"
+    assert cases_df.loc[cases_df["global_case_id"] == "P1", "shape"].item() == "sessile"
