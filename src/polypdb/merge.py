@@ -767,6 +767,25 @@ def export_parquet_metadata(
                 }
             )
 
+    # Include synthetic negative cases if provided
+    if negative_frames:
+        neg_df = pd.DataFrame(negative_frames)
+        if {"global_case_id", "dataset"}.issubset(neg_df.columns):
+            counts = neg_df.groupby(["global_case_id", "dataset"]).size().reset_index(name="n_frames")
+            for row in counts.itertuples(index=False):
+                case_records.append(
+                    {
+                        "global_case_id": row.global_case_id,
+                        "dataset": row.dataset,
+                        "center_id": None,
+                        "shape": None,
+                        "size_mm": None,
+                        "location": None,
+                        "n_frames": int(row.n_frames),
+                        "source_lesion_id": None,
+                    }
+                )
+
     if case_records:
         pd.DataFrame(case_records).to_parquet(
             manifests_dir / "cases.parquet", index=False
@@ -842,8 +861,12 @@ def dataset_statistics(
     total_after = total_positive + total_negative
 
     positive_cases = df_cases["global_case_id"].nunique()
-    neg_case_ids = [rec["global_frame_id"].split(
-        ".")[0] for rec in negative_frames]
+    neg_case_ids: list[str] = []
+    for rec in negative_frames:
+        cid = rec.get("global_case_id")
+        if cid is None:
+            cid = rec["global_frame_id"].split(".")[0]
+        neg_case_ids.append(cid)
     negative_cases = len(set(neg_case_ids))
     total_cases = positive_cases + negative_cases
 
@@ -869,8 +892,7 @@ def dataset_statistics(
     )
     from collections import Counter
     neg_case_map: dict[str, str] = {}
-    for rec in negative_frames:
-        cid = rec["global_frame_id"].split(".")[0]
+    for rec, cid in zip(negative_frames, neg_case_ids):
         neg_case_map[cid] = rec["dataset"]
     neg_case_by_dataset = Counter(neg_case_map.values())
     dataset_counts = Counter(pos_case_by_dataset)
@@ -972,8 +994,10 @@ def dataset_statistics_from_canonical(canonical_base: Path | str) -> dict:
         pos_df["morphology_shape"] = None
 
     neg_df = frames_df[~frames_df["has_polyp"]]
-    negative_records = neg_df[[
-        "global_frame_id", "dataset"]].to_dict("records")
+    neg_cols = ["global_frame_id", "dataset"]
+    if "global_case_id" in neg_df.columns:
+        neg_cols.append("global_case_id")
+    negative_records = neg_df[neg_cols].to_dict("records")
 
     return dataset_statistics(pos_df, negative_records, negative_original_count=len(neg_df))
 
@@ -1011,8 +1035,10 @@ def dataset_statistics_from_parquets(frames_path: Path | str, cases_path: Path |
         pos_df["morphology_shape"] = None
 
     neg_df = frames_df[~frames_df["has_polyp"]]
-    negative_records = neg_df[[
-        "global_frame_id", "dataset"]].to_dict("records")
+    neg_cols = ["global_frame_id", "dataset"]
+    if "global_case_id" in neg_df.columns:
+        neg_cols.append("global_case_id")
+    negative_records = neg_df[neg_cols].to_dict("records")
 
     return dataset_statistics(pos_df, negative_records, negative_original_count=len(neg_df))
 
