@@ -928,6 +928,40 @@ def export_parquet_metadata(
     )
 
 
+def rebuild_parquet_manifests(
+    metadata_path: Path | str,
+    canonical_base: Path | str,
+    images_dir: Path | str | None = None,
+) -> None:
+    """Rebuild manifest Parquet files from a metadata spreadsheet.
+
+    This helper loads ``metadata.xlsx`` containing the original merged
+    annotations, harmonises them into the unified schema and then writes
+    the ``frames.parquet`` and ``cases.parquet`` files expected for a
+    canonical dataset directory.
+
+    Parameters
+    ----------
+    metadata_path:
+        Path to the ``metadata.xlsx`` spreadsheet.
+    canonical_base:
+        Root of the canonical dataset. A ``manifests`` directory will be
+        created here to store the output tables. The associated images are
+        assumed to live under ``canonical_base/images`` unless
+        ``images_dir`` is provided.
+    images_dir:
+        Optional path to the image directory used when harmonising the
+        metadata. If omitted, ``canonical_base/images`` is used.
+    """
+
+    if images_dir is None:
+        images_dir = Path(canonical_base) / "images"
+
+    df = pd.read_excel(metadata_path)
+    df = harmonize_metadata(df, images_dir)
+    export_parquet_metadata(df, canonical_base)
+
+
 def dataset_statistics(
     df: pd.DataFrame, negative_frames: list[dict], negative_original_count: int
 ) -> dict:
