@@ -37,7 +37,6 @@ class ManifestRow:
     width: int = -1
     height: int = -1
     variant: str = ""
-    severity: str = ""
 
 
 def hmac_rank(seed: int, text: str) -> int:

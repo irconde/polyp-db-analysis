@@ -26,7 +26,6 @@ CSV_FIELDS = [
     "width",
     "height",
     "variant",
-    "severity",
 ]
 
 
@@ -75,7 +74,6 @@ def read_csv(path: Path) -> List[ManifestRow]:
                     width=int(raw.get("width", -1)),
                     height=int(raw.get("height", -1)),
                     variant=raw.get("variant", ""),
-                    severity=raw.get("severity", ""),
                 )
             )
     return rows
