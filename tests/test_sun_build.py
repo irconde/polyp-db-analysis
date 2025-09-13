@@ -32,7 +32,7 @@ def test_case_disjoint_and_frame_count(tmp_path):
     def indexer(_root: Path):
         return index
 
-    build_sun_full(Path("/data"), tmp_path, seed=42, indexer=indexer)
+    build_sun_full(Path("/data"), tmp_path, seed=42, indexer=indexer, verify=False)
 
     splits = {}
     for split in ["train", "val", "test"]:

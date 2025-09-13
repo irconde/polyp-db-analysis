@@ -60,7 +60,7 @@ def _create_canonical_dataset(root: Path) -> Path:
 def test_default_indexer_build(tmp_path):
     canonical = _create_canonical_dataset(tmp_path / "canonical")
     out_dir = tmp_path / "pack"
-    build_sun_full(canonical, out_dir, seed=0)
+    build_sun_full(canonical, out_dir, seed=0, verify=False)
 
     splits = {}
     for split in ["train", "val", "test"]:

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from polypdb.datasets.sun_build import build_sun_full
 from polypdb.manifests.io import read_csv
+import yaml
 
 
 def _make_index():
@@ -36,7 +37,7 @@ def test_virtual_negative_cases(tmp_path):
     def indexer(_root: Path):
         return index
 
-    build_sun_full(Path("/data"), tmp_path, seed=0, indexer=indexer)
+    build_sun_full(Path("/data"), tmp_path, seed=0, indexer=indexer, verify=False)
 
     splits = {split: read_csv(tmp_path / f"{split}.csv") for split in ["train", "val", "test"]}
 
@@ -60,4 +61,19 @@ def test_virtual_negative_cases(tmp_path):
             if r.label == 0:
                 source_map.setdefault(r.source_case_id, set()).add(split)
     assert all(len(splits) == 1 for splits in source_map.values())
+
+    manifest = yaml.safe_load((tmp_path / "manifest.yaml").read_text())
+    assertions = manifest["assertions"]
+    assert assertions["no_case_leakage_across_splits"] is True
+    assert assertions["no_negative_source_leakage"] is True
+    expected_counts = {
+        split: {
+            "pos_cases": len({r.case_id for r in rows if r.label == 1}),
+            "neg_cases": len({r.case_id for r in rows if r.label == 0}),
+            "frames": len(rows),
+        }
+        for split, rows in splits.items()
+    }
+    assert assertions["split_targets_met"] == expected_counts
+    assert assertions["all_cases_have_33_frames"] is True
 

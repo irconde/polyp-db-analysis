@@ -76,7 +76,7 @@ def test_build_sun_morphology(tmp_path: Path) -> None:
         tmp_path / "canonical", n_pos=14, n_neg_cases=14, paris_classes=paris
     )
     out_dir = tmp_path / "pack"
-    build_sun_morphology(canonical, out_dir, seed=0)
+    build_sun_morphology(canonical, out_dir, seed=0, verify=False)
 
     splits = {s: read_csv(out_dir / f"{s}.csv") for s in ("train", "val", "test")}
 
