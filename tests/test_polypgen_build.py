@@ -21,6 +21,8 @@ def test_build_polypgen_eval(tmp_path: Path) -> None:
         {
             "img_path": ["images/pos.png", "images/neg.png"],
             "has_polyp": [1, 0],
+            "global_frame_id": ["gf_pos", "gf_neg"],
+            "center_id": ["c1", "c2"],
         }
     )
     ann.to_parquet(man_dir / "frames.parquet", index=False)
@@ -34,8 +36,11 @@ def test_build_polypgen_eval(tmp_path: Path) -> None:
     assert all(r.split == "eval" for r in rows)
     assert all(r.store_id == "polypgen_clean" for r in rows)
     labels = {r.frame_id: r.label for r in rows}
-    assert labels["images/pos"] == 1
-    assert labels["images/neg"] == 0
+    cases = {r.frame_id: r.case_id for r in rows}
+    assert labels["gf_pos"] == 1
+    assert labels["gf_neg"] == 0
+    assert cases["gf_pos"] == "c1"
+    assert cases["gf_neg"] == "c2"
 
     manifest = yaml.safe_load((out / "manifest.yaml").read_text())
     assert manifest["policy"]["unit_of_split"] == "frame"
