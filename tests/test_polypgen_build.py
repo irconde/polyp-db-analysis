@@ -14,8 +14,8 @@ def test_build_polypgen_eval(tmp_path: Path) -> None:
     man_dir = root / "manifests"
     img_dir.mkdir(parents=True)
     man_dir.mkdir(parents=True)
-    for name in ["pos.png", "neg.png"]:
-        Image.new("RGB", (1, 1)).save(img_dir / name)
+    for name, size in zip(["pos.png", "neg.png"], [(2, 3), (4, 5)]):
+        Image.new("RGB", size).save(img_dir / name)
 
     ann = pd.DataFrame(
         {
@@ -23,6 +23,8 @@ def test_build_polypgen_eval(tmp_path: Path) -> None:
             "has_polyp": [1, 0],
             "global_frame_id": ["gf_pos", "gf_neg"],
             "center_id": ["c1", "c2"],
+            "img_width": [2, 4],
+            "img_height": [3, 5],
         }
     )
     ann.to_parquet(man_dir / "frames.parquet", index=False)
@@ -41,6 +43,9 @@ def test_build_polypgen_eval(tmp_path: Path) -> None:
     assert labels["gf_neg"] == 0
     assert cases["gf_pos"] == "c1"
     assert cases["gf_neg"] == "c2"
+    sizes = {r.frame_id: (r.width, r.height) for r in rows}
+    assert sizes["gf_pos"] == (2, 3)
+    assert sizes["gf_neg"] == (4, 5)
 
     manifest = yaml.safe_load((out / "manifest.yaml").read_text())
     assert manifest["policy"]["unit_of_split"] == "frame"
