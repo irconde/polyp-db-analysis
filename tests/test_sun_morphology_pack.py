@@ -137,11 +137,13 @@ def test_build_sun_morphology(tmp_path: Path) -> None:
         "flat_frames": 33,
         "polypoid_frames": 33,
     }
-    assert manifest["assertions"]["morphology_targets_met"] == {
+    expected_targets = {
         "train": {"flat": 5, "polypoid": 5},
         "val": {"flat": 1, "polypoid": 1},
         "test": {"flat": 1, "polypoid": 1},
     }
+    assert manifest["assertions"]["morphology_targets"]["expected"] == expected_targets
+    assert manifest["assertions"]["morphology_targets"]["actual"] == expected_targets
 
     # explicit split membership
     split_meta = manifest["splits"]
