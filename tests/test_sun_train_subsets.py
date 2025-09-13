@@ -9,14 +9,14 @@ from polypdb.manifests.io import read_csv
 
 def _make_index():
     index = {}
-    for i in range(2):
+    for i in range(4):
         cid = f"p{i:02d}"
         frames = [
             {"frame_path": f"{cid}/f{j:03d}.jpg", "frame_index": j, "width": 1, "height": 1}
             for j in range(40)
         ]
         index[cid] = {"label": 1, "frames": frames}
-    for i in range(2):
+    for i in range(4):
         cid = f"n{i:02d}"
         frames = [
             {"frame_path": f"{cid}/f{j:03d}.jpg", "frame_index": j, "width": 1, "height": 1}
@@ -54,3 +54,18 @@ def test_build_sun_train_subsets(tmp_path: Path) -> None:
         manifest_subset = yaml.safe_load((pack_dir / "manifest.yaml").read_text())
         assert manifest_subset["counts"]["val"] == manifest_full["counts"]["val"]
         assert manifest_subset["hashes"]["test"] == manifest_full["hashes"]["test"]
+        assert manifest_subset["parent_pack"]["name"] == "sun_full"
+        assert manifest_subset["parent_pack"]["hashes"]["val"] == manifest_full["hashes"]["val"]
+        assert manifest_subset["parent_pack"]["hashes"]["test"] == manifest_full["hashes"]["test"]
+        assert manifest_subset["parent_pack"]["hashes"]["train"] == manifest_full["hashes"]["train"]
+        assert manifest_subset["parent_pack"]["path"] == str(full_pack)
+        assert manifest_subset["subset"] == {
+            "percent": 50,
+            "seed": seed,
+            "source_pool": "train",
+        }
+        assert manifest_subset["assertions"]["subset_train_from_parent_train"] is True
+        assert manifest_subset["assertions"]["subset_train_pos_eq_neg"] is True
+        assert manifest_subset["assertions"]["val_test_hash_match_parent"] is True
+        assert manifest_subset["policy"]["selection_scope"] == "case"
+        assert manifest_subset["frame_sampling"]["selection_scope"] == "frame"
