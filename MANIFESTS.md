@@ -46,6 +46,9 @@ A manifest pack is a directory containing CSVs for each split and a
   original negative cases (`neg_sources_per_split`)
 - `summary_by_split` table of basic counts per split
 - optional `case_lengths` histogram of WL frames per case used
+- optional `parent_pack` provenance and `subset` metadata for derived packs
+- `policy.selection_scope` and `frame_sampling.selection_scope` clarifying the
+  unit of selection
 
 ## Overriding roots at runtime
 `manifest.yaml` records default roots, but tools call `load_roots` to merge

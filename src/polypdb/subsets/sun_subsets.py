@@ -24,7 +24,9 @@ def build_sun_train_subsets(
 
     full_manifest_path = sun_full_pack / "manifest.yaml"
     full_manifest = yaml.safe_load(full_manifest_path.read_text(encoding="utf-8"))
-    train_rows = read_csv(sun_full_pack / "train.csv")
+    train_csv_full = sun_full_pack / "train.csv"
+    train_rows = read_csv(train_csv_full)
+    parent_train_hash = sha256_file(train_csv_full)
 
     cases_by_label: dict[int, set[str]] = {0: set(), 1: set()}
     for row in train_rows:
@@ -67,6 +69,46 @@ def build_sun_train_subsets(
             counts = dict(full_manifest.get("counts", {}))
             counts["train"] = counts_train
             manifest["counts"] = counts
+
+            # parent pack provenance
+            parent_pack = {
+                "name": "sun_full",
+                "hashes": {
+                    "val": hashes.get("val", ""),
+                    "test": hashes.get("test", ""),
+                    "train": parent_train_hash,
+                },
+                "path": str(sun_full_pack),
+            }
+            manifest["parent_pack"] = parent_pack
+
+            # subset metadata
+            manifest["subset"] = {
+                "percent": percent,
+                "seed": seed,
+                "source_pool": "train",
+            }
+
+            # additional assertions
+            assertions = dict(full_manifest.get("assertions", {}))
+            assertions.update(
+                {
+                    "subset_train_from_parent_train": True,
+                    "subset_train_pos_eq_neg": counts_train["pos"]
+                    == counts_train["neg"],
+                    "val_test_hash_match_parent": True,
+                }
+            )
+            manifest["assertions"] = assertions
+
+            # selection scopes
+            policy = dict(full_manifest.get("policy", {}))
+            policy["selection_scope"] = "case"
+            manifest["policy"] = policy
+
+            frame_sampling = dict(full_manifest.get("frame_sampling", {}))
+            frame_sampling["selection_scope"] = "frame"
+            manifest["frame_sampling"] = frame_sampling
 
             # update splits metadata
             splits_meta = dict(full_manifest.get("splits", {}))
