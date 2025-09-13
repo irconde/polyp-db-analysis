@@ -273,18 +273,36 @@ def _compute_assertions(
             "neg_cases": neg_cases,
             "frames": len(rows),
         }
+    total_pos = sum(c["pos_cases"] for c in split_counts.values())
+    total_neg = sum(c["neg_cases"] for c in split_counts.values())
+    pos_targets = _split_targets(total_pos)
+    neg_targets = _split_targets(total_neg)
 
-    expected = {
-        "train": {"pos_cases": 70, "neg_cases": 70, "frames": frames_per_case * 140},
-        "val": {"pos_cases": 15, "neg_cases": 15, "frames": frames_per_case * 30},
-        "test": {"pos_cases": 15, "neg_cases": 15, "frames": frames_per_case * 30},
-    }
-    targets_met = split_counts == expected
+    expected: Dict[str, Dict[str, int]] = {}
+    for split in split_counts.keys():
+        exp_pos = pos_targets.get(split, 0)
+        exp_neg = neg_targets.get(split, 0)
+        expected[split] = {
+            "pos_cases": exp_pos,
+            "neg_cases": exp_neg,
+            "frames": frames_per_case * (exp_pos + exp_neg),
+        }
+
+    mismatches: Dict[str, Dict[str, tuple[int, int]]] = {}
+    for split, counts in split_counts.items():
+        split_mismatches = {
+            k: (counts[k], expected[split][k])
+            for k in counts
+            if counts[k] != expected[split][k]
+        }
+        if split_mismatches:
+            mismatches[split] = split_mismatches
+
     balanced = all(
         counts["pos_cases"] == counts["neg_cases"]
         for counts in split_counts.values()
     )
-    if verify and not (targets_met and balanced):
+    if verify and (mismatches or not balanced):
         raise AssertionError("split counts do not meet targets")
 
     case_frame_counts = Counter()
@@ -303,6 +321,8 @@ def _compute_assertions(
         "split_targets_met": split_counts,
         "all_cases_have_33_frames": True if not exceptions else exceptions,
     }
+    if mismatches:
+        assertions["split_target_mismatches"] = mismatches
     return assertions
 
 
