@@ -26,6 +26,11 @@ CSV_FIELDS = [
     "width",
     "height",
     "variant",
+    "synthetic_case_id",
+    "source_case_id",
+    "chunk_start",
+    "chunk_end",
+    "split_unit",
 ]
 
 
@@ -74,6 +79,11 @@ def read_csv(path: Path) -> List[ManifestRow]:
                     width=int(raw.get("width", -1)),
                     height=int(raw.get("height", -1)),
                     variant=raw.get("variant", ""),
+                    synthetic_case_id=raw.get("synthetic_case_id", ""),
+                    source_case_id=raw.get("source_case_id", ""),
+                    chunk_start=int(raw.get("chunk_start", -1)),
+                    chunk_end=int(raw.get("chunk_end", -1)),
+                    split_unit=raw.get("split_unit", "case"),
                 )
             )
     return rows
@@ -159,6 +169,8 @@ def validate_pack(
                 raise AssertionError(f"invalid label {row.label} in {split}")
             if row.morphology not in {"flat", "polypoid", ""}:
                 raise AssertionError(f"invalid morphology {row.morphology} in {split}")
+            if row.split_unit not in {"case", "source_case"}:
+                raise AssertionError(f"invalid split_unit {row.split_unit} in {split}")
 
         sun_cases[split] = {
             r.case_id for r in rows if r.dataset.lower() == "sun"

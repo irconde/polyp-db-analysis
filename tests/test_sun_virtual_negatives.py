@@ -45,12 +45,19 @@ def test_virtual_negative_cases(tmp_path):
         pos_cases = {r.case_id for r in rows if r.label == 1}
         neg_cases = {r.case_id for r in rows if r.label == 0}
         assert len(pos_cases) == expected
-        assert len(neg_cases) == expected
         counts = Counter(r.case_id for r in rows)
         assert all(v == 33 for v in counts.values())
+        for r in rows:
+            if r.label == 0:
+                assert r.split_unit == "source_case"
 
-    all_neg_cases = {
-        r.case_id for rows in splits.values() for r in rows if r.label == 0
-    }
+    all_neg_cases = {r.case_id for rows in splits.values() for r in rows if r.label == 0}
     assert len(all_neg_cases) == 100
+    # Ensure negatives from the same source case do not span multiple splits
+    source_map = {}
+    for split, rows in splits.items():
+        for r in rows:
+            if r.label == 0:
+                source_map.setdefault(r.source_case_id, set()).add(split)
+    assert all(len(splits) == 1 for splits in source_map.values())
 

@@ -35,25 +35,29 @@ def _create_canonical_dataset(
                     "img_path": f"images/{fname}",
                 }
             )
-    # single long negative video
-    neg_case_id = "N0"
-    for f in range(n_neg_cases * frames_per_case):
-        fname = f"{neg_case_id}.{f:06d}.jpg"
-        Image.new("RGB", (1, 1)).save(images_dir / fname)
-        records.append(
-            {
-                "global_frame_id": fname[:-4],
-                "global_case_id": neg_case_id,
-                "has_polyp": False,
-                "img_path": f"images/{fname}",
-            }
-        )
+    # negative cases
+    for n in range(n_neg_cases):
+        neg_case_id = f"N{n}"
+        for f in range(frames_per_case):
+            fname = f"{neg_case_id}.{f:06d}.jpg"
+            Image.new("RGB", (1, 1)).save(images_dir / fname)
+            records.append(
+                {
+                    "global_frame_id": fname[:-4],
+                    "global_case_id": neg_case_id,
+                    "has_polyp": False,
+                    "img_path": f"images/{fname}",
+                }
+            )
 
     frames_df = pd.DataFrame(records)
     frames_df.to_parquet(manifests_dir / "frames.parquet", index=False)
-    case_records = {"global_case_id": [f"P{i}" for i in range(n_pos)] + [neg_case_id]}
+    case_records = {
+        "global_case_id": [f"P{i}" for i in range(n_pos)]
+        + [f"N{n}" for n in range(n_neg_cases)]
+    }
     if paris_classes:
-        case_records["paris_class"] = paris_classes + [None]
+        case_records["paris_class"] = paris_classes + [None] * n_neg_cases
     pd.DataFrame(case_records).to_parquet(manifests_dir / "cases.parquet", index=False)
     return root
 
@@ -95,4 +99,11 @@ def test_build_sun_morphology(tmp_path: Path) -> None:
     assert _case_morph_counts(splits["train"]) == {"polypoid": 5, "flat": 5}
     assert _case_morph_counts(splits["val"]) == {"polypoid": 1, "flat": 1}
     assert _case_morph_counts(splits["test"]) == {"polypoid": 1, "flat": 1}
+
+    for rows in splits.values():
+        for r in rows:
+            if r.label == 0:
+                assert r.split_unit == "source_case"
+                assert r.source_case_id.startswith("N")
+                assert r.synthetic_case_id
 
