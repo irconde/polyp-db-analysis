@@ -22,7 +22,8 @@ Synthetic negatives expose additional fields `synthetic_case_id`,
 ## Determinism policy
 - Frames are ranked using HMAC‑SHA256 with a user‑supplied seed.
 - Splitting happens at the case level.
-- By default 33 frames are retained per case.
+- Frame sampling uses a deterministic tie‑break on `frame_path` with a
+  documented `salt_id` and retains 33 frames per case without replacement.
 
 ## Pack layout and versioning
 A manifest pack is a directory containing CSVs for each split and a
@@ -31,13 +32,16 @@ A manifest pack is a directory containing CSVs for each split and a
 - `name` and `version`
 - `generator` info (`repo`, `git_commit`, `command`, `seed`)
 - `policy` (unit of split, frames per case, balance, selection)
+- `frame_sampling` (`selection`, `salt_id`, `tie_break`, `frames_per_case`,
+  `resampled_with_replacement`)
 - `roots` mapping `store_id` values to dataset roots
 - `hashes` and `counts` for each split
 - `splits` listing case membership for each split (`pos_cases`/`neg_cases` or
   for morphology packs `pos_flat_cases`, `pos_polypoid_cases`, and
   `neg_cases`)
-- `neg_sources` mapping negative source cases to generated synthetic cases with
-  chunk spans
+- `neg_sources` listing for each negative source case its split membership,
+  generated `synthetic_case_ids`, and corresponding `[chunk_start, chunk_end]`
+  spans
 - `summary_by_split` table of basic counts per split
 - optional `case_lengths` histogram of WL frames per case used
 
