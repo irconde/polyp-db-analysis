@@ -97,6 +97,13 @@ def test_build_sun_morphology(tmp_path: Path) -> None:
     assert count_cases(splits["val"], 1) == count_cases(splits["val"], 0) == 2
     assert count_cases(splits["test"], 1) == count_cases(splits["test"], 0) == 2
 
+    source_seen = {}
+    for split, rows in splits.items():
+        for r in rows:
+            if r.label == 0:
+                prev = source_seen.setdefault(r.source_case_id, split)
+                assert prev == split
+
     assert _case_morph_counts(splits["train"]) == {"polypoid": 5, "flat": 5}
     assert _case_morph_counts(splits["val"]) == {"polypoid": 1, "flat": 1}
     assert _case_morph_counts(splits["test"]) == {"polypoid": 1, "flat": 1}
@@ -145,6 +152,11 @@ def test_build_sun_morphology(tmp_path: Path) -> None:
     assert manifest["assertions"]["morphology_targets"]["expected"] == expected_targets
     assert manifest["assertions"]["morphology_targets"]["actual"] == expected_targets
 
+    expected_neg_targets = {"train": 10, "val": 2, "test": 2}
+    neg_targets = manifest["assertions"]["negative_case_targets"]
+    assert neg_targets["expected"] == expected_neg_targets
+    assert neg_targets["actual"] == expected_neg_targets
+
     # explicit split membership
     split_meta = manifest["splits"]
     for split, rows in splits.items():
@@ -160,10 +172,13 @@ def test_build_sun_morphology(tmp_path: Path) -> None:
 
     neg_sources = manifest["neg_sources"]
     accounted = set()
+    unique_sources = set()
     for entry in neg_sources:
         assert entry["split"] in {"train", "val", "test"}
         assert len(entry["synthetic_case_ids"]) == len(entry["chunk_spans"])
         accounted.update(entry["synthetic_case_ids"])
+        assert entry["source_case_id"] not in unique_sources
+        unique_sources.add(entry["source_case_id"])
     assert accounted == {r.case_id for rows in splits.values() for r in rows if r.label == 0}
 
     summary = {s["split"]: s for s in manifest["summary_by_split"]}
