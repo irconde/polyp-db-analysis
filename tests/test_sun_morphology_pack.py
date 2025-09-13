@@ -107,6 +107,7 @@ def test_build_sun_morphology(tmp_path: Path) -> None:
                 assert r.split_unit == "source_case"
                 assert r.source_case_id.startswith("N")
                 assert r.synthetic_case_id
+                assert r.synthetic_case is True
 
     manifest = yaml.safe_load((out_dir / "manifest.yaml").read_text())
     mmap = manifest["morphology_map"]
@@ -141,4 +142,38 @@ def test_build_sun_morphology(tmp_path: Path) -> None:
         "val": {"flat": 1, "polypoid": 1},
         "test": {"flat": 1, "polypoid": 1},
     }
+
+    # explicit split membership
+    split_meta = manifest["splits"]
+    for split, rows in splits.items():
+        meta_flat = set(split_meta[split]["pos_flat_cases"])
+        meta_polyp = set(split_meta[split]["pos_polypoid_cases"])
+        meta_neg = set(split_meta[split]["neg_cases"])
+        actual_flat = {r.case_id for r in rows if r.label == 1 and r.morphology == "flat"}
+        actual_polyp = {r.case_id for r in rows if r.label == 1 and r.morphology == "polypoid"}
+        actual_neg = {r.case_id for r in rows if r.label == 0}
+        assert meta_flat == actual_flat
+        assert meta_polyp == actual_polyp
+        assert meta_neg == actual_neg
+
+    neg_sources = manifest["neg_sources"]
+    accounted = set()
+    for entry in neg_sources:
+        assert entry["split"] in {"train", "val", "test"}
+        assert len(entry["synthetic_case_ids"]) == len(entry["chunk_spans"])
+        accounted.update(entry["synthetic_case_ids"])
+    assert accounted == {r.case_id for rows in splits.values() for r in rows if r.label == 0}
+
+    summary = {s["split"]: s for s in manifest["summary_by_split"]}
+    for split, rows in splits.items():
+        s = summary[split]
+        assert s["frames"] == len(rows)
+        assert s["pos_cases"] == len({r.case_id for r in rows if r.label == 1})
+        assert s["neg_cases"] == len({r.case_id for r in rows if r.label == 0})
+        assert s["pos_frames"] == sum(r.label == 1 for r in rows)
+        assert s["neg_frames"] == sum(r.label == 0 for r in rows)
+        assert s["flat_cases"] == len({r.case_id for r in rows if r.label == 1 and r.morphology == "flat"})
+        assert s["polypoid_cases"] == len({r.case_id for r in rows if r.label == 1 and r.morphology == "polypoid"})
+
+    assert manifest["case_lengths"] == {33: 28}
 

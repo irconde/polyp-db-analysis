@@ -328,6 +328,33 @@ def build_sun_full(
         "test": pos_test + neg_test,
     }
 
+    split_membership = {
+        "train": {"pos_cases": pos_train, "neg_cases": neg_train},
+        "val": {"pos_cases": pos_val, "neg_cases": neg_val},
+        "test": {"pos_cases": pos_test, "neg_cases": neg_test},
+    }
+
+    neg_sources = []
+    for src, vids in neg_groups.items():
+        if src in neg_train_src:
+            split = "train"
+        elif src in neg_val_src:
+            split = "val"
+        else:
+            split = "test"
+        spans = [
+            [virtual_neg_cases[vid]["chunk_start"], virtual_neg_cases[vid]["chunk_end"]]
+            for vid in vids
+        ]
+        neg_sources.append(
+            {
+                "source_case_id": src,
+                "split": split,
+                "synthetic_case_ids": vids,
+                "chunk_spans": spans,
+            }
+        )
+
     splits: Dict[str, List[ManifestRow]] = {"train": [], "val": [], "test": []}
 
     for split, case_ids in split_case_ids.items():
@@ -357,6 +384,7 @@ def build_sun_full(
                         chunk_start=int(case.get("chunk_start", -1)),
                         chunk_end=int(case.get("chunk_end", -1)),
                         split_unit="source_case" if case["label"] == 0 else "case",
+                        synthetic_case=bool(case.get("synthetic_case_id")),
                     )
                 )
     assertions = _compute_assertions(splits, frames_per_case, verify=verify)
@@ -391,6 +419,8 @@ def build_sun_full(
         },
         "roots": {"sun": str(sun_root)},
         "assertions": assertions,
+        "splits": split_membership,
+        "neg_sources": neg_sources,
     }
 
     write_pack(out_dir, splits, meta)
@@ -483,6 +513,45 @@ def build_sun_morphology(
         "test": flat_test + polyp_test + neg_test,
     }
 
+    split_membership = {
+        "train": {
+            "pos_flat_cases": flat_train,
+            "pos_polypoid_cases": polyp_train,
+            "neg_cases": neg_train,
+        },
+        "val": {
+            "pos_flat_cases": flat_val,
+            "pos_polypoid_cases": polyp_val,
+            "neg_cases": neg_val,
+        },
+        "test": {
+            "pos_flat_cases": flat_test,
+            "pos_polypoid_cases": polyp_test,
+            "neg_cases": neg_test,
+        },
+    }
+
+    neg_sources = []
+    for src, vids in neg_groups.items():
+        if src in neg_train_src:
+            split = "train"
+        elif src in neg_val_src:
+            split = "val"
+        else:
+            split = "test"
+        spans = [
+            [virtual_neg_cases[vid]["chunk_start"], virtual_neg_cases[vid]["chunk_end"]]
+            for vid in vids
+        ]
+        neg_sources.append(
+            {
+                "source_case_id": src,
+                "split": split,
+                "synthetic_case_ids": vids,
+                "chunk_spans": spans,
+            }
+        )
+
     splits: Dict[str, List[ManifestRow]] = {"train": [], "val": [], "test": []}
 
     for split, case_ids in split_case_ids.items():
@@ -512,6 +581,7 @@ def build_sun_morphology(
                         chunk_start=int(case.get("chunk_start", -1)),
                         chunk_end=int(case.get("chunk_end", -1)),
                         split_unit="source_case" if case["label"] == 0 else "case",
+                        synthetic_case=bool(case.get("synthetic_case_id")),
                     )
                 )
     assertions = _compute_assertions(splits, frames_per_case, verify=verify)
@@ -597,6 +667,8 @@ def build_sun_morphology(
         "assertions": assertions,
         "morphology_map": morph_map,
         "morphology_counts": morph_counts,
+        "splits": split_membership,
+        "neg_sources": neg_sources,
     }
 
     write_pack(out_dir, splits, meta)
