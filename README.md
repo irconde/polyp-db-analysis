@@ -52,6 +52,13 @@ polypdb --log-level DEBUG pipeline pipeline_config.yaml
 
 By default the log level is ``INFO``.
 
+For standalone scripts or notebooks, enable debug logging with:
+
+```python
+import logging
+logging.basicConfig(level=logging.DEBUG)
+```
+
 ### Merge datasets
 
 Merge multiple dataset folders into a unified dataset described by a metadata
