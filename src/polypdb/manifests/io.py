@@ -9,6 +9,7 @@ import csv
 import random
 import yaml
 from datetime import datetime, timezone
+from collections import Counter
 
 from .core import ManifestRow, sha256_file
 
@@ -31,6 +32,7 @@ CSV_FIELDS = [
     "chunk_start",
     "chunk_end",
     "split_unit",
+    "synthetic_case",
 ]
 
 
@@ -84,6 +86,8 @@ def read_csv(path: Path) -> List[ManifestRow]:
                     chunk_start=int(raw.get("chunk_start", -1)),
                     chunk_end=int(raw.get("chunk_end", -1)),
                     split_unit=raw.get("split_unit", "case"),
+                    synthetic_case=raw.get("synthetic_case", "").lower()
+                    in {"1", "true", "t", "yes"},
                 )
             )
     return rows
@@ -102,6 +106,9 @@ def write_pack(out_dir: Path, splits: Dict[str, List[ManifestRow]], meta: Dict) 
     hashes: Dict[str, str] = {}
     counts: Dict[str, Dict[str, int]] = {}
 
+    summary_by_split: List[Dict[str, int]] = []
+    case_lengths: Dict[int, int] = {}
+
     for split, rows in splits.items():
         csv_path = out_dir / f"{split}.csv"
         write_csv(rows, csv_path)
@@ -109,20 +116,42 @@ def write_pack(out_dir: Path, splits: Dict[str, List[ManifestRow]], meta: Dict) 
 
         pos = sum(1 for r in rows if r.label == 1)
         neg = sum(1 for r in rows if r.label == 0)
-        pos_cases = len({r.case_id for r in rows if r.label == 1})
-        neg_cases = len({r.case_id for r in rows if r.label == 0})
+        pos_cases_set = {r.case_id for r in rows if r.label == 1}
+        neg_cases_set = {r.case_id for r in rows if r.label == 0}
         counts[split] = {
             "frames": len(rows),
             "pos": pos,
             "neg": neg,
-            "pos_cases": pos_cases,
-            "neg_cases": neg_cases,
+            "pos_cases": len(pos_cases_set),
+            "neg_cases": len(neg_cases_set),
         }
+
+        flat_cases = len({r.case_id for r in rows if r.label == 1 and r.morphology == "flat"})
+        polyp_cases = len({r.case_id for r in rows if r.label == 1 and r.morphology == "polypoid"})
+        summary = {
+            "split": split,
+            "pos_cases": len(pos_cases_set),
+            "neg_cases": len(neg_cases_set),
+            "frames": len(rows),
+            "pos_frames": pos,
+            "neg_frames": neg,
+        }
+        if flat_cases or polyp_cases:
+            summary["flat_cases"] = flat_cases
+            summary["polypoid_cases"] = polyp_cases
+        summary_by_split.append(summary)
+
+        case_counts = Counter(r.case_id for r in rows)
+        for count in case_counts.values():
+            case_lengths[count] = case_lengths.get(count, 0) + 1
 
     manifest = dict(meta)
     manifest["generated_at"] = datetime.now(timezone.utc).isoformat()
     manifest["hashes"] = hashes
     manifest["counts"] = counts
+    manifest["summary_by_split"] = summary_by_split
+    if case_lengths:
+        manifest["case_lengths"] = case_lengths
 
     manifest_path = out_dir / "manifest.yaml"
     with manifest_path.open("w", encoding="utf-8") as f:

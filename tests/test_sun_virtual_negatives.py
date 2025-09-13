@@ -51,6 +51,7 @@ def test_virtual_negative_cases(tmp_path):
         for r in rows:
             if r.label == 0:
                 assert r.split_unit == "source_case"
+                assert r.synthetic_case is True
 
     all_neg_cases = {r.case_id for rows in splits.values() for r in rows if r.label == 0}
     assert len(all_neg_cases) == 100
@@ -76,4 +77,36 @@ def test_virtual_negative_cases(tmp_path):
     }
     assert assertions["split_targets_met"] == expected_counts
     assert assertions["all_cases_have_33_frames"] is True
+
+    # check explicit split membership
+    split_meta = manifest["splits"]
+    for split, rows in splits.items():
+        meta_pos = set(split_meta[split]["pos_cases"])
+        meta_neg = set(split_meta[split]["neg_cases"])
+        actual_pos = {r.case_id for r in rows if r.label == 1}
+        actual_neg = {r.case_id for r in rows if r.label == 0}
+        assert meta_pos == actual_pos
+        assert meta_neg == actual_neg
+
+    # check negative source mapping
+    neg_sources = manifest["neg_sources"]
+    assert len(neg_sources) == 13
+    accounted = set()
+    for entry in neg_sources:
+        assert entry["split"] in {"train", "val", "test"}
+        assert len(entry["synthetic_case_ids"]) == len(entry["chunk_spans"])
+        accounted.update(entry["synthetic_case_ids"])
+    assert accounted == all_neg_cases
+
+    # summary table and case length histogram
+    summary = {s["split"]: s for s in manifest["summary_by_split"]}
+    for split, rows in splits.items():
+        s = summary[split]
+        assert s["frames"] == len(rows)
+        assert s["pos_cases"] == len({r.case_id for r in rows if r.label == 1})
+        assert s["neg_cases"] == len({r.case_id for r in rows if r.label == 0})
+        assert s["pos_frames"] == sum(r.label == 1 for r in rows)
+        assert s["neg_frames"] == sum(r.label == 0 for r in rows)
+
+    assert manifest["case_lengths"] == {33: 200}
 

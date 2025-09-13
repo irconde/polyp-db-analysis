@@ -27,6 +27,12 @@ def parse_row(data: dict[str, str]) -> ManifestRow:
         width=int(data.get("width", -1)),
         height=int(data.get("height", -1)),
         variant=data.get("variant", ""),
+        synthetic_case_id=data.get("synthetic_case_id", ""),
+        source_case_id=data.get("source_case_id", ""),
+        chunk_start=int(data.get("chunk_start", -1)),
+        chunk_end=int(data.get("chunk_end", -1)),
+        split_unit=data.get("split_unit", "case"),
+        synthetic_case=data.get("synthetic_case", "").lower() in {"1", "true", "t", "yes"},
     )
 
 

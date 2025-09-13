@@ -68,6 +68,33 @@ def build_sun_train_subsets(
             counts["train"] = counts_train
             manifest["counts"] = counts
 
+            # update splits metadata
+            splits_meta = dict(full_manifest.get("splits", {}))
+            splits_meta["train"] = {
+                "pos_cases": sorted({r.case_id for r in subset_rows if r.label == 1}),
+                "neg_cases": sorted({r.case_id for r in subset_rows if r.label == 0}),
+            }
+            manifest["splits"] = splits_meta
+
+            # update summary table
+            summary = list(full_manifest.get("summary_by_split", []))
+            pos_case_ids = splits_meta["train"]["pos_cases"]
+            neg_case_ids = splits_meta["train"]["neg_cases"]
+            new_train_summary = {
+                "split": "train",
+                "pos_cases": len(pos_case_ids),
+                "neg_cases": len(neg_case_ids),
+                "frames": len(subset_rows),
+                "pos_frames": counts_train["pos"],
+                "neg_frames": counts_train["neg"],
+            }
+            summary = [s for s in summary if s.get("split") != "train"]
+            summary.append(new_train_summary)
+            manifest["summary_by_split"] = summary
+
+            total_cases = sum(s.get("pos_cases", 0) + s.get("neg_cases", 0) for s in summary)
+            manifest["case_lengths"] = {33: total_cases}
+
             generator = dict(full_manifest.get("generator", {}))
             generator["command"] = (
                 f"polypdb sun subsets --pack {sun_full_pack} --percents {percent}"

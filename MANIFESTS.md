@@ -15,6 +15,9 @@ Optional metadata fields include `morphology`, `source_video`, `frame_index`,
 `width`, `height`, and `variant`. For the SUN dataset the `morphology`
 column is derived from per-case `shape` or `paris_class` entries in
 `cases.parquet` and normalised to `flat` or `polypoid`.
+Synthetic negatives expose additional fields `synthetic_case_id`,
+`source_case_id`, `chunk_start`, `chunk_end`, `split_unit`, and a boolean
+`synthetic_case` flag.
 
 ## Determinism policy
 - Frames are ranked using HMAC‑SHA256 with a user‑supplied seed.
@@ -30,6 +33,13 @@ A manifest pack is a directory containing CSVs for each split and a
 - `policy` (unit of split, frames per case, balance, selection)
 - `roots` mapping `store_id` values to dataset roots
 - `hashes` and `counts` for each split
+- `splits` listing case membership for each split (`pos_cases`/`neg_cases` or
+  for morphology packs `pos_flat_cases`, `pos_polypoid_cases`, and
+  `neg_cases`)
+- `neg_sources` mapping negative source cases to generated synthetic cases with
+  chunk spans
+- `summary_by_split` table of basic counts per split
+- optional `case_lengths` histogram of WL frames per case used
 
 ## Overriding roots at runtime
 `manifest.yaml` records default roots, but tools call `load_roots` to merge
