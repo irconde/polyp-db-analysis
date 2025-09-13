@@ -163,7 +163,29 @@ def test_build_sun_morphology(tmp_path: Path) -> None:
         assert meta_polyp == actual_polyp
         assert meta_neg == actual_neg
 
-    assert "neg_sources" not in manifest
+    fs = manifest["frame_sampling"]
+    assert fs == {
+        "selection": "hmac_sha256(path,salt)",
+        "salt_id": "seed-0",
+        "tie_break": "frame_path",
+        "frames_per_case": 33,
+        "resampled_with_replacement": False,
+    }
+
+    neg_sources = manifest["neg_sources"]
+    mapped_sources = {e["source_case_id"] for e in neg_sources}
+    actual_sources = {
+        r.source_case_id
+        for rows in splits.values()
+        for r in rows
+        if r.label == 0
+    }
+    assert mapped_sources == actual_sources
+    for entry in neg_sources:
+        split = entry["split"]
+        neg_cases = set(manifest["splits"][split]["neg_cases"])
+        assert set(entry["synthetic_case_ids"]).issubset(neg_cases)
+        assert len(entry["synthetic_case_ids"]) == len(entry["chunk_spans"])
 
     summary = {s["split"]: s for s in manifest["summary_by_split"]}
     for split, rows in splits.items():

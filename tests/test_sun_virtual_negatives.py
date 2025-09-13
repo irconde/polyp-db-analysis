@@ -70,6 +70,30 @@ def test_virtual_negative_cases(tmp_path):
     assert assertions["split_targets_met"] == expected_counts
     assert assertions["all_cases_have_33_frames"] is True
 
+    fs = manifest["frame_sampling"]
+    assert fs == {
+        "selection": "hmac_sha256(path,salt)",
+        "salt_id": "seed-0",
+        "tie_break": "frame_path",
+        "frames_per_case": 33,
+        "resampled_with_replacement": False,
+    }
+
+    neg_sources = manifest["neg_sources"]
+    mapped_sources = {e["source_case_id"] for e in neg_sources}
+    actual_sources = {
+        r.source_case_id
+        for rows in splits.values()
+        for r in rows
+        if r.label == 0
+    }
+    assert mapped_sources == actual_sources
+    for entry in neg_sources:
+        split = entry["split"]
+        neg_cases = set(manifest["splits"][split]["neg_cases"])
+        assert set(entry["synthetic_case_ids"]).issubset(neg_cases)
+        assert len(entry["synthetic_case_ids"]) == len(entry["chunk_spans"])
+
     # check explicit split membership
     split_meta = manifest["splits"]
     for split, rows in splits.items():

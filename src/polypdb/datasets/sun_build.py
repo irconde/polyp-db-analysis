@@ -414,6 +414,31 @@ def build_sun_full(
                 )
     assertions = _compute_assertions(splits, frames_per_case, verify=verify)
 
+    neg_sources: List[Dict[str, Any]] = []
+    if virtual_neg_cases:
+        mapping: Dict[tuple[str, str], Dict[str, Any]] = {}
+        for split, members in split_membership.items():
+            for vid in members.get("neg_cases", []):
+                info = virtual_neg_cases.get(vid, {})
+                src = info.get("source_case_id", "")
+                key = (src, split)
+                entry = mapping.setdefault(
+                    key,
+                    {
+                        "source_case_id": src,
+                        "split": split,
+                        "synthetic_case_ids": [],
+                        "chunk_spans": [],
+                    },
+                )
+                entry["synthetic_case_ids"].append(vid)
+                entry["chunk_spans"].append(
+                    [int(info.get("chunk_start", -1)), int(info.get("chunk_end", -1))]
+                )
+        neg_sources = sorted(
+            mapping.values(), key=lambda x: (x["source_case_id"], x["split"])
+        )
+
     command = (
         f"polypdb sun build --root {sun_root} --out {out_dir} "
         f"--seed {seed} --frames-per-case {frames_per_case}"
@@ -442,10 +467,20 @@ def build_sun_full(
             "balance": "cases_pos=70,cases_neg=70",
             "selection": "hmac_sha256(path,seed)",
         },
+        "frame_sampling": {
+            "selection": "hmac_sha256(path,salt)",
+            "salt_id": f"seed-{seed}",
+            "tie_break": "frame_path",
+            "frames_per_case": frames_per_case,
+            "resampled_with_replacement": False,
+        },
         "roots": {"sun": str(sun_root)},
         "assertions": assertions,
         "splits": split_membership,
     }
+
+    if neg_sources:
+        meta["neg_sources"] = neg_sources
 
     write_pack(out_dir, splits, meta)
 
@@ -631,6 +666,31 @@ def build_sun_morphology(
         "actual": neg_targets_actual,
     }
 
+    neg_sources: List[Dict[str, Any]] = []
+    if virtual_neg_cases:
+        mapping: Dict[tuple[str, str], Dict[str, Any]] = {}
+        for split, members in split_membership.items():
+            for vid in members.get("neg_cases", []):
+                info = virtual_neg_cases.get(vid, {})
+                src = info.get("source_case_id", "")
+                key = (src, split)
+                entry = mapping.setdefault(
+                    key,
+                    {
+                        "source_case_id": src,
+                        "split": split,
+                        "synthetic_case_ids": [],
+                        "chunk_spans": [],
+                    },
+                )
+                entry["synthetic_case_ids"].append(vid)
+                entry["chunk_spans"].append(
+                    [int(info.get("chunk_start", -1)), int(info.get("chunk_end", -1))]
+                )
+        neg_sources = sorted(
+            mapping.values(), key=lambda x: (x["source_case_id"], x["split"])
+        )
+
     morph_map: Dict[str, str] = {}
     split_morph_counts: Dict[str, Dict[str, int]] = {}
     overall_counts = {
@@ -719,12 +779,22 @@ def build_sun_morphology(
             "balance": "cases_pos=70,cases_neg=70,stratify=morphology",
             "selection": "hmac_sha256(path,seed)",
         },
+        "frame_sampling": {
+            "selection": "hmac_sha256(path,salt)",
+            "salt_id": f"seed-{seed}",
+            "tie_break": "frame_path",
+            "frames_per_case": frames_per_case,
+            "resampled_with_replacement": False,
+        },
         "roots": {"sun": str(sun_root)},
         "assertions": assertions,
         "morphology_map": morph_map,
         "morphology_counts": morph_counts,
         "splits": split_membership,
     }
+
+    if neg_sources:
+        meta["neg_sources"] = neg_sources
 
     write_pack(out_dir, splits, meta)
 
