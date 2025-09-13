@@ -8,7 +8,6 @@ import subprocess
 import logging
 from itertools import combinations
 from collections import Counter
-from functools import lru_cache
 
 from ..manifests.core import ManifestRow, pick_k
 from ..manifests.io import write_pack
@@ -184,52 +183,6 @@ def _draw_ids(case_ids: List[str], targets: Dict[str, int]) -> tuple[List[str], 
     return train, val, test
 
 
-def _assign_neg_sources(
-    groups: Dict[str, List[str]], targets: Dict[str, int]
-) -> tuple[List[str], List[str], List[str]]:
-    """Assign negative source groups to splits honoring ``targets``.
-
-    All virtual negative cases originating from the same ``source_case_id``
-    must reside in the same split.  This helper uses dynamic programming with
-    memoization to search for an assignment that exactly meets the per-split
-    quotas.
-    """
-
-    sources = list(groups.keys())
-    sizes = {src: len(groups[src]) for src in sources}
-    caps = (targets["train"], targets["val"], targets["test"])
-
-    @lru_cache(maxsize=None)
-    def dfs(i: int, t: int, v: int, e: int):  # remaining capacities
-        if i == len(sources):
-            return [] if t == 0 and v == 0 and e == 0 else None
-        src = sources[i]
-        size = sizes[src]
-        # Try placing current source in each split if capacity allows
-        if size <= t:
-            res = dfs(i + 1, t - size, v, e)
-            if res is not None:
-                return [(src, "train"), *res]
-        if size <= v:
-            res = dfs(i + 1, t, v - size, e)
-            if res is not None:
-                return [(src, "val"), *res]
-        if size <= e:
-            res = dfs(i + 1, t, v, e - size)
-            if res is not None:
-                return [(src, "test"), *res]
-        return None
-
-    assignment = dfs(0, *caps)
-    if assignment is None:
-        raise ValueError("unable to assign negative sources to meet quotas")
-
-    train_src = [src for src, split in assignment if split == "train"]
-    val_src = [src for src, split in assignment if split == "val"]
-    test_src = [src for src, split in assignment if split == "test"]
-    return train_src, val_src, test_src
-
-
 def _compute_assertions(
     splits: Dict[str, List[ManifestRow]],
     frames_per_case: int,
@@ -257,21 +210,6 @@ def _compute_assertions(
         logger.debug("Case leakage across splits detected: %s", case_sets)
         if verify:
             raise AssertionError("case leakage across splits")
-
-    neg_sources = {
-        s: {r.source_case_id for r in rows if r.label == 0}
-        for s, rows in splits.items()
-    }
-    no_neg_leak = all(
-        neg_sources[a].isdisjoint(neg_sources[b])
-        for a, b in combinations(neg_sources, 2)
-    )
-    if not no_neg_leak:
-        logger.debug(
-            "Negative source leakage across splits detected: %s", neg_sources
-        )
-        if verify:
-            raise AssertionError("negative source leakage across splits")
 
     split_counts: Dict[str, Dict[str, int]] = {}
     for split, rows in splits.items():
@@ -332,7 +270,6 @@ def _compute_assertions(
 
     assertions: Dict[str, Any] = {
         "no_case_leakage_across_splits": no_case_leak,
-        "no_negative_source_leakage": no_neg_leak,
         "split_targets_met": split_counts,
         "all_cases_have_33_frames": True if not exceptions else exceptions,
     }
@@ -426,19 +363,7 @@ def build_sun_full(
 
     pos_train, pos_val, pos_test = _split_cases(pos_selected)
 
-    neg_groups: Dict[str, List[str]] = {}
-    neg_source_order: List[str] = []
-    for vid in neg_selected:
-        src = virtual_neg_cases[vid]["source_case_id"]
-        if src not in neg_groups:
-            neg_groups[src] = []
-            neg_source_order.append(src)
-        neg_groups[src].append(vid)
-
-    neg_train_src, neg_val_src, neg_test_src = _split_by_ratio(neg_source_order)
-    neg_train = [vid for src in neg_train_src for vid in neg_groups[src]]
-    neg_val = [vid for src in neg_val_src for vid in neg_groups[src]]
-    neg_test = [vid for src in neg_test_src for vid in neg_groups[src]]
+    neg_train, neg_val, neg_test = _split_cases(neg_selected)
 
     split_case_ids = {
         "train": pos_train + neg_train,
@@ -454,27 +379,6 @@ def build_sun_full(
 
     logger.debug("split_case_ids: %s", split_case_ids)
     logger.debug("split_membership: %s", split_membership)
-
-    neg_sources = []
-    for src, vids in neg_groups.items():
-        if src in neg_train_src:
-            split = "train"
-        elif src in neg_val_src:
-            split = "val"
-        else:
-            split = "test"
-        spans = [
-            [virtual_neg_cases[vid]["chunk_start"], virtual_neg_cases[vid]["chunk_end"]]
-            for vid in vids
-        ]
-        neg_sources.append(
-            {
-                "source_case_id": src,
-                "split": split,
-                "synthetic_case_ids": vids,
-                "chunk_spans": spans,
-            }
-        )
 
     splits: Dict[str, List[ManifestRow]] = {"train": [], "val": [], "test": []}
 
@@ -504,7 +408,7 @@ def build_sun_full(
                         source_case_id=case.get("source_case_id", case_id),
                         chunk_start=int(case.get("chunk_start", -1)),
                         chunk_end=int(case.get("chunk_end", -1)),
-                        split_unit="source_case" if case["label"] == 0 else "case",
+                        split_unit="case",
                         synthetic_case=bool(case.get("synthetic_case_id")),
                     )
                 )
@@ -533,7 +437,7 @@ def build_sun_full(
         },
         "policy": {
             "unit_of_split": "case",
-            "negative_split_unit": "source_case",
+            "negative_split_unit": "case",
             "frames_per_case": frames_per_case,
             "balance": "cases_pos=70,cases_neg=70",
             "selection": "hmac_sha256(path,seed)",
@@ -541,7 +445,6 @@ def build_sun_full(
         "roots": {"sun": str(sun_root)},
         "assertions": assertions,
         "splits": split_membership,
-        "neg_sources": neg_sources,
     }
 
     write_pack(out_dir, splits, meta)
@@ -633,11 +536,6 @@ def build_sun_morphology(
         len(neg_selected),
     )
 
-    neg_groups: Dict[str, List[str]] = {}
-    for vid in neg_selected:
-        src = virtual_neg_cases[vid]["source_case_id"]
-        neg_groups.setdefault(src, []).append(vid)
-
     flat_targets = _split_targets(len(flat_selected))
     polyp_targets = _split_targets(len(polyp_selected))
     neg_targets = _split_targets(len(neg_selected))
@@ -652,10 +550,7 @@ def build_sun_morphology(
     flat_train, flat_val, flat_test = _draw_ids(flat_selected, flat_targets)
     polyp_train, polyp_val, polyp_test = _draw_ids(polyp_selected, polyp_targets)
 
-    neg_train_src, neg_val_src, neg_test_src = _assign_neg_sources(neg_groups, neg_targets)
-    neg_train = [vid for src in neg_train_src for vid in neg_groups[src]]
-    neg_val = [vid for src in neg_val_src for vid in neg_groups[src]]
-    neg_test = [vid for src in neg_test_src for vid in neg_groups[src]]
+    neg_train, neg_val, neg_test = _draw_ids(neg_selected, neg_targets)
     neg_targets_actual = {
         "train": len(neg_train),
         "val": len(neg_val),
@@ -698,27 +593,6 @@ def build_sun_morphology(
     logger.debug("split_case_ids: %s", split_case_ids)
     logger.debug("split_membership: %s", split_membership)
 
-    neg_sources = []
-    for src, vids in neg_groups.items():
-        if src in neg_train_src:
-            split = "train"
-        elif src in neg_val_src:
-            split = "val"
-        else:
-            split = "test"
-        spans = [
-            [virtual_neg_cases[vid]["chunk_start"], virtual_neg_cases[vid]["chunk_end"]]
-            for vid in vids
-        ]
-        neg_sources.append(
-            {
-                "source_case_id": src,
-                "split": split,
-                "synthetic_case_ids": vids,
-                "chunk_spans": spans,
-            }
-        )
-
     splits: Dict[str, List[ManifestRow]] = {"train": [], "val": [], "test": []}
 
     for split, case_ids in split_case_ids.items():
@@ -747,7 +621,7 @@ def build_sun_morphology(
                         source_case_id=case.get("source_case_id", case_id),
                         chunk_start=int(case.get("chunk_start", -1)),
                         chunk_end=int(case.get("chunk_end", -1)),
-                        split_unit="source_case" if case["label"] == 0 else "case",
+                        split_unit="case",
                         synthetic_case=bool(case.get("synthetic_case_id")),
                     )
                 )
@@ -840,7 +714,7 @@ def build_sun_morphology(
         },
         "policy": {
             "unit_of_split": "case",
-            "negative_split_unit": "source_case",
+            "negative_split_unit": "case",
             "frames_per_case": frames_per_case,
             "balance": "cases_pos=70,cases_neg=70,stratify=morphology",
             "selection": "hmac_sha256(path,seed)",
@@ -850,7 +724,6 @@ def build_sun_morphology(
         "morphology_map": morph_map,
         "morphology_counts": morph_counts,
         "splits": split_membership,
-        "neg_sources": neg_sources,
     }
 
     write_pack(out_dir, splits, meta)
