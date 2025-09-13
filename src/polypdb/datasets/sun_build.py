@@ -156,6 +156,30 @@ def _split_by_ratio(case_ids: List[str]) -> tuple[List[str], List[str], List[str
     return train, val, test
 
 
+def _split_targets(total: int) -> Dict[str, int]:
+    """Return exact train/val/test counts for ``total`` items."""
+
+    n_train = round(total * 0.7)
+    n_val = round(total * 0.15)
+    n_test = total - n_train - n_val
+    return {"train": n_train, "val": n_val, "test": n_test}
+
+
+def _draw_ids(case_ids: List[str], targets: Dict[str, int]) -> tuple[List[str], List[str], List[str]]:
+    """Draw exact numbers of ``case_ids`` according to ``targets``."""
+
+    total_requested = sum(targets.values())
+    if total_requested > len(case_ids):  # pragma: no cover - safety check
+        raise ValueError("split targets exceed available case ids")
+    n_train = targets.get("train", 0)
+    n_val = targets.get("val", 0)
+    n_test = targets.get("test", 0)
+    train = case_ids[:n_train]
+    val = case_ids[n_train : n_train + n_val]
+    test = case_ids[n_train + n_val : n_train + n_val + n_test]
+    return train, val, test
+
+
 def _compute_assertions(
     splits: Dict[str, List[ManifestRow]],
     frames_per_case: int,
@@ -500,8 +524,12 @@ def build_sun_morphology(
             neg_source_order.append(src)
         neg_groups[src].append(vid)
 
-    flat_train, flat_val, flat_test = _split_by_ratio(flat_selected)
-    polyp_train, polyp_val, polyp_test = _split_by_ratio(polyp_selected)
+    flat_targets = _split_targets(len(flat_selected))
+    polyp_targets = _split_targets(len(polyp_selected))
+
+    flat_train, flat_val, flat_test = _draw_ids(flat_selected, flat_targets)
+    polyp_train, polyp_val, polyp_test = _draw_ids(polyp_selected, polyp_targets)
+
     neg_train_src, neg_val_src, neg_test_src = _split_by_ratio(neg_source_order)
     neg_train = [vid for src in neg_train_src for vid in neg_groups[src]]
     neg_val = [vid for src in neg_val_src for vid in neg_groups[src]]
@@ -628,13 +656,16 @@ def build_sun_morphology(
     morph_counts = {"overall": overall_counts, **split_morph_counts}
 
     expected_morph_targets = {
-        "train": {"flat": len(flat_train), "polypoid": len(polyp_train)},
-        "val": {"flat": len(flat_val), "polypoid": len(polyp_val)},
-        "test": {"flat": len(flat_test), "polypoid": len(polyp_test)},
+        "train": {"flat": flat_targets["train"], "polypoid": polyp_targets["train"]},
+        "val": {"flat": flat_targets["val"], "polypoid": polyp_targets["val"]},
+        "test": {"flat": flat_targets["test"], "polypoid": polyp_targets["test"]},
     }
     if verify and morph_targets_actual != expected_morph_targets:
         raise AssertionError("morphology targets not met")
-    assertions["morphology_targets_met"] = morph_targets_actual
+    assertions["morphology_targets"] = {
+        "expected": expected_morph_targets,
+        "actual": morph_targets_actual,
+    }
 
     command = (
         f"polypdb sun morph --root {sun_root} --out {out_dir} "
