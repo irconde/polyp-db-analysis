@@ -516,6 +516,56 @@ def build_sun_morphology(
                 )
     assertions = _compute_assertions(splits, frames_per_case, verify=verify)
 
+    morph_map: Dict[str, str] = {}
+    split_morph_counts: Dict[str, Dict[str, int]] = {}
+    overall_counts = {
+        "flat_cases": 0,
+        "polypoid_cases": 0,
+        "flat_frames": 0,
+        "polypoid_frames": 0,
+    }
+    morph_targets_actual: Dict[str, Dict[str, int]] = {}
+
+    for split, rows in splits.items():
+        flat_case_set: set[str] = set()
+        polyp_case_set: set[str] = set()
+        flat_frames = 0
+        polyp_frames = 0
+        for r in rows:
+            if r.label == 1 and r.morphology:
+                morph_map.setdefault(r.case_id, r.morphology)
+                if r.morphology == "flat":
+                    flat_case_set.add(r.case_id)
+                    flat_frames += 1
+                elif r.morphology == "polypoid":
+                    polyp_case_set.add(r.case_id)
+                    polyp_frames += 1
+        split_morph_counts[split] = {
+            "flat_cases": len(flat_case_set),
+            "polypoid_cases": len(polyp_case_set),
+            "flat_frames": flat_frames,
+            "polypoid_frames": polyp_frames,
+        }
+        morph_targets_actual[split] = {
+            "flat": len(flat_case_set),
+            "polypoid": len(polyp_case_set),
+        }
+        overall_counts["flat_cases"] += len(flat_case_set)
+        overall_counts["polypoid_cases"] += len(polyp_case_set)
+        overall_counts["flat_frames"] += flat_frames
+        overall_counts["polypoid_frames"] += polyp_frames
+
+    morph_counts = {"overall": overall_counts, **split_morph_counts}
+
+    expected_morph_targets = {
+        "train": {"flat": len(flat_train), "polypoid": len(polyp_train)},
+        "val": {"flat": len(flat_val), "polypoid": len(polyp_val)},
+        "test": {"flat": len(flat_test), "polypoid": len(polyp_test)},
+    }
+    if verify and morph_targets_actual != expected_morph_targets:
+        raise AssertionError("morphology targets not met")
+    assertions["morphology_targets_met"] = morph_targets_actual
+
     command = (
         f"polypdb sun morph --root {sun_root} --out {out_dir} "
         f"--seed {seed} --frames-per-case {frames_per_case}"
@@ -545,6 +595,8 @@ def build_sun_morphology(
         },
         "roots": {"sun": str(sun_root)},
         "assertions": assertions,
+        "morphology_map": morph_map,
+        "morphology_counts": morph_counts,
     }
 
     write_pack(out_dir, splits, meta)

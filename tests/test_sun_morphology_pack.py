@@ -3,6 +3,7 @@ from collections import Counter
 
 import pandas as pd
 from PIL import Image
+import yaml
 
 from polypdb.datasets.sun_build import build_sun_morphology
 from polypdb.manifests.io import read_csv
@@ -106,4 +107,38 @@ def test_build_sun_morphology(tmp_path: Path) -> None:
                 assert r.split_unit == "source_case"
                 assert r.source_case_id.startswith("N")
                 assert r.synthetic_case_id
+
+    manifest = yaml.safe_load((out_dir / "manifest.yaml").read_text())
+    mmap = manifest["morphology_map"]
+    assert Counter(mmap.values()) == {"polypoid": 7, "flat": 7}
+    counts = manifest["morphology_counts"]
+    assert counts["overall"] == {
+        "flat_cases": 7,
+        "polypoid_cases": 7,
+        "flat_frames": 7 * 33,
+        "polypoid_frames": 7 * 33,
+    }
+    assert counts["train"] == {
+        "flat_cases": 5,
+        "polypoid_cases": 5,
+        "flat_frames": 5 * 33,
+        "polypoid_frames": 5 * 33,
+    }
+    assert counts["val"] == {
+        "flat_cases": 1,
+        "polypoid_cases": 1,
+        "flat_frames": 33,
+        "polypoid_frames": 33,
+    }
+    assert counts["test"] == {
+        "flat_cases": 1,
+        "polypoid_cases": 1,
+        "flat_frames": 33,
+        "polypoid_frames": 33,
+    }
+    assert manifest["assertions"]["morphology_targets_met"] == {
+        "train": {"flat": 5, "polypoid": 5},
+        "val": {"flat": 1, "polypoid": 1},
+        "test": {"flat": 1, "polypoid": 1},
+    }
 
