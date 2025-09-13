@@ -44,6 +44,11 @@ def build_polypgen_eval(pg_root: Path, out_dir: Path, track: str = "clean") -> N
     if label_col not in df.columns:
         raise ValueError("frames.parquet missing label column")
 
+    if "global_frame_id" not in df.columns:
+        raise ValueError("frames.parquet missing global_frame_id column")
+    if "center_id" not in df.columns:
+        raise ValueError("frames.parquet missing center_id column")
+
     rows: list[ManifestRow] = []
     for row in df.itertuples(index=False):
         frame_path = Path(getattr(row, path_col))
@@ -56,13 +61,14 @@ def build_polypgen_eval(pg_root: Path, out_dir: Path, track: str = "clean") -> N
             # pragma: no cover - allow missing files in source dataset
             continue
         rel = rel_path.as_posix()
-        frame_id = rel.rsplit(".", 1)[0]
+        frame_id = str(getattr(row, "global_frame_id"))
         label = int(getattr(row, label_col))
+        case_id = str(getattr(row, "center_id"))
         rows.append(
             ManifestRow(
                 dataset="PolypGen",
                 split="eval",
-                case_id="",
+                case_id=case_id,
                 frame_id=frame_id,
                 frame_path=rel,
                 label=label,
