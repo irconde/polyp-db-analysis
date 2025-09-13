@@ -203,10 +203,16 @@ def build_sun_full(
         for i in range(chunks):
             start = i * frames_per_case
             end = start + frames_per_case
+            start_idx = int(frames[start].get("frame_index", start))
+            end_idx = int(frames[end - 1].get("frame_index", end - 1))
             virtual_id = f"{cid}_v{i:03d}"
             virtual_neg_cases[virtual_id] = {
                 "label": 0,
                 "frames": frames[start:end],
+                "synthetic_case_id": virtual_id,
+                "source_case_id": cid,
+                "chunk_start": start_idx,
+                "chunk_end": end_idx,
             }
 
     # Replace the original negatives with the virtual cases.
@@ -219,7 +225,20 @@ def build_sun_full(
     neg_selected = pick_k(neg_ids, seed, min(100, len(neg_ids)), key=lambda x: x)
 
     pos_train, pos_val, pos_test = _split_cases(pos_selected)
-    neg_train, neg_val, neg_test = _split_cases(neg_selected)
+
+    neg_groups: Dict[str, List[str]] = {}
+    neg_source_order: List[str] = []
+    for vid in neg_selected:
+        src = virtual_neg_cases[vid]["source_case_id"]
+        if src not in neg_groups:
+            neg_groups[src] = []
+            neg_source_order.append(src)
+        neg_groups[src].append(vid)
+
+    neg_train_src, neg_val_src, neg_test_src = _split_by_ratio(neg_source_order)
+    neg_train = [vid for src in neg_train_src for vid in neg_groups[src]]
+    neg_val = [vid for src in neg_val_src for vid in neg_groups[src]]
+    neg_test = [vid for src in neg_test_src for vid in neg_groups[src]]
 
     split_case_ids = {
         "train": pos_train + neg_train,
@@ -251,6 +270,11 @@ def build_sun_full(
                         frame_index=int(frame.get("frame_index", -1)),
                         width=int(frame.get("width", -1)),
                         height=int(frame.get("height", -1)),
+                        synthetic_case_id=case.get("synthetic_case_id", ""),
+                        source_case_id=case.get("source_case_id", case_id),
+                        chunk_start=int(case.get("chunk_start", -1)),
+                        chunk_end=int(case.get("chunk_end", -1)),
+                        split_unit="source_case" if case["label"] == 0 else "case",
                     )
                 )
 
@@ -277,6 +301,7 @@ def build_sun_full(
         },
         "policy": {
             "unit_of_split": "case",
+            "negative_split_unit": "source_case",
             "frames_per_case": frames_per_case,
             "balance": "cases_pos=70,cases_neg=70",
             "selection": "hmac_sha256(path,seed)",
@@ -332,8 +357,17 @@ def build_sun_morphology(
         for i in range(chunks):
             start = i * frames_per_case
             end = start + frames_per_case
+            start_idx = int(frames[start].get("frame_index", start))
+            end_idx = int(frames[end - 1].get("frame_index", end - 1))
             vid = f"{cid}_v{i:03d}"
-            virtual_neg_cases[vid] = {"label": 0, "frames": frames[start:end]}
+            virtual_neg_cases[vid] = {
+                "label": 0,
+                "frames": frames[start:end],
+                "synthetic_case_id": vid,
+                "source_case_id": cid,
+                "chunk_start": start_idx,
+                "chunk_end": end_idx,
+            }
 
     index = {**pos_cases, **virtual_neg_cases}
 
@@ -342,9 +376,21 @@ def build_sun_morphology(
     neg_ids = sorted(virtual_neg_cases.keys())
     neg_selected = pick_k(neg_ids, seed, min(100, len(neg_ids)), key=lambda x: x)
 
+    neg_groups: Dict[str, List[str]] = {}
+    neg_source_order: List[str] = []
+    for vid in neg_selected:
+        src = virtual_neg_cases[vid]["source_case_id"]
+        if src not in neg_groups:
+            neg_groups[src] = []
+            neg_source_order.append(src)
+        neg_groups[src].append(vid)
+
     flat_train, flat_val, flat_test = _split_by_ratio(flat_selected)
     polyp_train, polyp_val, polyp_test = _split_by_ratio(polyp_selected)
-    neg_train, neg_val, neg_test = _split_by_ratio(neg_selected)
+    neg_train_src, neg_val_src, neg_test_src = _split_by_ratio(neg_source_order)
+    neg_train = [vid for src in neg_train_src for vid in neg_groups[src]]
+    neg_val = [vid for src in neg_val_src for vid in neg_groups[src]]
+    neg_test = [vid for src in neg_test_src for vid in neg_groups[src]]
 
     split_case_ids = {
         "train": flat_train + polyp_train + neg_train,
@@ -376,6 +422,11 @@ def build_sun_morphology(
                         frame_index=int(frame.get("frame_index", -1)),
                         width=int(frame.get("width", -1)),
                         height=int(frame.get("height", -1)),
+                        synthetic_case_id=case.get("synthetic_case_id", ""),
+                        source_case_id=case.get("source_case_id", case_id),
+                        chunk_start=int(case.get("chunk_start", -1)),
+                        chunk_end=int(case.get("chunk_end", -1)),
+                        split_unit="source_case" if case["label"] == 0 else "case",
                     )
                 )
 
@@ -401,6 +452,7 @@ def build_sun_morphology(
         },
         "policy": {
             "unit_of_split": "case",
+            "negative_split_unit": "source_case",
             "frames_per_case": frames_per_case,
             "balance": "cases_pos=70,cases_neg=70,stratify=morphology",
             "selection": "hmac_sha256(path,seed)",
