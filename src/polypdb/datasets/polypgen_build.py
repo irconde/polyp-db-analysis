@@ -49,6 +49,9 @@ def build_polypgen_eval(pg_root: Path, out_dir: Path, track: str = "clean") -> N
     if "center_id" not in df.columns:
         raise ValueError("frames.parquet missing center_id column")
 
+    width_col = "img_width" if "img_width" in df.columns else None
+    height_col = "img_height" if "img_height" in df.columns else None
+
     rows: list[ManifestRow] = []
     for row in df.itertuples(index=False):
         frame_path = Path(getattr(row, path_col))
@@ -64,6 +67,16 @@ def build_polypgen_eval(pg_root: Path, out_dir: Path, track: str = "clean") -> N
         frame_id = str(getattr(row, "global_frame_id"))
         label = int(getattr(row, label_col))
         case_id = str(getattr(row, "center_id"))
+        width = (
+            int(getattr(row, width_col))
+            if width_col and pd.notna(getattr(row, width_col))
+            else -1
+        )
+        height = (
+            int(getattr(row, height_col))
+            if height_col and pd.notna(getattr(row, height_col))
+            else -1
+        )
         rows.append(
             ManifestRow(
                 dataset="PolypGen",
@@ -73,6 +86,8 @@ def build_polypgen_eval(pg_root: Path, out_dir: Path, track: str = "clean") -> N
                 frame_path=rel,
                 label=label,
                 store_id=f"polypgen_{track}",
+                width=width,
+                height=height,
             )
         )
 
