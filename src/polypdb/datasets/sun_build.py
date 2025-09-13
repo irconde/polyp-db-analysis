@@ -5,12 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Dict, List, Any
 import subprocess
+import logging
 from itertools import combinations
 from collections import Counter
 from functools import lru_cache
 
 from ..manifests.core import ManifestRow, pick_k
 from ..manifests.io import write_pack
+
+logger = logging.getLogger(__name__)
 
 Index = Dict[str, Dict[str, Any]]
 Indexer = Callable[[Path], Index]
@@ -250,8 +253,10 @@ def _compute_assertions(
         case_sets[a].isdisjoint(case_sets[b])
         for a, b in combinations(case_sets, 2)
     )
-    if verify and not no_case_leak:
-        raise AssertionError("case leakage across splits")
+    if not no_case_leak:
+        logger.debug("Case leakage across splits detected: %s", case_sets)
+        if verify:
+            raise AssertionError("case leakage across splits")
 
     neg_sources = {
         s: {r.source_case_id for r in rows if r.label == 0}
@@ -261,8 +266,12 @@ def _compute_assertions(
         neg_sources[a].isdisjoint(neg_sources[b])
         for a, b in combinations(neg_sources, 2)
     )
-    if verify and not no_neg_leak:
-        raise AssertionError("negative source leakage across splits")
+    if not no_neg_leak:
+        logger.debug(
+            "Negative source leakage across splits detected: %s", neg_sources
+        )
+        if verify:
+            raise AssertionError("negative source leakage across splits")
 
     split_counts: Dict[str, Dict[str, int]] = {}
     for split, rows in splits.items():
@@ -302,6 +311,10 @@ def _compute_assertions(
         counts["pos_cases"] == counts["neg_cases"]
         for counts in split_counts.values()
     )
+    if mismatches:
+        logger.debug("Split target mismatches detected: %s", mismatches)
+    if not balanced:
+        logger.debug("Split counts not balanced: %s", split_counts)
     if verify and (mismatches or not balanced):
         raise AssertionError("split counts do not meet targets")
 
@@ -312,8 +325,10 @@ def _compute_assertions(
     exceptions = sorted(
         cid for cid, cnt in case_frame_counts.items() if cnt != frames_per_case
     )
-    if verify and exceptions:
-        raise AssertionError("cases do not have expected number of frames")
+    if exceptions:
+        logger.debug("Cases with unexpected frame counts: %s", exceptions)
+        if verify:
+            raise AssertionError("cases do not have expected number of frames")
 
     assertions: Dict[str, Any] = {
         "no_case_leakage_across_splits": no_case_leak,
@@ -391,11 +406,23 @@ def build_sun_full(
     # Replace the original negatives with the virtual cases.
     index = {**pos_cases, **virtual_neg_cases}
 
+    logger.debug(
+        "Positive cases available: %d, negative cases available: %d",
+        len(pos_cases),
+        len(virtual_neg_cases),
+    )
+
     pos_ids = sorted(pos_cases.keys())
     neg_ids = sorted(virtual_neg_cases.keys())
 
     pos_selected = pick_k(pos_ids, seed, min(100, len(pos_ids)), key=lambda x: x)
     neg_selected = pick_k(neg_ids, seed, min(100, len(neg_ids)), key=lambda x: x)
+
+    logger.debug(
+        "Selected positive cases: %d, selected negative cases: %d",
+        len(pos_selected),
+        len(neg_selected),
+    )
 
     pos_train, pos_val, pos_test = _split_cases(pos_selected)
 
@@ -424,6 +451,9 @@ def build_sun_full(
         "val": {"pos_cases": pos_val, "neg_cases": neg_val},
         "test": {"pos_cases": pos_test, "neg_cases": neg_test},
     }
+
+    logger.debug("split_case_ids: %s", split_case_ids)
+    logger.debug("split_membership: %s", split_membership)
 
     neg_sources = []
     for src, vids in neg_groups.items():
@@ -556,6 +586,13 @@ def build_sun_morphology(
         else:
             neg_cases[cid] = case
 
+    logger.debug(
+        "Initial counts - flat positives: %d, polypoid positives: %d, negatives: %d",
+        len(flat_ids),
+        len(polypoid_ids),
+        len(neg_cases),
+    )
+
     virtual_neg_cases: Dict[str, Dict[str, Any]] = {}
     for cid, case in neg_cases.items():
         frames = case["frames"]
@@ -577,10 +614,24 @@ def build_sun_morphology(
 
     index = {**pos_cases, **virtual_neg_cases}
 
+    logger.debug(
+        "Positive cases available - flat: %d, polypoid: %d; negative cases available: %d",
+        len(flat_ids),
+        len(polypoid_ids),
+        len(virtual_neg_cases),
+    )
+
     flat_selected = pick_k(sorted(flat_ids), seed, len(flat_ids), key=lambda x: x)
     polyp_selected = pick_k(sorted(polypoid_ids), seed, len(polypoid_ids), key=lambda x: x)
     neg_ids = sorted(virtual_neg_cases.keys())
     neg_selected = pick_k(neg_ids, seed, min(100, len(neg_ids)), key=lambda x: x)
+
+    logger.debug(
+        "Selected cases - flat: %d, polypoid: %d, negative: %d",
+        len(flat_selected),
+        len(polyp_selected),
+        len(neg_selected),
+    )
 
     neg_groups: Dict[str, List[str]] = {}
     for vid in neg_selected:
@@ -590,6 +641,13 @@ def build_sun_morphology(
     flat_targets = _split_targets(len(flat_selected))
     polyp_targets = _split_targets(len(polyp_selected))
     neg_targets = _split_targets(len(neg_selected))
+
+    logger.debug(
+        "Split targets - flat: %s, polypoid: %s, negatives: %s",
+        flat_targets,
+        polyp_targets,
+        neg_targets,
+    )
 
     flat_train, flat_val, flat_test = _draw_ids(flat_selected, flat_targets)
     polyp_train, polyp_val, polyp_test = _draw_ids(polyp_selected, polyp_targets)
@@ -603,8 +661,15 @@ def build_sun_morphology(
         "val": len(neg_val),
         "test": len(neg_test),
     }
-    if verify and neg_targets_actual != neg_targets:
-        raise AssertionError("negative targets not met")
+    logger.debug("Negative targets actual: %s", neg_targets_actual)
+    if neg_targets_actual != neg_targets:
+        logger.debug(
+            "Negative targets mismatch: expected %s, actual %s",
+            neg_targets,
+            neg_targets_actual,
+        )
+        if verify:
+            raise AssertionError("negative targets not met")
 
     split_case_ids = {
         "train": flat_train + polyp_train + neg_train,
@@ -629,6 +694,9 @@ def build_sun_morphology(
             "neg_cases": neg_test,
         },
     }
+
+    logger.debug("split_case_ids: %s", split_case_ids)
+    logger.debug("split_membership: %s", split_membership)
 
     neg_sources = []
     for src, vids in neg_groups.items():
@@ -735,8 +803,16 @@ def build_sun_morphology(
         "val": {"flat": flat_targets["val"], "polypoid": polyp_targets["val"]},
         "test": {"flat": flat_targets["test"], "polypoid": polyp_targets["test"]},
     }
-    if verify and morph_targets_actual != expected_morph_targets:
-        raise AssertionError("morphology targets not met")
+    logger.debug("Morphology targets actual: %s", morph_targets_actual)
+    logger.debug("Expected morphology targets: %s", expected_morph_targets)
+    if morph_targets_actual != expected_morph_targets:
+        logger.debug(
+            "Morphology targets mismatch: expected %s, actual %s",
+            expected_morph_targets,
+            morph_targets_actual,
+        )
+        if verify:
+            raise AssertionError("morphology targets not met")
     assertions["morphology_targets"] = {
         "expected": expected_morph_targets,
         "actual": morph_targets_actual,
