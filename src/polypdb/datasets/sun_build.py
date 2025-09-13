@@ -9,7 +9,7 @@ import logging
 from itertools import combinations
 from collections import Counter
 
-from ..manifests.core import ManifestRow, pick_k
+from ..manifests.core import ManifestRow, pick_k, hmac_rank
 from ..manifests.io import write_pack
 
 logger = logging.getLogger(__name__)
@@ -278,6 +278,142 @@ def _compute_assertions(
     return assertions
 
 
+def _allocate_negative_cases(
+    neg_cases: Dict[str, Dict[str, Any]],
+    seed: int,
+    frames_per_case: int,
+    *,
+    targets: Dict[str, int] | None = None,
+    verify: bool = True,
+) -> tuple[
+    Dict[str, Dict[str, Any]],
+    Dict[str, List[str]],
+    List[Dict[str, Any]],
+    Dict[str, int],
+    Dict[str, int],
+]:
+    """Chunk and allocate negative cases to splits without leakage.
+
+    Returns the virtual negative cases mapping, the split membership of their
+    identifiers, ``neg_sources`` metadata entries, counts of original negative
+    cases per split, and the (possibly adjusted) split targets.
+    """
+
+    if targets is None:
+        targets = {"train": 70, "val": 15, "test": 15}
+
+    # Partition each negative case into contiguous chunks of ``frames_per_case``
+    # frames and rank the cases/chunks deterministically.
+    chunks_by_case: Dict[str, List[Dict[str, Any]]] = {}
+    for cid, case in neg_cases.items():
+        frames = case["frames"]
+        num_chunks = len(frames) // frames_per_case
+        if num_chunks == 0:
+            continue
+        case_chunks: List[Dict[str, Any]] = []
+        for idx in range(num_chunks):
+            start = idx * frames_per_case
+            end = start + frames_per_case
+            start_idx = int(frames[start].get("frame_index", start))
+            end_idx = int(frames[end - 1].get("frame_index", end - 1))
+            case_chunks.append(
+                {
+                    "chunk_idx": idx,
+                    "frames": frames[start:end],
+                    "start": start_idx,
+                    "end": end_idx,
+                }
+            )
+        chunks_by_case[cid] = case_chunks
+
+    total_available = sum(len(v) for v in chunks_by_case.values())
+    target_total = sum(targets.values())
+    if total_available < target_total:
+        factor = total_available / target_total if target_total else 0
+        train = int(round(targets["train"] * factor))
+        val = int(round(targets["val"] * factor))
+        targets = {"train": train, "val": val, "test": total_available - train - val}
+
+    caps = {s: max(1, int(targets[s] * 0.4)) for s in targets}
+    remaining = dict(targets)
+
+    ranked_cases = sorted(
+        chunks_by_case.keys(), key=lambda c: (hmac_rank(seed, c), c)
+    )
+
+    virtual_cases: Dict[str, Dict[str, Any]] = {}
+    split_ids: Dict[str, List[str]] = {s: [] for s in targets}
+    split_sources: Dict[str, set[str]] = {s: set() for s in targets}
+    per_source_counts: Dict[str, Dict[str, int]] = {s: {} for s in targets}
+
+    for cid in ranked_cases:
+        chunks = chunks_by_case[cid]
+        ranked_chunks = sorted(
+            chunks,
+            key=lambda ch: (hmac_rank(seed, f"{cid}/{ch['chunk_idx']}") , ch["chunk_idx"]),
+        )
+        for split in ("train", "val", "test"):
+            if remaining[split] <= 0:
+                continue
+            allowed = min(len(ranked_chunks), remaining[split], caps[split])
+            if allowed <= 0:
+                continue
+            for ch in ranked_chunks[:allowed]:
+                vid = f"{cid}_v{ch['chunk_idx']:03d}"
+                virtual_cases[vid] = {
+                    "label": 0,
+                    "frames": ch["frames"],
+                    "synthetic_case_id": vid,
+                    "source_case_id": cid,
+                    "chunk_start": ch["start"],
+                    "chunk_end": ch["end"],
+                }
+                split_ids[split].append(vid)
+            remaining[split] -= allowed
+            split_sources[split].add(cid)
+            per_source_counts[split][cid] = allowed
+            break
+        if all(r == 0 for r in remaining.values()):
+            break
+
+    if verify and any(r > 0 for r in remaining.values()):
+        raise AssertionError("negative targets not met")
+
+    for split, counts in per_source_counts.items():
+        if verify and any(v > caps[split] for v in counts.values()):
+            raise AssertionError("per-source cap exceeded")
+        if verify and len(split_sources[split]) < 3:
+            raise AssertionError("fewer than 3 negative sources assigned")
+
+    seen: set[str] = set()
+    for srcs in split_sources.values():
+        if verify and not seen.isdisjoint(srcs):
+            raise AssertionError("negative case leakage across splits")
+        seen.update(srcs)
+
+    neg_sources_meta: List[Dict[str, Any]] = []
+    for split in ("train", "val", "test"):
+        for cid in split_sources[split]:
+            vids = [vid for vid in split_ids[split] if vid.startswith(f"{cid}_v")]
+            spans = [
+                [virtual_cases[vid]["chunk_start"], virtual_cases[vid]["chunk_end"]]
+                for vid in vids
+            ]
+            neg_sources_meta.append(
+                {
+                    "source_case_id": cid,
+                    "split": split,
+                    "synthetic_case_ids": vids,
+                    "chunk_spans": spans,
+                }
+            )
+    neg_sources_meta.sort(key=lambda x: (x["source_case_id"], x["split"]))
+
+    source_counts = {s: len(split_sources[s]) for s in targets}
+
+    return virtual_cases, split_ids, neg_sources_meta, source_counts, targets
+
+
 def build_sun_full(
     sun_root: Path,
     out_dir: Path,
@@ -310,37 +446,23 @@ def build_sun_full(
 
     index = indexer(sun_root)
 
-    # Separate positive and negative cases from the index so that we can
-    # transform the negatives into synthetic "virtual" cases.  The SUN dataset
-    # contains only 13 negative videos which are very long.  For training we
-    # need 100 negative cases with similar size to the positives, so each
-    # negative video is partitioned into non‑overlapping contiguous chunks of
-    # ``frames_per_case`` frames.  Each chunk becomes its own case with a
-    # synthetic identifier derived from the source case id.
+    # Separate positive and negative cases from the index.  Negatives are
+    # further split into virtual cases deterministically with per‑source
+    # exclusivity across splits.
 
     pos_cases = {cid: case for cid, case in index.items() if case.get("label") == 1}
     neg_cases = {cid: case for cid, case in index.items() if case.get("label") == 0}
 
-    virtual_neg_cases: Dict[str, Dict[str, Any]] = {}
-    for cid, case in neg_cases.items():
-        frames = case["frames"]
-        chunks = len(frames) // frames_per_case
-        for i in range(chunks):
-            start = i * frames_per_case
-            end = start + frames_per_case
-            start_idx = int(frames[start].get("frame_index", start))
-            end_idx = int(frames[end - 1].get("frame_index", end - 1))
-            virtual_id = f"{cid}_v{i:03d}"
-            virtual_neg_cases[virtual_id] = {
-                "label": 0,
-                "frames": frames[start:end],
-                "synthetic_case_id": virtual_id,
-                "source_case_id": cid,
-                "chunk_start": start_idx,
-                "chunk_end": end_idx,
-            }
+    (
+        virtual_neg_cases,
+        neg_split_ids,
+        neg_sources_meta,
+        neg_source_counts,
+        neg_targets,
+    ) = _allocate_negative_cases(
+        neg_cases, seed, frames_per_case, verify=verify
+    )
 
-    # Replace the original negatives with the virtual cases.
     index = {**pos_cases, **virtual_neg_cases}
 
     logger.debug(
@@ -350,31 +472,22 @@ def build_sun_full(
     )
 
     pos_ids = sorted(pos_cases.keys())
-    neg_ids = sorted(virtual_neg_cases.keys())
-
     pos_selected = pick_k(pos_ids, seed, min(100, len(pos_ids)), key=lambda x: x)
-    neg_selected = pick_k(neg_ids, seed, min(100, len(neg_ids)), key=lambda x: x)
 
-    logger.debug(
-        "Selected positive cases: %d, selected negative cases: %d",
-        len(pos_selected),
-        len(neg_selected),
-    )
+    logger.debug("Selected positive cases: %d", len(pos_selected))
 
     pos_train, pos_val, pos_test = _split_cases(pos_selected)
 
-    neg_train, neg_val, neg_test = _split_cases(neg_selected)
-
     split_case_ids = {
-        "train": pos_train + neg_train,
-        "val": pos_val + neg_val,
-        "test": pos_test + neg_test,
+        "train": pos_train + neg_split_ids["train"],
+        "val": pos_val + neg_split_ids["val"],
+        "test": pos_test + neg_split_ids["test"],
     }
 
     split_membership = {
-        "train": {"pos_cases": pos_train, "neg_cases": neg_train},
-        "val": {"pos_cases": pos_val, "neg_cases": neg_val},
-        "test": {"pos_cases": pos_test, "neg_cases": neg_test},
+        "train": {"pos_cases": pos_train, "neg_cases": neg_split_ids["train"]},
+        "val": {"pos_cases": pos_val, "neg_cases": neg_split_ids["val"]},
+        "test": {"pos_cases": pos_test, "neg_cases": neg_split_ids["test"]},
     }
 
     logger.debug("split_case_ids: %s", split_case_ids)
@@ -413,31 +526,13 @@ def build_sun_full(
                     )
                 )
     assertions = _compute_assertions(splits, frames_per_case, verify=verify)
-
-    neg_sources: List[Dict[str, Any]] = []
-    if virtual_neg_cases:
-        mapping: Dict[tuple[str, str], Dict[str, Any]] = {}
-        for split, members in split_membership.items():
-            for vid in members.get("neg_cases", []):
-                info = virtual_neg_cases.get(vid, {})
-                src = info.get("source_case_id", "")
-                key = (src, split)
-                entry = mapping.setdefault(
-                    key,
-                    {
-                        "source_case_id": src,
-                        "split": split,
-                        "synthetic_case_ids": [],
-                        "chunk_spans": [],
-                    },
-                )
-                entry["synthetic_case_ids"].append(vid)
-                entry["chunk_spans"].append(
-                    [int(info.get("chunk_start", -1)), int(info.get("chunk_end", -1))]
-                )
-        neg_sources = sorted(
-            mapping.values(), key=lambda x: (x["source_case_id"], x["split"])
-        )
+    neg_targets_actual = {s: len(ids) for s, ids in neg_split_ids.items()}
+    assertions["negative_case_targets"] = {
+        "expected": neg_targets,
+        "actual": neg_targets_actual,
+    }
+    assertions["no_negative_case_leakage"] = True
+    assertions["neg_sources_per_split"] = neg_source_counts
 
     command = (
         f"polypdb sun build --root {sun_root} --out {out_dir} "
@@ -479,8 +574,8 @@ def build_sun_full(
         "splits": split_membership,
     }
 
-    if neg_sources:
-        meta["neg_sources"] = neg_sources
+    if neg_sources_meta:
+        meta["neg_sources"] = neg_sources_meta
 
     write_pack(out_dir, splits, meta)
 
@@ -531,24 +626,15 @@ def build_sun_morphology(
         len(neg_cases),
     )
 
-    virtual_neg_cases: Dict[str, Dict[str, Any]] = {}
-    for cid, case in neg_cases.items():
-        frames = case["frames"]
-        chunks = len(frames) // frames_per_case
-        for i in range(chunks):
-            start = i * frames_per_case
-            end = start + frames_per_case
-            start_idx = int(frames[start].get("frame_index", start))
-            end_idx = int(frames[end - 1].get("frame_index", end - 1))
-            vid = f"{cid}_v{i:03d}"
-            virtual_neg_cases[vid] = {
-                "label": 0,
-                "frames": frames[start:end],
-                "synthetic_case_id": vid,
-                "source_case_id": cid,
-                "chunk_start": start_idx,
-                "chunk_end": end_idx,
-            }
+    (
+        virtual_neg_cases,
+        neg_split_ids,
+        neg_sources_meta,
+        neg_source_counts,
+        neg_targets,
+    ) = _allocate_negative_cases(
+        neg_cases, seed, frames_per_case, verify=verify
+    )
 
     index = {**pos_cases, **virtual_neg_cases}
 
@@ -561,19 +647,13 @@ def build_sun_morphology(
 
     flat_selected = pick_k(sorted(flat_ids), seed, len(flat_ids), key=lambda x: x)
     polyp_selected = pick_k(sorted(polypoid_ids), seed, len(polypoid_ids), key=lambda x: x)
-    neg_ids = sorted(virtual_neg_cases.keys())
-    neg_selected = pick_k(neg_ids, seed, min(100, len(neg_ids)), key=lambda x: x)
 
     logger.debug(
-        "Selected cases - flat: %d, polypoid: %d, negative: %d",
-        len(flat_selected),
-        len(polyp_selected),
-        len(neg_selected),
+        "Selected cases - flat: %d, polypoid: %d", len(flat_selected), len(polyp_selected)
     )
 
     flat_targets = _split_targets(len(flat_selected))
     polyp_targets = _split_targets(len(polyp_selected))
-    neg_targets = _split_targets(len(neg_selected))
 
     logger.debug(
         "Split targets - flat: %s, polypoid: %s, negatives: %s",
@@ -585,43 +665,27 @@ def build_sun_morphology(
     flat_train, flat_val, flat_test = _draw_ids(flat_selected, flat_targets)
     polyp_train, polyp_val, polyp_test = _draw_ids(polyp_selected, polyp_targets)
 
-    neg_train, neg_val, neg_test = _draw_ids(neg_selected, neg_targets)
-    neg_targets_actual = {
-        "train": len(neg_train),
-        "val": len(neg_val),
-        "test": len(neg_test),
-    }
-    logger.debug("Negative targets actual: %s", neg_targets_actual)
-    if neg_targets_actual != neg_targets:
-        logger.debug(
-            "Negative targets mismatch: expected %s, actual %s",
-            neg_targets,
-            neg_targets_actual,
-        )
-        if verify:
-            raise AssertionError("negative targets not met")
-
     split_case_ids = {
-        "train": flat_train + polyp_train + neg_train,
-        "val": flat_val + polyp_val + neg_val,
-        "test": flat_test + polyp_test + neg_test,
+        "train": flat_train + polyp_train + neg_split_ids["train"],
+        "val": flat_val + polyp_val + neg_split_ids["val"],
+        "test": flat_test + polyp_test + neg_split_ids["test"],
     }
 
     split_membership = {
         "train": {
             "pos_flat_cases": flat_train,
             "pos_polypoid_cases": polyp_train,
-            "neg_cases": neg_train,
+            "neg_cases": neg_split_ids["train"],
         },
         "val": {
             "pos_flat_cases": flat_val,
             "pos_polypoid_cases": polyp_val,
-            "neg_cases": neg_val,
+            "neg_cases": neg_split_ids["val"],
         },
         "test": {
             "pos_flat_cases": flat_test,
             "pos_polypoid_cases": polyp_test,
-            "neg_cases": neg_test,
+            "neg_cases": neg_split_ids["test"],
         },
     }
 
@@ -661,35 +725,15 @@ def build_sun_morphology(
                     )
                 )
     assertions = _compute_assertions(splits, frames_per_case, verify=verify)
+    neg_targets_actual = {s: len(ids) for s, ids in neg_split_ids.items()}
     assertions["negative_case_targets"] = {
         "expected": neg_targets,
         "actual": neg_targets_actual,
     }
+    assertions["no_negative_case_leakage"] = True
+    assertions["neg_sources_per_split"] = neg_source_counts
 
-    neg_sources: List[Dict[str, Any]] = []
-    if virtual_neg_cases:
-        mapping: Dict[tuple[str, str], Dict[str, Any]] = {}
-        for split, members in split_membership.items():
-            for vid in members.get("neg_cases", []):
-                info = virtual_neg_cases.get(vid, {})
-                src = info.get("source_case_id", "")
-                key = (src, split)
-                entry = mapping.setdefault(
-                    key,
-                    {
-                        "source_case_id": src,
-                        "split": split,
-                        "synthetic_case_ids": [],
-                        "chunk_spans": [],
-                    },
-                )
-                entry["synthetic_case_ids"].append(vid)
-                entry["chunk_spans"].append(
-                    [int(info.get("chunk_start", -1)), int(info.get("chunk_end", -1))]
-                )
-        neg_sources = sorted(
-            mapping.values(), key=lambda x: (x["source_case_id"], x["split"])
-        )
+    neg_sources = neg_sources_meta
 
     morph_map: Dict[str, str] = {}
     split_morph_counts: Dict[str, Dict[str, int]] = {}

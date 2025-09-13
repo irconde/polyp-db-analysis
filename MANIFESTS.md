@@ -42,6 +42,8 @@ A manifest pack is a directory containing CSVs for each split and a
 - `neg_sources` listing for each negative source case its split membership,
   generated `synthetic_case_ids`, and corresponding `[chunk_start, chunk_end]`
   spans
+- `assertions` including `no_negative_case_leakage` and per-split counts of
+  original negative cases (`neg_sources_per_split`)
 - `summary_by_split` table of basic counts per split
 - optional `case_lengths` histogram of WL frames per case used
 
