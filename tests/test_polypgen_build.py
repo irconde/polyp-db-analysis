@@ -2,6 +2,7 @@ from pathlib import Path
 
 from PIL import Image
 import yaml
+import pandas as pd
 
 from polypdb.datasets.polypgen_build import build_polypgen_eval
 from polypdb.manifests.io import read_csv
@@ -9,9 +10,20 @@ from polypdb.manifests.io import read_csv
 
 def test_build_polypgen_eval(tmp_path: Path) -> None:
     root = tmp_path / "pg"
-    root.mkdir()
-    for name in ["a.png", "b.png"]:
-        Image.new("RGB", (1, 1)).save(root / name)
+    img_dir = root / "images"
+    man_dir = root / "manifests"
+    img_dir.mkdir(parents=True)
+    man_dir.mkdir(parents=True)
+    for name in ["pos.png", "neg.png"]:
+        Image.new("RGB", (1, 1)).save(img_dir / name)
+
+    ann = pd.DataFrame(
+        {
+            "img_path": ["images/pos.png", "images/neg.png"],
+            "has_polyp": [1, 0],
+        }
+    )
+    ann.to_parquet(man_dir / "frames.parquet", index=False)
 
     out = tmp_path / "out"
     build_polypgen_eval(root, out, track="clean")
@@ -21,8 +33,13 @@ def test_build_polypgen_eval(tmp_path: Path) -> None:
     assert all(r.dataset == "PolypGen" for r in rows)
     assert all(r.split == "eval" for r in rows)
     assert all(r.store_id == "polypgen_clean" for r in rows)
-    assert {r.frame_id for r in rows} == {"a", "b"}
+    labels = {r.frame_id: r.label for r in rows}
+    assert labels["images/pos"] == 1
+    assert labels["images/neg"] == 0
 
     manifest = yaml.safe_load((out / "manifest.yaml").read_text())
     assert manifest["policy"]["unit_of_split"] == "frame"
     assert manifest["roots"]["polypgen_clean"] == str(root)
+    assert manifest["assertions"]["label_counts"] == {"pos": 1, "neg": 1}
+    summary = {s["split"]: s for s in manifest["summary_by_split"]}
+    assert summary["eval"]["label_counts"] == {"pos": 1, "neg": 1}

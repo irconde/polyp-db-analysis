@@ -135,6 +135,7 @@ def write_pack(out_dir: Path, splits: Dict[str, List[ManifestRow]], meta: Dict) 
             "frames": len(rows),
             "pos_frames": pos,
             "neg_frames": neg,
+            "label_counts": {"pos": pos, "neg": neg},
         }
         if flat_cases or polyp_cases:
             summary["flat_cases"] = flat_cases
