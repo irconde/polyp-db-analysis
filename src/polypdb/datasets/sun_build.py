@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Dict, List, Any
 import subprocess
+from itertools import combinations
+from collections import Counter
 
 from ..manifests.core import ManifestRow, pick_k
 from ..manifests.io import write_pack
@@ -154,6 +156,85 @@ def _split_by_ratio(case_ids: List[str]) -> tuple[List[str], List[str], List[str
     return train, val, test
 
 
+def _compute_assertions(
+    splits: Dict[str, List[ManifestRow]],
+    frames_per_case: int,
+    *,
+    verify: bool = True,
+) -> Dict[str, Any]:
+    """Compute split integrity assertions.
+
+    Parameters
+    ----------
+    splits:
+        Mapping of split name to manifest rows.
+    frames_per_case:
+        Expected number of frames per case.
+    verify:
+        When ``True`` raise ``AssertionError`` if invariants are not met.
+    """
+
+    case_sets = {s: {r.case_id for r in rows} for s, rows in splits.items()}
+    no_case_leak = all(
+        case_sets[a].isdisjoint(case_sets[b])
+        for a, b in combinations(case_sets, 2)
+    )
+    if verify and not no_case_leak:
+        raise AssertionError("case leakage across splits")
+
+    neg_sources = {
+        s: {r.source_case_id for r in rows if r.label == 0}
+        for s, rows in splits.items()
+    }
+    no_neg_leak = all(
+        neg_sources[a].isdisjoint(neg_sources[b])
+        for a, b in combinations(neg_sources, 2)
+    )
+    if verify and not no_neg_leak:
+        raise AssertionError("negative source leakage across splits")
+
+    split_counts: Dict[str, Dict[str, int]] = {}
+    for split, rows in splits.items():
+        pos_cases = len({r.case_id for r in rows if r.label == 1})
+        neg_cases = len({r.case_id for r in rows if r.label == 0})
+        split_counts[split] = {
+            "pos_cases": pos_cases,
+            "neg_cases": neg_cases,
+            "frames": len(rows),
+        }
+
+    expected = {
+        "train": {"pos_cases": 70, "neg_cases": 70, "frames": frames_per_case * 140},
+        "val": {"pos_cases": 15, "neg_cases": 15, "frames": frames_per_case * 30},
+        "test": {"pos_cases": 15, "neg_cases": 15, "frames": frames_per_case * 30},
+    }
+    targets_met = split_counts == expected
+    balanced = all(
+        counts["pos_cases"] == counts["neg_cases"]
+        for counts in split_counts.values()
+    )
+    if verify and not (targets_met and balanced):
+        raise AssertionError("split counts do not meet targets")
+
+    case_frame_counts = Counter()
+    for rows in splits.values():
+        for r in rows:
+            case_frame_counts[r.case_id] += 1
+    exceptions = sorted(
+        cid for cid, cnt in case_frame_counts.items() if cnt != frames_per_case
+    )
+    if verify and exceptions:
+        raise AssertionError("cases do not have expected number of frames")
+
+    assertions: Dict[str, Any] = {
+        "no_case_leakage_across_splits": no_case_leak,
+        "no_negative_source_leakage": no_neg_leak,
+        "split_targets_met": split_counts,
+        "all_cases_have_33_frames": True if not exceptions else exceptions,
+    }
+    return assertions
+
+
 def build_sun_full(
     sun_root: Path,
     out_dir: Path,
@@ -161,6 +242,7 @@ def build_sun_full(
     frames_per_case: int = 33,
     *,
     indexer: Indexer | None = None,
+    verify: bool = True,
 ) -> None:
     """Build a full SUN manifest pack.
 
@@ -277,6 +359,7 @@ def build_sun_full(
                         split_unit="source_case" if case["label"] == 0 else "case",
                     )
                 )
+    assertions = _compute_assertions(splits, frames_per_case, verify=verify)
 
     command = (
         f"polypdb sun build --root {sun_root} --out {out_dir} "
@@ -307,6 +390,7 @@ def build_sun_full(
             "selection": "hmac_sha256(path,seed)",
         },
         "roots": {"sun": str(sun_root)},
+        "assertions": assertions,
     }
 
     write_pack(out_dir, splits, meta)
@@ -319,6 +403,7 @@ def build_sun_morphology(
     frames_per_case: int = 33,
     *,
     indexer: Indexer | None = None,
+    verify: bool = True,
 ) -> None:
     """Build a SUN manifest pack stratified by morphology."""
 
@@ -429,6 +514,7 @@ def build_sun_morphology(
                         split_unit="source_case" if case["label"] == 0 else "case",
                     )
                 )
+    assertions = _compute_assertions(splits, frames_per_case, verify=verify)
 
     command = (
         f"polypdb sun morph --root {sun_root} --out {out_dir} "
@@ -458,6 +544,7 @@ def build_sun_morphology(
             "selection": "hmac_sha256(path,seed)",
         },
         "roots": {"sun": str(sun_root)},
+        "assertions": assertions,
     }
 
     write_pack(out_dir, splits, meta)

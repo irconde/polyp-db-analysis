@@ -33,7 +33,7 @@ def test_build_sun_train_subsets(tmp_path: Path) -> None:
         return index
 
     full_pack = tmp_path / "sun_full"
-    build_sun_full(Path("/data"), full_pack, seed=0, indexer=indexer)
+    build_sun_full(Path("/data"), full_pack, seed=0, indexer=indexer, verify=False)
 
     out_dir = tmp_path
     build_sun_train_subsets(full_pack, percents=[50], seeds=[0, 1], out_dir=out_dir)
