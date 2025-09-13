@@ -7,6 +7,7 @@ from typing import Callable, Dict, List, Any
 import subprocess
 from itertools import combinations
 from collections import Counter
+from functools import lru_cache
 
 from ..manifests.core import ManifestRow, pick_k
 from ..manifests.io import write_pack
@@ -178,6 +179,52 @@ def _draw_ids(case_ids: List[str], targets: Dict[str, int]) -> tuple[List[str], 
     val = case_ids[n_train : n_train + n_val]
     test = case_ids[n_train + n_val : n_train + n_val + n_test]
     return train, val, test
+
+
+def _assign_neg_sources(
+    groups: Dict[str, List[str]], targets: Dict[str, int]
+) -> tuple[List[str], List[str], List[str]]:
+    """Assign negative source groups to splits honoring ``targets``.
+
+    All virtual negative cases originating from the same ``source_case_id``
+    must reside in the same split.  This helper uses dynamic programming with
+    memoization to search for an assignment that exactly meets the per-split
+    quotas.
+    """
+
+    sources = list(groups.keys())
+    sizes = {src: len(groups[src]) for src in sources}
+    caps = (targets["train"], targets["val"], targets["test"])
+
+    @lru_cache(maxsize=None)
+    def dfs(i: int, t: int, v: int, e: int):  # remaining capacities
+        if i == len(sources):
+            return [] if t == 0 and v == 0 and e == 0 else None
+        src = sources[i]
+        size = sizes[src]
+        # Try placing current source in each split if capacity allows
+        if size <= t:
+            res = dfs(i + 1, t - size, v, e)
+            if res is not None:
+                return [(src, "train"), *res]
+        if size <= v:
+            res = dfs(i + 1, t, v - size, e)
+            if res is not None:
+                return [(src, "val"), *res]
+        if size <= e:
+            res = dfs(i + 1, t, v, e - size)
+            if res is not None:
+                return [(src, "test"), *res]
+        return None
+
+    assignment = dfs(0, *caps)
+    if assignment is None:
+        raise ValueError("unable to assign negative sources to meet quotas")
+
+    train_src = [src for src, split in assignment if split == "train"]
+    val_src = [src for src, split in assignment if split == "val"]
+    test_src = [src for src, split in assignment if split == "test"]
+    return train_src, val_src, test_src
 
 
 def _compute_assertions(
@@ -516,24 +563,28 @@ def build_sun_morphology(
     neg_selected = pick_k(neg_ids, seed, min(100, len(neg_ids)), key=lambda x: x)
 
     neg_groups: Dict[str, List[str]] = {}
-    neg_source_order: List[str] = []
     for vid in neg_selected:
         src = virtual_neg_cases[vid]["source_case_id"]
-        if src not in neg_groups:
-            neg_groups[src] = []
-            neg_source_order.append(src)
-        neg_groups[src].append(vid)
+        neg_groups.setdefault(src, []).append(vid)
 
     flat_targets = _split_targets(len(flat_selected))
     polyp_targets = _split_targets(len(polyp_selected))
+    neg_targets = _split_targets(len(neg_selected))
 
     flat_train, flat_val, flat_test = _draw_ids(flat_selected, flat_targets)
     polyp_train, polyp_val, polyp_test = _draw_ids(polyp_selected, polyp_targets)
 
-    neg_train_src, neg_val_src, neg_test_src = _split_by_ratio(neg_source_order)
+    neg_train_src, neg_val_src, neg_test_src = _assign_neg_sources(neg_groups, neg_targets)
     neg_train = [vid for src in neg_train_src for vid in neg_groups[src]]
     neg_val = [vid for src in neg_val_src for vid in neg_groups[src]]
     neg_test = [vid for src in neg_test_src for vid in neg_groups[src]]
+    neg_targets_actual = {
+        "train": len(neg_train),
+        "val": len(neg_val),
+        "test": len(neg_test),
+    }
+    if verify and neg_targets_actual != neg_targets:
+        raise AssertionError("negative targets not met")
 
     split_case_ids = {
         "train": flat_train + polyp_train + neg_train,
@@ -613,6 +664,10 @@ def build_sun_morphology(
                     )
                 )
     assertions = _compute_assertions(splits, frames_per_case, verify=verify)
+    assertions["negative_case_targets"] = {
+        "expected": neg_targets,
+        "actual": neg_targets_actual,
+    }
 
     morph_map: Dict[str, str] = {}
     split_morph_counts: Dict[str, Dict[str, int]] = {}
