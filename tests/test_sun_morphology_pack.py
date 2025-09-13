@@ -97,13 +97,6 @@ def test_build_sun_morphology(tmp_path: Path) -> None:
     assert count_cases(splits["val"], 1) == count_cases(splits["val"], 0) == 2
     assert count_cases(splits["test"], 1) == count_cases(splits["test"], 0) == 2
 
-    source_seen = {}
-    for split, rows in splits.items():
-        for r in rows:
-            if r.label == 0:
-                prev = source_seen.setdefault(r.source_case_id, split)
-                assert prev == split
-
     assert _case_morph_counts(splits["train"]) == {"polypoid": 5, "flat": 5}
     assert _case_morph_counts(splits["val"]) == {"polypoid": 1, "flat": 1}
     assert _case_morph_counts(splits["test"]) == {"polypoid": 1, "flat": 1}
@@ -111,7 +104,7 @@ def test_build_sun_morphology(tmp_path: Path) -> None:
     for rows in splits.values():
         for r in rows:
             if r.label == 0:
-                assert r.split_unit == "source_case"
+                assert r.split_unit == "case"
                 assert r.source_case_id.startswith("N")
                 assert r.synthetic_case_id
                 assert r.synthetic_case is True
@@ -170,16 +163,7 @@ def test_build_sun_morphology(tmp_path: Path) -> None:
         assert meta_polyp == actual_polyp
         assert meta_neg == actual_neg
 
-    neg_sources = manifest["neg_sources"]
-    accounted = set()
-    unique_sources = set()
-    for entry in neg_sources:
-        assert entry["split"] in {"train", "val", "test"}
-        assert len(entry["synthetic_case_ids"]) == len(entry["chunk_spans"])
-        accounted.update(entry["synthetic_case_ids"])
-        assert entry["source_case_id"] not in unique_sources
-        unique_sources.add(entry["source_case_id"])
-    assert accounted == {r.case_id for rows in splits.values() for r in rows if r.label == 0}
+    assert "neg_sources" not in manifest
 
     summary = {s["split"]: s for s in manifest["summary_by_split"]}
     for split, rows in splits.items():

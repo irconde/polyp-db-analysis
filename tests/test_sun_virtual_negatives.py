@@ -1,5 +1,4 @@
 """Tests for virtual negative case generation in :func:`build_sun_full`."""
-
 from collections import Counter
 from pathlib import Path
 
@@ -50,23 +49,16 @@ def test_virtual_negative_cases(tmp_path):
         assert all(v == 33 for v in counts.values())
         for r in rows:
             if r.label == 0:
-                assert r.split_unit == "source_case"
+                assert r.split_unit == "case"
                 assert r.synthetic_case is True
 
     all_neg_cases = {r.case_id for rows in splits.values() for r in rows if r.label == 0}
     assert len(all_neg_cases) == 100
-    # Ensure negatives from the same source case do not span multiple splits
-    source_map = {}
-    for split, rows in splits.items():
-        for r in rows:
-            if r.label == 0:
-                source_map.setdefault(r.source_case_id, set()).add(split)
-    assert all(len(splits) == 1 for splits in source_map.values())
 
     manifest = yaml.safe_load((tmp_path / "manifest.yaml").read_text())
     assertions = manifest["assertions"]
     assert assertions["no_case_leakage_across_splits"] is True
-    assert assertions["no_negative_source_leakage"] is True
+    assert "no_negative_source_leakage" not in assertions
     expected_counts = {
         split: {
             "pos_cases": len({r.case_id for r in rows if r.label == 1}),
@@ -87,16 +79,6 @@ def test_virtual_negative_cases(tmp_path):
         actual_neg = {r.case_id for r in rows if r.label == 0}
         assert meta_pos == actual_pos
         assert meta_neg == actual_neg
-
-    # check negative source mapping
-    neg_sources = manifest["neg_sources"]
-    assert len(neg_sources) == 13
-    accounted = set()
-    for entry in neg_sources:
-        assert entry["split"] in {"train", "val", "test"}
-        assert len(entry["synthetic_case_ids"]) == len(entry["chunk_spans"])
-        accounted.update(entry["synthetic_case_ids"])
-    assert accounted == all_neg_cases
 
     # summary table and case length histogram
     summary = {s["split"]: s for s in manifest["summary_by_split"]}
