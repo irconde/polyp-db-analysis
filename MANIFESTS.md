@@ -67,8 +67,8 @@ Example commands to generate packs:
 - **SUN morphology:** `polypdb sun morph --root /path/to/sun --out sun_morph --seed 0`
 - **SUN subsets:** `polypdb sun subsets --pack sun_full --percents 25 50 --seeds 0 1 --out subsets`
 - **SUN corruption:** `polypdb sun corrupt --pack sun_full --out sun_corrupt --variant corrupt`
-- **PolypGen eval:** `polypdb polypgen build --root /path/to/polypgen --out polypgen_eval`
-- **PolypGen few‑shot:** `polypdb polypgen fewshot --pack polypgen_eval --sizes 1 5 --seeds 0 1 --out fewshot`
+- **PolypGen test:** `polypdb polypgen build --root /path/to/polypgen --out polypgen_test`
+- **PolypGen few‑shot:** `polypdb polypgen fewshot --pack polypgen_test --sizes 1 5 --seeds 0 1 --out fewshot`
 
 ## Validation
 Run one of the following checks before using a pack:

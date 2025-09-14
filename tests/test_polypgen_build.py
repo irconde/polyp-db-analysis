@@ -32,10 +32,10 @@ def test_build_polypgen_eval(tmp_path: Path) -> None:
     out = tmp_path / "out"
     build_polypgen_eval(root, out, track="clean")
 
-    rows = read_csv(out / "eval.csv")
+    rows = read_csv(out / "test.csv")
     assert len(rows) == 2
     assert all(r.dataset == "PolypGen" for r in rows)
-    assert all(r.split == "eval" for r in rows)
+    assert all(r.split == "test" for r in rows)
     assert all(r.store_id == "polypgen_clean" for r in rows)
     labels = {r.frame_id: r.label for r in rows}
     cases = {r.frame_id: r.case_id for r in rows}
@@ -52,4 +52,4 @@ def test_build_polypgen_eval(tmp_path: Path) -> None:
     assert manifest["roots"]["polypgen_clean"] == str(root)
     assert manifest["assertions"]["label_counts"] == {"pos": 1, "neg": 1}
     summary = {s["split"]: s for s in manifest["summary_by_split"]}
-    assert summary["eval"]["label_counts"] == {"pos": 1, "neg": 1}
+    assert summary["test"]["label_counts"] == {"pos": 1, "neg": 1}

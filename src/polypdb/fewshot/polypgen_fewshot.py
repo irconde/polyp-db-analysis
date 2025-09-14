@@ -12,13 +12,13 @@ from ..manifests.core import ManifestRow, pick_k
 from ..manifests.io import read_csv, write_pack
 
 
-def build_polypgen_fewshot(eval_pack: Path, sizes: list[int], seeds: list[int], out_dir: Path) -> None:
-    """Build few-shot training/eval splits from a PolypGen evaluation pack.
+def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], out_dir: Path) -> None:
+    """Build few-shot training/test splits from a PolypGen test pack.
 
     Parameters
     ----------
-    eval_pack:
-        Path to a manifest pack containing ``eval.csv`` with both positive and
+    test_pack:
+        Path to a manifest pack containing ``test.csv`` with both positive and
         negative frames.
     sizes:
         Desired training set sizes.  For each size ``S`` and ``seed`` we select
@@ -30,11 +30,11 @@ def build_polypgen_fewshot(eval_pack: Path, sizes: list[int], seeds: list[int], 
         ``polypgen_fewshot_s{S}_seed{seed}``.
     """
 
-    eval_rows = read_csv(eval_pack / "eval.csv")
+    test_rows = read_csv(test_pack / "test.csv")
 
     # Load manifest for roots if available
     roots = {}
-    manifest_path = eval_pack / "manifest.yaml"
+    manifest_path = test_pack / "manifest.yaml"
     if manifest_path.exists():
         try:
             manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
@@ -42,8 +42,8 @@ def build_polypgen_fewshot(eval_pack: Path, sizes: list[int], seeds: list[int], 
         except Exception:
             roots = {}
 
-    pos_rows = [r for r in eval_rows if r.label == 1]
-    neg_rows = [r for r in eval_rows if r.label == 0]
+    pos_rows = [r for r in test_rows if r.label == 1]
+    neg_rows = [r for r in test_rows if r.label == 0]
 
     for size in sizes:
         for seed in seeds:
@@ -55,8 +55,8 @@ def build_polypgen_fewshot(eval_pack: Path, sizes: list[int], seeds: list[int], 
 
             train_rows = [replace(r, split="train") for r in pos_selected + neg_selected]
             selected_ids = {r.frame_id for r in train_rows}
-            eval_rows_out = [
-                replace(r, split="eval") for r in eval_rows if r.frame_id not in selected_ids
+            test_rows_out = [
+                replace(r, split="test") for r in test_rows if r.frame_id not in selected_ids
             ]
 
             pack_dir = out_dir / f"polypgen_fewshot_s{size}_seed{seed}"
@@ -72,7 +72,7 @@ def build_polypgen_fewshot(eval_pack: Path, sizes: list[int], seeds: list[int], 
             }
 
             command = (
-                f"polypdb polypgen fewshot --pack {eval_pack} --sizes {size} "
+                f"polypdb polypgen fewshot --pack {test_pack} --sizes {size} "
                 f"--seeds {seed} --out {out_dir}"
             )
             try:
@@ -88,7 +88,7 @@ def build_polypgen_fewshot(eval_pack: Path, sizes: list[int], seeds: list[int], 
                 "seed": seed,
             }
 
-            write_pack(pack_dir, {"train": train_rows, "eval": eval_rows_out}, meta)
+            write_pack(pack_dir, {"train": train_rows, "test": test_rows_out}, meta)
 
 
 __all__ = ["build_polypgen_fewshot"]

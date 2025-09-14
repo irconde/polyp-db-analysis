@@ -13,7 +13,7 @@ def register(subparsers) -> None:
     parser = subparsers.add_parser("polypgen", help="PolypGen dataset utilities")
     sub = parser.add_subparsers(dest="polypgen_command", required=True)
 
-    build = sub.add_parser("build", help="Build PolypGen eval manifest pack")
+    build = sub.add_parser("build", help="Build PolypGen test manifest pack")
     build.add_argument("--root", type=Path, required=True, help="Path to PolypGen root")
     build.add_argument("--out", type=Path, required=True, help="Output directory")
     build.add_argument(
@@ -26,7 +26,7 @@ def register(subparsers) -> None:
     build.set_defaults(func=_run_build)
 
     fewshot = sub.add_parser("fewshot", help="Build few-shot PolypGen packs")
-    fewshot.add_argument("--pack", type=Path, required=True, help="Input eval pack")
+    fewshot.add_argument("--pack", type=Path, required=True, help="Input test pack")
     fewshot.add_argument(
         "--sizes", type=int, nargs="+", required=True, help="Training set sizes"
     )
