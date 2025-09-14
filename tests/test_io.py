@@ -44,3 +44,29 @@ def test_roundtrip_and_hash(tmp_path):
     assert manifest["hashes"]["train"] == sha256_file(out_dir / "train.csv")
 
     validate_pack(out_dir, require_files_exist=True)
+
+
+def test_validate_pack_unique_key(tmp_path):
+    root = tmp_path / "data"
+    (root / "images").mkdir(parents=True)
+    for name in ["a.jpg", "b.jpg"]:
+        (root / "images" / name).write_bytes(b"")
+
+    rows = [
+        ManifestRow("ds", "train", "c1", "f", "images/a.jpg", 1, "local", "polypoid", variant="v1"),
+        ManifestRow("ds", "train", "c1", "f", "images/b.jpg", 0, "local", "flat", variant="v2"),
+    ]
+
+    splits = {"train": rows}
+    meta = {
+        "name": "test-pack",
+        "version": "0.0",
+        "roots": {"local": str(root)},
+        "assertions": {"unique_key": ["case_id", "frame_id", "variant"]},
+    }
+
+    out_dir = tmp_path / "pack"
+    write_pack(out_dir, splits, meta)
+
+    # Should not raise despite duplicate frame_id because unique key includes variant
+    validate_pack(out_dir, require_files_exist=True)
