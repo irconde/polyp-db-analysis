@@ -165,7 +165,9 @@ def test_build_sun_morphology(tmp_path: Path) -> None:
 
     fs = manifest["frame_sampling"]
     assert fs == {
-        "selection": "hmac_sha256(path,salt)",
+        "selection": "hmac_sha256(frame_path,salt)",
+        "path_normalization": "posix,no-leading-slash,single-slash",
+        "path_is_relative_to": "roots.sun",
         "salt_id": "seed-0",
         "tie_break": "frame_path",
         "frames_per_case": 33,
