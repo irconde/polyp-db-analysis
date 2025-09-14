@@ -15,6 +15,9 @@ mkdir -p "$PACKS_DIR"
 SUN_FULL="$PACKS_DIR/sun_full"
 python -m polypdb.cli --log-level "$LOG_LEVEL" sun build --root "$SUN_ROOT" --out "$SUN_FULL" --seed "$SUN_SEED"
 
+SUN_PERT="$PACKS_DIR/sun_test_perturbations"
+python -m polypdb.cli --log-level "$LOG_LEVEL" sun perturb --pack "$SUN_FULL" --out "$SUN_PERT" --rng-master-seed 47
+
 SUN_MORPH="$PACKS_DIR/sun_morphology"
 python -m polypdb.cli --log-level "$LOG_LEVEL" sun morph --root "$SUN_ROOT" --out "$SUN_MORPH" --seed "$SUN_SEED"
 
