@@ -34,6 +34,8 @@ A manifest pack is a directory containing CSVs for each split and a
 - `policy` (unit of split, frames per case, balance, selection)
 - `frame_sampling` (`selection`, `salt_id`, `tie_break`, `frames_per_case`,
   `resampled_with_replacement`)
+- `selection_key_policy` (`granularity`, `key_field`, `construction`,
+  `normalization`)
 - `roots` mapping `store_id` values to dataset roots
 - `hashes` and `counts` for each split
 - `splits` listing case membership for each split (`pos_cases`/`neg_cases` or
@@ -49,6 +51,17 @@ A manifest pack is a directory containing CSVs for each split and a
 - optional `parent_pack` provenance and `subset` metadata for derived packs
 - `policy.selection_scope` and `frame_sampling.selection_scope` clarifying the
   unit of selection
+
+Example `selection_key_policy` block:
+
+```yaml
+selection_key_policy:
+  granularity: case
+  key_field: frame_id
+  construction: dataset+case_id+frame_id
+  normalization:
+    - lower
+```
 
 ## Overriding roots at runtime
 `manifest.yaml` records default roots, but tools call `load_roots` to merge

@@ -112,12 +112,19 @@ def read_csv(path: Path) -> List[ManifestRow]:
     return rows
 
 
-def write_pack(out_dir: Path, splits: Dict[str, List[ManifestRow]], meta: Dict) -> None:
+def write_pack(
+    out_dir: Path,
+    splits: Dict[str, List[ManifestRow]],
+    meta: Dict,
+    selection_key_policy: Dict | None = None,
+) -> None:
     """Write a manifest pack to ``out_dir``.
 
     ``splits`` maps split names to lists of rows.  ``meta`` supplies metadata
-    stored in ``manifest.yaml``.  Hashes and counts are computed automatically
-    and ``generated_at`` is recorded in UTC ISO format.
+    stored in ``manifest.yaml``.  Optional ``selection_key_policy`` details how
+    selection keys are constructed for downstream sampling.  Hashes and counts
+    are computed automatically and ``generated_at`` is recorded in UTC ISO
+    format.
     """
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -166,6 +173,8 @@ def write_pack(out_dir: Path, splits: Dict[str, List[ManifestRow]], meta: Dict) 
             case_lengths[count] = case_lengths.get(count, 0) + 1
 
     manifest = dict(meta)
+    if selection_key_policy is not None:
+        manifest["selection_key_policy"] = selection_key_policy
     manifest["generated_at"] = datetime.now(timezone.utc).isoformat()
     manifest["hashes"] = hashes
     manifest["counts"] = counts
@@ -182,13 +191,14 @@ def validate_pack(
     out_dir: Path,
     require_files_exist: bool = False,
     roots: Dict[str, str] | None = None,
-) -> None:
-    """Validate a manifest pack written by :func:`write_pack`.
+) -> Dict:
+    """Validate a manifest pack written by :func:`write_pack` and return it.
 
     If ``require_files_exist`` is true, a deterministic sample of rows from each
     split is checked for file existence using ``roots`` (either provided or
     from the manifest).  SHA256 hashes recorded in ``manifest.yaml`` are
-    recomputed and must match.
+    recomputed and must match.  The parsed manifest dictionary, including any
+    ``selection_key_policy`` block, is returned for further inspection.
     """
 
     manifest_path = out_dir / "manifest.yaml"
@@ -248,5 +258,7 @@ def validate_pack(
         for a, b in combinations(sorted(required), 2):
             if not sun_cases[a].isdisjoint(sun_cases[b]):
                 raise AssertionError(
-                    "SUN case_id overlap between splits"
+                    "SUN case_id overlap between splits",
                 )
+
+    return manifest
