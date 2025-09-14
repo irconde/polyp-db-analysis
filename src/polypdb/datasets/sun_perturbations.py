@@ -18,6 +18,57 @@ import yaml
 from ..manifests.io import read_csv, write_pack
 
 
+# Immutable catalog of perturbation conditions for the SUN test pack.
+# The order of entries is significant and must not be changed without
+# incrementing the manifest version.
+PERTURBATIONS = [
+    {"id": "clean", "kind": "clean"},
+    {"id": "blur_sigma_0p5", "kind": "gaussian_blur", "params": {"sigma": 0.5}},
+    {"id": "blur_sigma_1p0", "kind": "gaussian_blur", "params": {"sigma": 1.0}},
+    {"id": "blur_sigma_1p5", "kind": "gaussian_blur", "params": {"sigma": 1.5}},
+    {"id": "blur_sigma_2p0", "kind": "gaussian_blur", "params": {"sigma": 2.0}},
+    {"id": "jpeg_q_95", "kind": "jpeg", "params": {"quality": 95}},
+    {"id": "jpeg_q_75", "kind": "jpeg", "params": {"quality": 75}},
+    {"id": "jpeg_q_50", "kind": "jpeg", "params": {"quality": 50}},
+    {"id": "jpeg_q_30", "kind": "jpeg", "params": {"quality": 30}},
+    {
+        "id": "bc_b0p8_c0p8",
+        "kind": "brightness_contrast",
+        "params": {"brightness": 0.8, "contrast": 0.8},
+    },
+    {
+        "id": "bc_b0p8_c0p6",
+        "kind": "brightness_contrast",
+        "params": {"brightness": 0.8, "contrast": 0.6},
+    },
+    {
+        "id": "bc_b0p6_c0p8",
+        "kind": "brightness_contrast",
+        "params": {"brightness": 0.6, "contrast": 0.8},
+    },
+    {
+        "id": "bc_b0p6_c0p6",
+        "kind": "brightness_contrast",
+        "params": {"brightness": 0.6, "contrast": 0.6},
+    },
+    {
+        "id": "occ_0p05",
+        "kind": "occlusion_block",
+        "params": {"area_frac": 0.05, "mode": "square"},
+    },
+    {
+        "id": "occ_0p10",
+        "kind": "occlusion_block",
+        "params": {"area_frac": 0.10, "mode": "square"},
+    },
+    {
+        "id": "occ_0p20",
+        "kind": "occlusion_block",
+        "params": {"area_frac": 0.20, "mode": "square"},
+    },
+]
+
+
 def _derive_seed(master_seed: int, orig_frame_id: str, perturbation_id: str) -> int:
     """Return deterministic RNG seed for a perturbation instance."""
 
@@ -44,30 +95,18 @@ def build_sun_test_perturbations(
 
     test_rows = read_csv(sun_full_pack / "test.csv")
 
-    perturbations = [
-        ("blur_sigma_0.5", {"blur_sigma": 0.5}),
-        ("blur_sigma_1.0", {"blur_sigma": 1.0}),
-        ("blur_sigma_1.5", {"blur_sigma": 1.5}),
-        ("blur_sigma_2.0", {"blur_sigma": 2.0}),
-        ("jpeg_q_95", {"jpeg_q": 95}),
-        ("jpeg_q_75", {"jpeg_q": 75}),
-        ("jpeg_q_50", {"jpeg_q": 50}),
-        ("jpeg_q_30", {"jpeg_q": 30}),
-        ("bc_b0.8_c0.8", {"brightness": 0.8, "contrast": 0.8}),
-        ("bc_b0.8_c0.6", {"brightness": 0.8, "contrast": 0.6}),
-        ("bc_b0.6_c0.8", {"brightness": 0.6, "contrast": 0.8}),
-        ("bc_b0.6_c0.6", {"brightness": 0.6, "contrast": 0.6}),
-        ("occ_a0.05", {"bbox_area_frac": 0.05}),
-        ("occ_a0.10", {"bbox_area_frac": 0.10}),
-        ("occ_a0.20", {"bbox_area_frac": 0.20}),
-        ("clean", {}),
-    ]
-
     new_rows = []
     for row in test_rows:
         orig_id = row.frame_id
-        for pid, params in perturbations:
+        for pert in PERTURBATIONS:
+            pid = pert["id"]
+            params = pert.get("params", {})
             seed = _derive_seed(rng_master_seed, orig_id, pid)
+            blur_sigma = params["sigma"] if pert["kind"] == "gaussian_blur" else -1.0
+            jpeg_q = params["quality"] if pert["kind"] == "jpeg" else -1
+            brightness = params["brightness"] if pert["kind"] == "brightness_contrast" else -1.0
+            contrast = params["contrast"] if pert["kind"] == "brightness_contrast" else -1.0
+            bbox_area_frac = params["area_frac"] if pert["kind"] == "occlusion_block" else -1.0
             new_rows.append(
                 replace(
                     row,
@@ -75,11 +114,11 @@ def build_sun_test_perturbations(
                     perturbation_id=pid,
                     rng_seed=seed,
                     render_in_pipeline=True,
-                    blur_sigma=params.get("blur_sigma", -1.0),
-                    jpeg_q=params.get("jpeg_q", -1),
-                    brightness=params.get("brightness", -1.0),
-                    contrast=params.get("contrast", -1.0),
-                    bbox_area_frac=params.get("bbox_area_frac", -1.0),
+                    blur_sigma=blur_sigma,
+                    jpeg_q=jpeg_q,
+                    brightness=brightness,
+                    contrast=contrast,
+                    bbox_area_frac=bbox_area_frac,
                 )
             )
 
@@ -95,7 +134,7 @@ def build_sun_test_perturbations(
     case_ids = test_split_info.get("pos_cases", []) + test_split_info.get("neg_cases", [])
     parent_test_hash = parent_manifest.get("hashes", {}).get("test", "")
 
-    num_conditions = len(perturbations)
+    num_conditions = len(PERTURBATIONS)
     per_condition = len(test_rows)
     total_rows = len(new_rows)
 
@@ -147,6 +186,7 @@ def build_sun_test_perturbations(
         "policy": {"unit_of_split": "frame"},
         "roots": parent_roots,
         "parent_pack": {"name": "sun_full", "path": str(sun_full_pack)},
+        "perturbations": PERTURBATIONS,
         "assertions": assertions,
     }
 

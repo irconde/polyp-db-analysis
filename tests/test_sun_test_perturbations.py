@@ -3,7 +3,11 @@ from collections import defaultdict
 import yaml
 
 from polypdb.datasets.sun_build import build_sun_full
-from polypdb.datasets.sun_perturbations import build_sun_test_perturbations, _derive_seed
+from polypdb.datasets.sun_perturbations import (
+    PERTURBATIONS,
+    build_sun_test_perturbations,
+    _derive_seed,
+)
 from polypdb.manifests.io import read_csv
 
 
@@ -60,6 +64,7 @@ def test_build_sun_test_perturbations(tmp_path):
 
     manifest = yaml.safe_load((pert_pack / "manifest.yaml").read_text())
     assertions = manifest["assertions"]
+    assert manifest["perturbations"] == PERTURBATIONS
     assert assertions["per_condition_row_count"] == 990
     assert assertions["total_rows"] == 15840
     assert assertions["conditions_len"] == 16
