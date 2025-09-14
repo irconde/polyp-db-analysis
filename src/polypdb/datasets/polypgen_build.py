@@ -12,7 +12,7 @@ from ..manifests.io import write_pack
 
 
 def build_polypgen_eval(pg_root: Path, out_dir: Path, track: str = "clean") -> None:
-    """Build an evaluation manifest pack for PolypGen.
+    """Build a test manifest pack for PolypGen.
 
     Parameters
     ----------
@@ -80,7 +80,7 @@ def build_polypgen_eval(pg_root: Path, out_dir: Path, track: str = "clean") -> N
         rows.append(
             ManifestRow(
                 dataset="PolypGen",
-                split="eval",
+                split="test",
                 case_id=case_id,
                 frame_id=frame_id,
                 frame_path=rel,
@@ -105,7 +105,7 @@ def build_polypgen_eval(pg_root: Path, out_dir: Path, track: str = "clean") -> N
     n_neg = sum(r.label == 0 for r in rows)
 
     meta = {
-        "name": f"polypgen-{track}-eval",
+        "name": f"polypgen-{track}-test",
         "version": "0.0",
         "generator": {
             "repo": "polyp-db-analysis",
@@ -117,11 +117,11 @@ def build_polypgen_eval(pg_root: Path, out_dir: Path, track: str = "clean") -> N
         "assertions": {
             "class_presence": {"pos": ">0", "neg": ">0"},
             "label_counts": {"pos": n_pos, "neg": n_neg},
-            "no_train_val_test_in_eval_pack": True,
+            "no_train_val_test_in_test_pack": True,
         },
     }
 
-    write_pack(out_dir, {"eval": rows}, meta)
+    write_pack(out_dir, {"test": rows}, meta)
 
 
 __all__ = ["build_polypgen_eval"]

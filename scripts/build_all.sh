@@ -21,11 +21,11 @@ python -m polypdb.cli --log-level "$LOG_LEVEL" sun morph --root "$SUN_ROOT" --ou
 SUN_SUBSETS="$PACKS_DIR/sun_subsets"
 python -m polypdb.cli --log-level "$LOG_LEVEL" sun subsets --pack "$SUN_FULL" --percents 5 10 25 50 100 --seeds 13 29 47 --out "$SUN_SUBSETS"
 
-POLYPGEN_EVAL="$PACKS_DIR/polypgen_clean_eval"
-python -m polypdb.cli --log-level "$LOG_LEVEL" polypgen build --root "$POLYPGEN_ROOT" --out "$POLYPGEN_EVAL" --track clean
+POLYPGEN_TEST="$PACKS_DIR/polypgen_clean_test"
+python -m polypdb.cli --log-level "$LOG_LEVEL" polypgen build --root "$POLYPGEN_ROOT" --out "$POLYPGEN_TEST" --track clean
 
 POLYPGEN_FEWSHOT="$PACKS_DIR/polypgen_fewshot"
-python -m polypdb.cli --log-level "$LOG_LEVEL" polypgen fewshot --pack "$POLYPGEN_EVAL" --sizes 50 100 200 500 --seeds 13 29 47 --out "$POLYPGEN_FEWSHOT"
+python -m polypdb.cli --log-level "$LOG_LEVEL" polypgen fewshot --pack "$POLYPGEN_TEST" --sizes 50 100 200 500 --seeds 13 29 47 --out "$POLYPGEN_FEWSHOT"
 
 ROBUST_SPEC="$REPO_ROOT/specs/robustness.yaml"
 if [ -f "$ROBUST_SPEC" ]; then
