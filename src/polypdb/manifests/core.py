@@ -47,6 +47,11 @@ class ManifestRow:
     perturbation_id: str = ""
     rng_seed: int = -1
     render_in_pipeline: bool = False
+    blur_sigma: float = -1.0
+    jpeg_q: int = -1
+    brightness: float = -1.0
+    contrast: float = -1.0
+    bbox_area_frac: float = -1.0
 
 
 def hmac_rank(seed: int, text: str) -> int:

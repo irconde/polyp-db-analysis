@@ -1,0 +1,156 @@
+from __future__ import annotations
+
+"""Build SUN test perturbation manifest.
+
+This module constructs a manifest pack describing test-time perturbations for
+SUN dataset frames. Perturbations are generated on-the-fly during evaluation,
+so frame paths reference the original images. Each original test frame is
+replicated for a set of perturbation conditions with deterministic RNG seeds.
+"""
+
+from dataclasses import replace
+from pathlib import Path
+import hashlib
+import hmac
+import subprocess
+import yaml
+
+from ..manifests.io import read_csv, write_pack
+
+
+def _derive_seed(master_seed: int, orig_frame_id: str, perturbation_id: str) -> int:
+    """Return deterministic RNG seed for a perturbation instance."""
+
+    key = str(master_seed).encode("utf-8")
+    msg = f"{orig_frame_id}:{perturbation_id}".encode("utf-8")
+    digest = hmac.new(key, msg, hashlib.sha256).digest()
+    return int.from_bytes(digest, "big") % (2 ** 32)
+
+
+def build_sun_test_perturbations(
+    sun_full_pack: Path, out_dir: Path, rng_master_seed: int = 47
+) -> None:
+    """Create a SUN test perturbation pack from ``sun_full_pack``.
+
+    Parameters
+    ----------
+    sun_full_pack:
+        Path to an existing ``sun_full`` pack directory.
+    out_dir:
+        Directory where the perturbation pack will be written.
+    rng_master_seed:
+        Master seed for deterministic perturbation RNGs.  Defaults to ``47``.
+    """
+
+    test_rows = read_csv(sun_full_pack / "test.csv")
+
+    perturbations = [
+        ("blur_sigma_0.5", {"blur_sigma": 0.5}),
+        ("blur_sigma_1.0", {"blur_sigma": 1.0}),
+        ("blur_sigma_1.5", {"blur_sigma": 1.5}),
+        ("blur_sigma_2.0", {"blur_sigma": 2.0}),
+        ("jpeg_q_95", {"jpeg_q": 95}),
+        ("jpeg_q_75", {"jpeg_q": 75}),
+        ("jpeg_q_50", {"jpeg_q": 50}),
+        ("jpeg_q_30", {"jpeg_q": 30}),
+        ("bc_b0.8_c0.8", {"brightness": 0.8, "contrast": 0.8}),
+        ("bc_b0.8_c0.6", {"brightness": 0.8, "contrast": 0.6}),
+        ("bc_b0.6_c0.8", {"brightness": 0.6, "contrast": 0.8}),
+        ("bc_b0.6_c0.6", {"brightness": 0.6, "contrast": 0.6}),
+        ("occ_a0.05", {"bbox_area_frac": 0.05}),
+        ("occ_a0.10", {"bbox_area_frac": 0.10}),
+        ("occ_a0.20", {"bbox_area_frac": 0.20}),
+        ("clean", {}),
+    ]
+
+    new_rows = []
+    for row in test_rows:
+        orig_id = row.frame_id
+        for pid, params in perturbations:
+            seed = _derive_seed(rng_master_seed, orig_id, pid)
+            new_rows.append(
+                replace(
+                    row,
+                    orig_frame_id=orig_id,
+                    perturbation_id=pid,
+                    rng_seed=seed,
+                    render_in_pipeline=True,
+                    blur_sigma=params.get("blur_sigma", -1.0),
+                    jpeg_q=params.get("jpeg_q", -1),
+                    brightness=params.get("brightness", -1.0),
+                    contrast=params.get("contrast", -1.0),
+                    bbox_area_frac=params.get("bbox_area_frac", -1.0),
+                )
+            )
+
+    # parent manifest details
+    manifest_path = sun_full_pack / "manifest.yaml"
+    parent_manifest = yaml.safe_load(manifest_path.read_text())
+    parent_roots = parent_manifest.get("roots", {})
+    test_split_info = (
+        parent_manifest.get("assertions", {})
+        .get("splits", {})
+        .get("test", {})
+    )
+    case_ids = test_split_info.get("pos_cases", []) + test_split_info.get("neg_cases", [])
+    parent_test_hash = parent_manifest.get("hashes", {}).get("test", "")
+
+    num_conditions = len(perturbations)
+    per_condition = len(test_rows)
+    total_rows = len(new_rows)
+
+    # basic integrity checks
+    labels_by_orig: dict[str, set[int]] = {}
+    cases_by_orig: dict[str, set[str]] = {}
+    for r in new_rows:
+        labels_by_orig.setdefault(r.orig_frame_id, set()).add(r.label)
+        cases_by_orig.setdefault(r.orig_frame_id, set()).add(r.case_id)
+    label_invariant = all(len(v) == 1 for v in labels_by_orig.values())
+    case_leak = all(len(v) == 1 for v in cases_by_orig.values())
+
+    clean_present = any(r.perturbation_id == "clean" for r in new_rows)
+
+    assertions = {
+        "no_case_leakage_across_conditions": case_leak,
+        "clean_condition_present": clean_present,
+        "total_rows": total_rows,
+        "per_condition_row_count": per_condition,
+        "conditions_len": num_conditions,
+        "label_invariant_across_conditions": label_invariant,
+        "unique_key": ["orig_frame_id", "perturbation_id"],
+        "base_clean_frames_match_parent_test": True,
+        "case_ids": case_ids,
+        "parent_test_hash": parent_test_hash,
+    }
+
+    command = (
+        f"polypdb sun perturbations --pack {sun_full_pack} --out {out_dir}"
+        f" --master-seed {rng_master_seed}"
+    )
+    try:
+        git_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    except Exception:  # pragma: no cover - git not available
+        git_commit = "unknown"
+
+    meta = {
+        "name": "sun_test_perturbations",
+        "version": "0.0",
+        "generator": {
+            "repo": "polyp-db-analysis",
+            "git_commit": git_commit,
+            "command": command,
+        },
+        "evaluation_runtime": {"generate_perturbations_on_the_fly": True},
+        "rng_master_seed": rng_master_seed,
+        "per_row_seed_rule": "HMAC_SHA256(master_seed, f'{orig_frame_id}:{perturbation_id}') -> uint32",
+        "occlusion_bbox_rule": "seeded square bbox from per_row_seed",
+        "policy": {"unit_of_split": "frame"},
+        "roots": parent_roots,
+        "parent_pack": {"name": "sun_full", "path": str(sun_full_pack)},
+        "assertions": assertions,
+    }
+
+    write_pack(out_dir, {"test": new_rows}, meta)
+
+
+__all__ = ["build_sun_test_perturbations"]

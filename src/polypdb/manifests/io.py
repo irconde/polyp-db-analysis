@@ -37,6 +37,11 @@ CSV_FIELDS = [
     "perturbation_id",
     "rng_seed",
     "render_in_pipeline",
+    "blur_sigma",
+    "jpeg_q",
+    "brightness",
+    "contrast",
+    "bbox_area_frac",
 ]
 
 
@@ -97,6 +102,11 @@ def read_csv(path: Path) -> List[ManifestRow]:
                     rng_seed=int(raw.get("rng_seed", -1)),
                     render_in_pipeline=raw.get("render_in_pipeline", "").lower()
                     in {"1", "true", "t", "yes"},
+                    blur_sigma=float(raw.get("blur_sigma", -1.0)),
+                    jpeg_q=int(raw.get("jpeg_q", -1)),
+                    brightness=float(raw.get("brightness", -1.0)),
+                    contrast=float(raw.get("contrast", -1.0)),
+                    bbox_area_frac=float(raw.get("bbox_area_frac", -1.0)),
                 )
             )
     return rows
