@@ -5,6 +5,7 @@ import yaml
 
 from ..datasets.sun_build import build_sun_full, build_sun_morphology
 from ..datasets.sun_corrupt import build_sun_corrupt
+from ..datasets.sun_perturbations import build_sun_test_perturbations
 from ..subsets.sun_subsets import build_sun_train_subsets
 
 def register(subparsers) -> None:
@@ -55,6 +56,19 @@ def register(subparsers) -> None:
     )
     corrupt.set_defaults(func=_run_corrupt)
 
+    perturb = sub.add_parser("perturb", help="Create SUN test perturbation pack")
+    perturb.add_argument(
+        "--pack", type=Path, required=True, help="Path to sun_full pack"
+    )
+    perturb.add_argument("--out", type=Path, required=True, help="Output directory")
+    perturb.add_argument(
+        "--rng-master-seed",
+        type=int,
+        default=47,
+        help="Master seed for perturbation RNGs (default: 47)",
+    )
+    perturb.set_defaults(func=_run_perturb)
+
 
 
 def _run_build(args) -> None:
@@ -84,6 +98,15 @@ def _run_subsets(args) -> None:
 
 def _run_corrupt(args) -> None:
     build_sun_corrupt(args.pack, args.out, variant=args.variant)
+    manifest = yaml.safe_load((args.out / "manifest.yaml").read_text(encoding="utf-8"))
+    print(args.out)
+    print(manifest.get("counts", {}))
+
+
+def _run_perturb(args) -> None:
+    build_sun_test_perturbations(
+        args.pack, args.out, rng_master_seed=args.rng_master_seed
+    )
     manifest = yaml.safe_load((args.out / "manifest.yaml").read_text(encoding="utf-8"))
     print(args.out)
     print(manifest.get("counts", {}))
