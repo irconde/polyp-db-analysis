@@ -71,3 +71,11 @@ def test_build_sun_test_perturbations(tmp_path):
     assert assertions["label_invariant_across_conditions"]
     assert assertions["no_case_leakage_across_conditions"]
     assert assertions["clean_condition_present"]
+
+    assert "rng_master_seed" not in manifest
+    assert manifest["evaluation_runtime"] == {
+        "generate_perturbations_on_the_fly": True,
+        "rng_master_seed": 47,
+        "per_row_seed_rule": "HMAC_SHA256(master_seed, f'{orig_frame_id}:{perturbation_id}') -> uint32",
+        "occlusion_bbox_rule": "seeded square bbox from per_row_seed",
+    }
