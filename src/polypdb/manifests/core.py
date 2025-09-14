@@ -43,6 +43,10 @@ class ManifestRow:
     chunk_end: int = -1
     split_unit: str = "case"
     synthetic_case: bool = False
+    orig_frame_id: str = ""
+    perturbation_id: str = ""
+    rng_seed: int = -1
+    render_in_pipeline: bool = False
 
 
 def hmac_rank(seed: int, text: str) -> int:

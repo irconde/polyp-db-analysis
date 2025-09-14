@@ -33,6 +33,10 @@ CSV_FIELDS = [
     "chunk_end",
     "split_unit",
     "synthetic_case",
+    "orig_frame_id",
+    "perturbation_id",
+    "rng_seed",
+    "render_in_pipeline",
 ]
 
 
@@ -87,6 +91,11 @@ def read_csv(path: Path) -> List[ManifestRow]:
                     chunk_end=int(raw.get("chunk_end", -1)),
                     split_unit=raw.get("split_unit", "case"),
                     synthetic_case=raw.get("synthetic_case", "").lower()
+                    in {"1", "true", "t", "yes"},
+                    orig_frame_id=raw.get("orig_frame_id", ""),
+                    perturbation_id=raw.get("perturbation_id", ""),
+                    rng_seed=int(raw.get("rng_seed", -1)),
+                    render_in_pipeline=raw.get("render_in_pipeline", "").lower()
                     in {"1", "true", "t", "yes"},
                 )
             )
@@ -174,6 +183,10 @@ def validate_pack(
 
     manifest_path = out_dir / "manifest.yaml"
     manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    assertions = manifest.get("assertions", {})
+    unique_key = assertions.get("unique_key", ["frame_id"])
+    if isinstance(unique_key, str):
+        unique_key = [unique_key]
 
     if roots is None:
         roots = manifest.get("roots", {})
@@ -189,11 +202,13 @@ def validate_pack(
 
         rows = read_csv(csv_path)
 
-        seen_ids: set[str] = set()
+        seen_keys: set[tuple] = set()
         for row in rows:
-            if row.frame_id in seen_ids:
-                raise AssertionError(f"duplicate frame_id {row.frame_id} in {split}")
-            seen_ids.add(row.frame_id)
+            key = tuple(getattr(row, f) for f in unique_key)
+            if key in seen_keys:
+                key_str = ", ".join(f"{f}={getattr(row, f)}" for f in unique_key)
+                raise AssertionError(f"duplicate key ({key_str}) in {split}")
+            seen_keys.add(key)
 
             if row.label not in {0, 1}:
                 raise AssertionError(f"invalid label {row.label} in {split}")
