@@ -72,7 +72,9 @@ def test_virtual_negative_cases(tmp_path):
 
     fs = manifest["frame_sampling"]
     assert fs == {
-        "selection": "hmac_sha256(path,salt)",
+        "selection": "hmac_sha256(frame_path,salt)",
+        "path_normalization": "posix,no-leading-slash,single-slash",
+        "path_is_relative_to": "roots.sun",
         "salt_id": "seed-0",
         "tie_break": "frame_path",
         "frames_per_case": 33,
