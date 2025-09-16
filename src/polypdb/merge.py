@@ -926,7 +926,11 @@ def relink_negative_cases(canonical_root: Path | str) -> tuple[pd.DataFrame, pd.
 
 
 def export_parquet_metadata(
-    df: pd.DataFrame, canonical_base: Path | str, negative_frames: list[dict] | None = None
+    df: pd.DataFrame,
+    canonical_base: Path | str,
+    negative_frames: list[dict] | None = None,
+    *,
+    write_cases: bool = True,
 ) -> list[dict]:
     """Write canonical metadata tables to Parquet files.
 
@@ -937,6 +941,9 @@ def export_parquet_metadata(
     canonical_base : str
         Base directory for the canonical dataset. ``images`` and ``manifests``
         sub-directories are expected beneath this path.
+    write_cases : bool, optional
+        When ``False``, skip generating ``cases.parquet`` even if case metadata
+        or synthetic case identifiers are available.
 
     Returns
     -------
@@ -950,6 +957,7 @@ def export_parquet_metadata(
     images_dir = canonical_base / 'images'
     manifests_dir = canonical_base / 'manifests'
     manifests_dir.mkdir(parents=True, exist_ok=True)
+    cases_path = manifests_dir / "cases.parquet"
 
     # Note: ingest metadata removed per user request
 
@@ -1060,39 +1068,40 @@ def export_parquet_metadata(
     frames_df = frames_df.drop(columns=['_pos_priority', '_origin_priority', '_row_order'])
     frames_df.to_parquet(manifests_dir / 'frames.parquet', index=False)
 
-    case_records: list[dict] = []
-    required_case_cols = {"global_lesion_id", "lesion_id", "n_frames"}
-    frame_counts = (
-        frames_df.dropna(subset=['global_case_id'])
-        .groupby('global_case_id')
-        .size()
-        .to_dict()
-    )
-    if required_case_cols.issubset(df.columns) and df["global_lesion_id"].notna().any():
-        for lesion_id, group in df.groupby("global_lesion_id"):
-            if pd.isna(lesion_id) or lesion_id not in frame_counts:
-                continue
-            first = group.iloc[0]
-            case_records.append(
-                {
-                    "global_case_id": lesion_id,
-                    "dataset": first["dataset"],
-                    "center_id": first.get("center_id"),
-                    "shape": first.get("morphology_shape"),
-                    "size_mm": first.get("morphology_size"),
-                    "location": first.get("morphology_location"),
-                    "n_frames": int(frame_counts.get(lesion_id, first["n_frames"])),
-                    "source_lesion_id": first["lesion_id"],
-                }
-            )
-
-    # Include synthetic negative cases if provided
     kept_negative_frames: list[dict] = []
     if negative_frames:
         kept_ids = set(frames_df.loc[~frames_df['has_polyp'], 'global_frame_id'])
         kept_negative_frames = [
             rec for rec in (negative_frames or []) if rec.get('global_frame_id') in kept_ids
         ]
+
+    if write_cases:
+        case_records: list[dict] = []
+        required_case_cols = {"global_lesion_id", "lesion_id", "n_frames"}
+        frame_counts = (
+            frames_df.dropna(subset=['global_case_id'])
+            .groupby('global_case_id')
+            .size()
+            .to_dict()
+        )
+        if required_case_cols.issubset(df.columns) and df["global_lesion_id"].notna().any():
+            for lesion_id, group in df.groupby("global_lesion_id"):
+                if pd.isna(lesion_id) or lesion_id not in frame_counts:
+                    continue
+                first = group.iloc[0]
+                case_records.append(
+                    {
+                        "global_case_id": lesion_id,
+                        "dataset": first["dataset"],
+                        "center_id": first.get("center_id"),
+                        "shape": first.get("morphology_shape"),
+                        "size_mm": first.get("morphology_size"),
+                        "location": first.get("morphology_location"),
+                        "n_frames": int(frame_counts.get(lesion_id, first["n_frames"])),
+                        "source_lesion_id": first["lesion_id"],
+                    }
+                )
+
         if kept_negative_frames:
             neg_df = pd.DataFrame(kept_negative_frames)
             if {"global_case_id", "dataset"}.issubset(neg_df.columns):
@@ -1113,13 +1122,17 @@ def export_parquet_metadata(
                         }
                     )
 
-    if case_records:
-        pd.DataFrame(case_records).to_parquet(
-            manifests_dir / "cases.parquet", index=False
-        )
+        if case_records:
+            pd.DataFrame(case_records).to_parquet(cases_path, index=False)
+        else:
+            logger.info(
+                "Skipping cases.parquet because per-case metadata is missing"
+            )
     else:
+        if cases_path.exists():
+            cases_path.unlink()
         logger.info(
-            "Skipping cases.parquet because per-case metadata is missing"
+            "Skipping cases.parquet because case export is disabled by configuration"
         )
 
     ann_records: list[dict] = []
@@ -1632,7 +1645,7 @@ def merge_datasets(config: MergeConfig):
     # Save the combined DataFrame to a spreadsheet and Parquet manifests
     save_combined_dataframe(combined_df, base_path, output_filename)
     retained_negative_records = export_parquet_metadata(
-        combined_df, canonical_base, negative_records
+        combined_df, canonical_base, negative_records, write_cases=config.write_cases
     )
 
     # Compute statistics using the new 'global_case_id' terminology without fallbacks
