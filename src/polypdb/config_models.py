@@ -21,6 +21,7 @@ class MergeConfig:
     num_elements: Optional[int] = None
     plot_images: bool = False
     negative_sources: Dict[str, str] = field(default_factory=dict)
+    write_cases: bool = True
 
     @classmethod
     def from_dict(cls, data: dict, *, path: Path | None = None) -> "MergeConfig":
@@ -41,6 +42,7 @@ class MergeConfig:
             num_elements=data.get("num_elements"),
             plot_images=bool(data.get("plot_images", False)),
             negative_sources=negative_sources,
+            write_cases=bool(data.get("write_cases", True)),
         )
 
 

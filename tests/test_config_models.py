@@ -11,6 +11,22 @@ def test_merge_config_requires_base_path(tmp_path):
         load_config(str(cfg_path), MergeConfig)
 
 
+def test_merge_config_default_write_cases_true(tmp_path):
+    cfg_text = "base_path: /data\ndatasets: ['a']\n"
+    cfg_path = tmp_path / "merge.yaml"
+    cfg_path.write_text(cfg_text)
+    cfg = load_config(str(cfg_path), MergeConfig)
+    assert cfg.write_cases is True
+
+
+def test_merge_config_respects_write_cases_flag(tmp_path):
+    cfg_text = "base_path: /data\ndatasets: ['a']\nwrite_cases: false\n"
+    cfg_path = tmp_path / "merge.yaml"
+    cfg_path.write_text(cfg_text)
+    cfg = load_config(str(cfg_path), MergeConfig)
+    assert cfg.write_cases is False
+
+
 def test_prepare_config_requires_splitting(tmp_path):
     cfg_text = (
         "src_path: /data\n"
