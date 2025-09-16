@@ -4,6 +4,8 @@ from pathlib import Path
 import pandas as pd
 from PIL import Image, ImageDraw
 
+import polypdb.merge as merge
+
 from polypdb.merge import (
     POLYPGEN_EXCLUDED_NEGATIVE_SEQUENCES,
     compute_file_sha1,
@@ -140,7 +142,7 @@ def test_polypgen_negative_sequence_exclusions(tmp_path):
 
 def test_polypgen_negatives_preserve_source_files(tmp_path):
     source_dir = tmp_path / "polypgen_negatives"
-    seq_dir = source_dir / "seq2_neg"
+    seq_dir = source_dir / "seq8_neg"
     seq_dir.mkdir(parents=True)
 
     original = Image.new("RGB", (10, 20), color="white")
@@ -180,3 +182,37 @@ def test_polypgen_negatives_preserve_source_files(tmp_path):
     assert records[0]["img_height"] == 32
     assert isinstance(records[0]["content_sha1"], str)
     assert len(records[0]["content_sha1"]) == 40
+
+
+def test_process_negative_images_polypgen_sequence_uses_custom_crop(tmp_path, monkeypatch):
+    img_path = tmp_path / "NEGSEQ.seq1_neg.00000.jpg"
+    Image.new("RGB", (20, 20), color="white").save(img_path)
+
+    calls = {}
+
+    def fake_crop(img, **kwargs):
+        calls["size"] = img.size
+        return img.crop((1, 0, img.width, img.height))
+
+    monkeypatch.setattr(merge, "crop_polypgen_negative_image", fake_crop)
+
+    process_negative_images(tmp_path, 16, 16)
+
+    assert "size" in calls
+    with Image.open(img_path) as result:
+        assert result.size == (16, 16)
+
+
+def test_process_negative_images_regular_frames_skip_polypgen_crop(tmp_path, monkeypatch):
+    img_path = tmp_path / "NEG_SUN_clipA.000001.jpg"
+    Image.new("RGB", (18, 12), color="white").save(img_path)
+
+    def fail_crop(*args, **kwargs):
+        raise AssertionError("crop called")
+
+    monkeypatch.setattr(merge, "crop_polypgen_negative_image", fail_crop)
+
+    process_negative_images(tmp_path, 16, 16)
+
+    with Image.open(img_path) as result:
+        assert result.size == (16, 16)

@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
+from .polypgen_negative_crop import crop_polypgen_negative_image
 from .utils.image_ops import draw_bounding_boxes, get_image_size
 from tqdm import tqdm
 
@@ -635,6 +636,27 @@ def adjust_bounding_box(original_bbox, original_width, original_height, target_w
     return f"{x_min},{y_min},{x_max},{y_max}"
 
 
+def _resize_with_letterbox(img: Image.Image, target_width: int, target_height: int) -> tuple[Image.Image, int, int]:
+    """Resize ``img`` preserving aspect ratio and pad to ``target`` dimensions."""
+
+    img_aspect = img.width / img.height
+    target_aspect = target_width / target_height
+
+    if img_aspect > target_aspect:
+        new_height = target_height
+        new_width = max(1, int(round(new_height * img_aspect)))
+    else:
+        new_width = target_width
+        new_height = max(1, int(round(new_width / img_aspect)))
+
+    resized_img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+    result_img = Image.new("RGB", (target_width, target_height), "black")
+    paste_x = (target_width - new_width) // 2
+    paste_y = (target_height - new_height) // 2
+    result_img.paste(resized_img, (paste_x, paste_y))
+    return result_img, new_width, new_height
+
+
 def standardize_and_override_image(img_path, target_width, target_height):
     """
     Standardizes the image and overrides it with a new image with the specified width and height.
@@ -645,27 +667,9 @@ def standardize_and_override_image(img_path, target_width, target_height):
     """
     with Image.open(img_path) as img:
         original_width, original_height = img.size
-        img_aspect = original_width / original_height
-        target_aspect = target_width / target_height
-
-        if img_aspect > target_aspect:
-            # Wider than target aspect
-            new_height = target_height
-            new_width = int(new_height * img_aspect)
-        else:
-            # Taller or equal to target aspect
-            new_width = target_width
-            new_height = int(new_width / img_aspect)
-
-        resized_img = img.resize(
-            (new_width, new_height), Image.Resampling.LANCZOS)
-
-        # Add padding if necessary
-        result_img = Image.new("RGB", (target_width, target_height), "black")
-        paste_x = (target_width - new_width) // 2
-        paste_y = (target_height - new_height) // 2
-        result_img.paste(resized_img, (paste_x, paste_y))
-
+        result_img, new_width, new_height = _resize_with_letterbox(
+            img, target_width, target_height
+        )
         result_img.save(img_path, quality=95)
 
         return original_width, original_height, new_width, new_height
@@ -712,6 +716,25 @@ def process_images_and_bboxes(df, source_dir: Path | str, target_width, target_h
             df.at[index, 'BOUNDING BOX'] = new_bbox
         else:
             logger.warning("File not found: %s", img_path)
+
+
+def _is_polypgen_sequence_frame(path: Path) -> bool:
+    """Return ``True`` if ``path`` refers to a PolypGen negative sequence frame."""
+
+    return path.name.lower().startswith("negseq.")
+
+
+def _sanitize_polypgen_sequence_frame(
+    path: Path, target_width: int, target_height: int
+) -> None:
+    """Crop and resize PolypGen negative sequence frames in-place."""
+
+    with Image.open(path) as img:
+        cropped_img = crop_polypgen_negative_image(img)
+        result_img, _, _ = _resize_with_letterbox(
+            cropped_img, target_width, target_height
+        )
+        result_img.save(path, quality=95)
 
 
 def process_negative_images(
@@ -765,9 +788,14 @@ def process_negative_images(
     for source_file_path in tqdm(
         file_paths, desc="Processing negatives", total=len(file_paths)
     ):
-        standardize_and_override_image(
-            source_file_path, target_width, target_height
-        )
+        if _is_polypgen_sequence_frame(source_file_path):
+            _sanitize_polypgen_sequence_frame(
+                source_file_path, target_width, target_height
+            )
+        else:
+            standardize_and_override_image(
+                source_file_path, target_width, target_height
+            )
 
 
 def cleanup_temp_artifacts(base_path: Path | str, destination_folder: Path | str) -> None:
