@@ -5,6 +5,7 @@ import pandas as pd
 from PIL import Image, ImageDraw
 
 from polypdb.merge import (
+    POLYPGEN_EXCLUDED_NEGATIVE_SEQUENCES,
     compute_file_sha1,
     copy_and_rename_negative_images,
     process_negative_images,
@@ -116,6 +117,25 @@ def test_copy_and_rename_negative_sequences(tmp_path):
     assert len(second["content_sha1"]) == 40
     assert (dest_dir / "NEGSEQ.seq1_neg.00000.jpg").exists()
     assert (dest_dir / "NEGSEQ.seq1_neg.00001.jpg").exists()
+
+
+def test_polypgen_negative_sequence_exclusions(tmp_path):
+    source_dir = tmp_path / "polypgen_negatives"
+
+    for seq in POLYPGEN_EXCLUDED_NEGATIVE_SEQUENCES:
+        seq_dir = source_dir / seq
+        seq_dir.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (10, 10), color="white").save(seq_dir / "frame1.jpg")
+
+    dest_dir = tmp_path / "canonical" / "images"
+    records, original_count = copy_and_rename_negative_images(
+        str(source_dir), str(dest_dir), dataset_name="polypgen"
+    )
+
+    assert original_count == len(POLYPGEN_EXCLUDED_NEGATIVE_SEQUENCES)
+    assert records == []
+    assert dest_dir.exists()
+    assert list(dest_dir.iterdir()) == []
 
 
 def test_polypgen_negatives_preserve_source_files(tmp_path):
