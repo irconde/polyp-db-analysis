@@ -192,6 +192,110 @@ def test_polypgen_fewshot_disjoint_and_balanced(tmp_path: Path, monkeypatch) -> 
     assert abs(pos - neg) <= 1
 
     manifest = yaml.safe_load((pack_dir / "manifest.yaml").read_text())
-    assert manifest["policy"]["selection"] == "hmac_sha256(frame_id,123)"
-    assert manifest["counts"]["train"]["frames"] == 6
+    policy = manifest["policy"]
+    assert policy["selection"] == "hmac_sha256(frame_id,123)"
+    assert policy["parent_pack"] == test_pack.name
+    assert policy["target_train_size"] == 6
+    assert policy["target_class_balance"] == {"pos": 3, "neg": 3}
+    assert policy["realized_train_size"] == len(train_rows)
+    assert policy["realized_train_counts"] == {"pos": pos, "neg": neg}
+    assert policy["balance_relaxed"] is False
+
+    neg_policy = policy["neg_sampling"]
+    assert neg_policy["strategy"] == "pool_first_sequence_cap_single_pass"
+    assert neg_policy["pool_first"] is True
+    assert neg_policy["max_frames_per_sequence"] == pg_fewshot.MAX_NEG_FRAMES_PER_SEQUENCE
+    assert neg_policy["sequence_level_disjointness"] is True
+    assert neg_policy["phase_counts"]["base_pool"] == len(expected_base)
+    assert neg_policy["phase_counts"]["sequence"] == neg - len(expected_base)
+    assert neg_policy["sequences_in_train"] == len(expected_sequence_ids)
+    assert neg_policy.get("shortfall", 0) == 0
+
+    assert manifest["counts"]["train"]["frames"] == len(train_rows)
     assert manifest["counts"]["test"]["frames"] == len(test_rows)
+
+
+def test_polypgen_fewshot_relaxes_balance_when_negatives_insufficient(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = tmp_path / "polypgen_root_small"
+    (root / "manifests").mkdir(parents=True, exist_ok=True)
+
+    rows: list[ManifestRow] = []
+    metadata: dict[str, dict[str, object | None]] = {}
+
+    for idx in range(4):
+        frame_id = f"pos{idx}"
+        frame_path = f"images/{frame_id}.png"
+        rows.append(
+            ManifestRow(
+                dataset="PolypGen",
+                split="test",
+                case_id=f"P{idx}",
+                frame_id=frame_id,
+                frame_path=frame_path,
+                label=1,
+                store_id="polypgen_clean",
+            )
+        )
+        metadata[frame_id] = {"origin": "frame", "sequence_id": None}
+
+    neg_frame = "neg_only"
+    rows.append(
+        ManifestRow(
+            dataset="PolypGen",
+            split="test",
+            case_id="N0",
+            frame_id=neg_frame,
+            frame_path=f"images/{neg_frame}.png",
+            label=0,
+            store_id="polypgen_clean",
+        )
+    )
+    metadata[neg_frame] = {"origin": "frame", "sequence_id": None}
+
+    pack_dir = tmp_path / "small_pack"
+    meta = {
+        "name": "polypgen-clean-test",
+        "version": "0.0",
+        "policy": {"unit_of_split": "frame"},
+        "roots": {"polypgen_clean": str(root)},
+    }
+    write_pack(pack_dir, {"test": rows}, meta)
+
+    monkeypatch.setattr(
+        pg_fewshot,
+        "_load_frame_metadata",
+        lambda roots, store_ids, frame_ids: {
+            fid: metadata[fid]
+            for fid in frame_ids
+            if fid in metadata
+        },
+    )
+
+    out_dir = tmp_path / "out_small"
+    build_polypgen_fewshot(pack_dir, [4], [7], out_dir)
+
+    pack_dir_out = out_dir / "polypgen_fewshot_s4_seed7"
+    train_rows = read_csv(pack_dir_out / "train.csv")
+
+    pos_count = sum(r.label == 1 for r in train_rows)
+    neg_count = sum(r.label == 0 for r in train_rows)
+    assert len(train_rows) == 4
+    assert pos_count == 3
+    assert neg_count == 1
+
+    manifest = yaml.safe_load((pack_dir_out / "manifest.yaml").read_text())
+    policy = manifest["policy"]
+    assert policy["target_class_balance"] == {"pos": 2, "neg": 2}
+    assert policy["balance_relaxed"] is True
+    assert policy["realized_train_counts"] == {"pos": pos_count, "neg": neg_count}
+    assert policy["realized_train_size"] == len(train_rows)
+
+    neg_policy = policy["neg_sampling"]
+    assert neg_policy["phase_counts"]["base_pool"] == 1
+    assert neg_policy["phase_counts"]["sequence"] == 0
+    assert neg_policy["sequences_in_train"] == 0
+    assert neg_policy["shortfall"] == 1
+
+    assert manifest["counts"]["train"]["frames"] == len(train_rows)

@@ -3,10 +3,9 @@ from __future__ import annotations
 """Utilities for creating few-shot PolypGen training splits."""
 
 from collections import defaultdict
-from dataclasses import replace
-from math import ceil, floor
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List
 import logging
 import subprocess
 
@@ -21,6 +20,16 @@ logger = logging.getLogger(__name__)
 
 # Maximum number of frames to draw from any negative sequence.
 MAX_NEG_FRAMES_PER_SEQUENCE = 5
+
+
+@dataclass
+class NegativeSelectionResult:
+    """Outcome of the negative frame selection procedure."""
+
+    rows: List[ManifestRow]
+    sequence_ids: List[str]
+    sequence_frames: Dict[str, set[str]]
+    base_selected_count: int
 
 
 def _load_frame_metadata(
@@ -101,52 +110,70 @@ def _select_negative_rows(
     metadata: Dict[str, Dict[str, str | None]],
     seed: int,
     k_neg: int,
-) -> Tuple[List[ManifestRow], List[str]]:
-    """Select negative rows prioritising base negatives and then sequences."""
+) -> NegativeSelectionResult:
+    """Select negative rows using the pool-first capped sequence policy."""
 
     if k_neg <= 0 or not neg_rows:
-        return [], []
+        return NegativeSelectionResult([], [], {}, 0)
 
     base_negatives: List[ManifestRow] = []
     sequences: Dict[str, List[ManifestRow]] = defaultdict(list)
+    sequence_frames: Dict[str, set[str]] = {}
+
     for row in neg_rows:
         info = metadata.get(row.frame_id, {})
-        seq_id = info.get("sequence_id")
+        origin = (info.get("origin") or "").lower()
+        seq_id_raw = info.get("sequence_id")
+        seq_id = str(seq_id_raw) if seq_id_raw else ""
         if seq_id:
             sequences[seq_id].append(row)
-        elif info.get("origin") == "neg_seq":
-            # Safety net: treat sequence frames without an explicit ID as their own group.
-            sequences[row.frame_id].append(row)
-        else:
-            base_negatives.append(row)
+            sequence_frames.setdefault(seq_id, set()).add(row.frame_id)
+            continue
+        if origin == "neg_seq":
+            seq_key = f"neg_seq::{row.frame_id}"
+            sequences[seq_key].append(row)
+            sequence_frames.setdefault(seq_key, set()).add(row.frame_id)
+            continue
+        base_negatives.append(row)
 
     selected: List[ManifestRow] = []
+    base_selected: List[ManifestRow] = []
     selected_sequences: List[str] = []
 
-    # Stage 1: prefer base negatives with known centres.
     if base_negatives:
         take = min(k_neg, len(base_negatives))
-        selected.extend(pick_k(base_negatives, seed, take, key=lambda r: r.frame_id))
+        base_selected = pick_k(base_negatives, seed, take, key=lambda r: r.frame_id)
+        selected.extend(base_selected)
 
     remaining = k_neg - len(selected)
-    if remaining <= 0 or not sequences:
-        return selected, selected_sequences
+    if remaining > 0 and sequences:
+        sequence_ids = sorted(
+            sequences.keys(), key=lambda sid: (hmac_rank(seed, sid), sid)
+        )
+        for seq_id in sequence_ids:
+            if remaining <= 0:
+                break
+            frames = sequences[seq_id]
+            frames = sorted(
+                frames, key=lambda r: (hmac_rank(seed, r.frame_id), r.frame_id)
+            )
+            take = min(MAX_NEG_FRAMES_PER_SEQUENCE, remaining, len(frames))
+            if take <= 0:
+                continue
+            selected.extend(frames[:take])
+            selected_sequences.append(seq_id)
+            remaining -= take
 
-    # Stage 2: draw from negative sequences without crossing splits.
-    sequence_ids = sorted(sequences.keys(), key=lambda sid: (hmac_rank(seed, sid), sid))
-    for seq_id in sequence_ids:
-        frames = sequences[seq_id]
-        frames = sorted(frames, key=lambda r: (hmac_rank(seed, r.frame_id), r.frame_id))
-        take = min(MAX_NEG_FRAMES_PER_SEQUENCE, remaining, len(frames))
-        if take <= 0:
-            continue
-        selected.extend(frames[:take])
-        selected_sequences.append(seq_id)
-        remaining -= take
-        if remaining <= 0:
-            break
+    sequence_frames_selected: Dict[str, set[str]] = {
+        seq_id: set(sequence_frames.get(seq_id, set())) for seq_id in selected_sequences
+    }
 
-    return selected, selected_sequences
+    return NegativeSelectionResult(
+        selected,
+        selected_sequences,
+        sequence_frames_selected,
+        len(base_selected),
+    )
 
 
 def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], out_dir: Path) -> None:
@@ -158,8 +185,9 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
         Path to a manifest pack containing ``test.csv`` with both positive and
         negative frames.
     sizes:
-        Desired training set sizes.  For each size ``S`` and ``seed`` we select
-        ``ceil(S/2)`` positive and ``floor(S/2)`` negative frames.
+        Desired training set sizes.  For each size ``S`` and ``seed`` we target
+        ``S/2`` positive and ``S/2`` negative frames, relaxing the negative
+        quota when the available pool is exhausted.
     seeds:
         Seeds used for deterministic selection.
     out_dir:
@@ -185,24 +213,53 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
 
     for size in sizes:
         for seed in seeds:
-            k_pos = min(ceil(size / 2), len(pos_rows))
-            k_neg = min(floor(size / 2), len(neg_rows))
+            target_neg = size // 2
+            target_pos = size - target_neg
 
-            pos_selected = pick_k(pos_rows, seed, k_pos, key=lambda r: r.frame_id)
-            neg_selected, neg_sequences = _select_negative_rows(neg_rows, frame_metadata, seed, k_neg)
+            neg_selection = _select_negative_rows(
+                neg_rows,
+                frame_metadata,
+                seed,
+                target_neg,
+            )
+            neg_selected = neg_selection.rows
+            actual_neg = len(neg_selected)
+            shortfall = max(0, target_neg - actual_neg)
+
+            requested_pos = size - actual_neg
+            pos_take = min(requested_pos, len(pos_rows))
+            pos_selected = pick_k(pos_rows, seed, pos_take, key=lambda r: r.frame_id)
+            actual_pos = len(pos_selected)
+
+            if actual_neg < target_neg:
+                logger.warning(
+                    "Requested %d negatives but only %d available (seed=%s, size=%s)",
+                    target_neg,
+                    actual_neg,
+                    seed,
+                    size,
+                )
+            if actual_pos + actual_neg < size:
+                logger.warning(
+                    "Requested train size %d but only %d frames available for seed=%s",
+                    size,
+                    actual_pos + actual_neg,
+                    seed,
+                )
 
             train_rows = [replace(r, split="train") for r in pos_selected + neg_selected]
             selected_ids = {r.frame_id for r in train_rows}
 
-            neg_sequence_set = {seq_id for seq_id in neg_sequences if seq_id}
+            sequence_frame_ids: set[str] = set()
+            for frames in neg_selection.sequence_frames.values():
+                sequence_frame_ids.update(frames)
+
             test_rows_out: List[ManifestRow] = []
             for row in test_rows:
                 if row.frame_id in selected_ids:
                     continue
-                if row.label == 0 and neg_sequence_set:
-                    seq_id = frame_metadata.get(row.frame_id, {}).get("sequence_id")
-                    if seq_id in neg_sequence_set:
-                        continue
+                if row.label == 0 and row.frame_id in sequence_frame_ids:
+                    continue
                 test_rows_out.append(replace(row, split="test"))
 
             pack_dir = out_dir / f"polypgen_fewshot_s{size}_seed{seed}"
@@ -213,6 +270,26 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                 "policy": {
                     "unit_of_split": "frame",
                     "selection": f"hmac_sha256(frame_id,{seed})",
+                    "parent_pack": test_pack.name,
+                    "target_train_size": size,
+                    "target_class_balance": {"pos": target_pos, "neg": target_neg},
+                    "realized_train_size": len(train_rows),
+                    "realized_train_counts": {
+                        "pos": actual_pos,
+                        "neg": actual_neg,
+                    },
+                    "balance_relaxed": actual_neg < target_neg,
+                    "neg_sampling": {
+                        "strategy": "pool_first_sequence_cap_single_pass",
+                        "pool_first": True,
+                        "max_frames_per_sequence": MAX_NEG_FRAMES_PER_SEQUENCE,
+                        "sequence_level_disjointness": True,
+                        "phase_counts": {
+                            "base_pool": neg_selection.base_selected_count,
+                            "sequence": actual_neg - neg_selection.base_selected_count,
+                        },
+                        "sequences_in_train": len(neg_selection.sequence_ids),
+                    },
                 },
                 "row_schema": {
                     "fields": [
@@ -230,6 +307,9 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                 },
                 "roots": roots,
             }
+
+            if shortfall > 0:
+                meta["policy"]["neg_sampling"]["shortfall"] = shortfall
 
             command = (
                 f"polypdb polypgen fewshot --pack {test_pack} --sizes {size} "
