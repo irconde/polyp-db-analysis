@@ -825,6 +825,29 @@ def build_sun_morphology(
             "balance": "cases_pos=70,cases_neg=70,stratify=morphology",
             "selection": "hmac_sha256(case_id,seed)",
         },
+        "row_schema": {
+            "fields": [
+                {"name": "dataset", "type": "string", "desc": "constant 'sun'"},
+                {"name": "split", "type": "string", "desc": "train|val|test (by case)"},
+                {"name": "case_id", "type": "string"},
+                {"name": "frame_id", "type": "string"},
+                {"name": "frame_path", "type": "path"},
+                {"name": "label", "type": "int", "desc": "0=neg, 1=pos"},
+                {
+                    "name": "morphology",
+                    "type": "string",
+                    "enum": ["flat", "polypoid"],
+                    "nullable": True,
+                },
+                {"name": "width", "type": "int"},
+                {"name": "height", "type": "int"},
+                {"name": "split_unit", "type": "string", "desc": "case"},
+                {"name": "synthetic_case", "type": "bool", "desc": "true for virtual negatives"},
+                {"name": "source_case_id", "type": "string", "nullable": True},
+                {"name": "chunk_start", "type": "int", "nullable": True},
+                {"name": "chunk_end", "type": "int", "nullable": True},
+            ]
+        },
         "frame_sampling": {
             "selection": "hmac_sha256(frame_path,salt)",
             "path_normalization": "posix,no-leading-slash,single-slash",
