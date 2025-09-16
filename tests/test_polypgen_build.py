@@ -14,17 +14,24 @@ def test_build_polypgen_eval(tmp_path: Path) -> None:
     man_dir = root / "manifests"
     img_dir.mkdir(parents=True)
     man_dir.mkdir(parents=True)
-    for name, size in zip(["pos.png", "neg.png"], [(2, 3), (4, 5)]):
+    specs = [
+        ("pos.png", (2, 3)),
+        ("neg.png", (4, 5)),
+        ("neg_seq.png", (6, 7)),
+    ]
+    for name, size in specs:
         Image.new("RGB", size).save(img_dir / name)
 
     ann = pd.DataFrame(
         {
-            "img_path": ["images/pos.png", "images/neg.png"],
-            "has_polyp": [1, 0],
-            "global_frame_id": ["gf_pos", "gf_neg"],
-            "center_id": ["c1", "c2"],
-            "img_width": [2, 4],
-            "img_height": [3, 5],
+            "img_path": [f"images/{name}" for name, _ in specs],
+            "has_polyp": [1, 0, 0],
+            "global_frame_id": ["gf_pos", "gf_neg", "gf_neg_seq"],
+            "center_id": ["c1", "c2", ""],
+            "img_width": [w for _, (w, _) in specs],
+            "img_height": [h for _, (_, h) in specs],
+            "origin": ["frame", "frame", "neg_seq"],
+            "sequence_id": [pd.NA, pd.NA, "seqA"],
         }
     )
     ann.to_parquet(man_dir / "frames.parquet", index=False)
@@ -34,6 +41,7 @@ def test_build_polypgen_eval(tmp_path: Path) -> None:
 
     rows = read_csv(out / "test.csv")
     assert len(rows) == 2
+    assert {r.frame_id for r in rows} == {"gf_pos", "gf_neg"}
     assert all(r.dataset == "PolypGen" for r in rows)
     assert all(r.split == "test" for r in rows)
     assert all(r.store_id == "polypgen_clean" for r in rows)

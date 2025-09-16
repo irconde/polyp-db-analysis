@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 import subprocess
+import logging
 
 import pandas as pd
 
 from ..manifests.core import ManifestRow
 from ..manifests.io import write_pack
+
+
+logger = logging.getLogger(__name__)
 
 
 def build_polypgen_eval(pg_root: Path, out_dir: Path, track: str = "clean") -> None:
@@ -51,6 +55,26 @@ def build_polypgen_eval(pg_root: Path, out_dir: Path, track: str = "clean") -> N
 
     width_col = "img_width" if "img_width" in df.columns else None
     height_col = "img_height" if "img_height" in df.columns else None
+
+    if track == "clean":
+        seq_mask = pd.Series(False, index=df.index)
+        if "origin" in df.columns:
+            origin_series = df["origin"].astype("string")
+            origin_lower = origin_series.str.lower()
+            seq_from_origin = origin_lower == "neg_seq"
+            seq_mask = seq_mask | seq_from_origin.fillna(False)
+            if "sequence_id" in df.columns:
+                seq_mask = seq_mask | (origin_series.isna() & df["sequence_id"].notna())
+        elif "sequence_id" in df.columns:
+            seq_mask = seq_mask | df["sequence_id"].notna()
+        drop_mask = (df[label_col] == 0) & seq_mask
+        drop_count = int(drop_mask.sum())
+        if drop_count:
+            logger.info(
+                "Filtering %d PolypGen clean-track negatives originating from sequences",
+                drop_count,
+            )
+            df = df.loc[~drop_mask].copy()
 
     rows: list[ManifestRow] = []
     for row in df.itertuples(index=False):
