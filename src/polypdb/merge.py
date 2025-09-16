@@ -1,4 +1,6 @@
 from pathlib import Path
+import hashlib
+import os
 import shutil
 import logging
 import re
@@ -20,6 +22,16 @@ logger = logging.getLogger(__name__)
 
 # Supported image extensions for negative frame processing
 IMG_EXT = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif"}
+
+
+def compute_file_sha1(path: Path | str, chunk_size: int = 1 << 20) -> str:
+    """Return the SHA1 hash for ``path``."""
+
+    h = hashlib.sha1()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(chunk_size), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 # Mapping of dataset specific morphology descriptions to a common taxonomy
@@ -472,29 +484,58 @@ def copy_and_rename_negative_images(
     )
 
     for (ds_name, group_name), group_df in filtered_df.groupby(["dataset", "group"]):
-        lesion_key = f"NEG_{ds_name.upper()}_{group_name}"
+        ds_norm = str(ds_name)
+        group_norm = str(group_name)
+        is_sequence = (
+            ds_norm.lower() == "polypgen"
+            and bool(group_norm)
+            and re.fullmatch(r"seq\d+_neg", group_norm.lower()) is not None
+        )
+        if is_sequence:
+            sequence_id = group_norm
+            lesion_key = f"NEGSEQ_{sequence_id.upper()}"
+            origin = "neg_seq"
+        else:
+            sequence_id = pd.NA
+            lesion_key = f"NEG_{ds_norm.upper()}_{group_norm}"
+            origin = "frame"
+
         frame_idx = 0
+        seq_idx = -1
         for _, row in group_df.iterrows():
             frame_idx += 1
             src = Path(row["SRC_PATH"])
             fname = row["filename"]
             ext = Path(fname).suffix.lower()
-            global_frame_id = f"{lesion_key}.{frame_idx:06d}"
+            if is_sequence:
+                seq_idx += 1
+                global_frame_id = f"NEGSEQ.{sequence_id}.{seq_idx:05d}"
+                seq_index_value = seq_idx
+            else:
+                global_frame_id = f"{lesion_key}.{frame_idx:06d}"
+                seq_index_value = pd.NA
             dest_name = f"{global_frame_id}{ext}"
             dest_path = dest_dir / dest_name
             shutil.copy(src, dest_path)
+            sha1 = compute_file_sha1(dest_path)
             records.append(
                 {
                     "global_frame_id": global_frame_id,
                     # Group negatives by synthetic case key
                     "global_case_id": lesion_key,
-                    "dataset": ds_name,
+                    "dataset": ds_norm,
                     "source_frame_id": fname,
                     "img_width": row["WIDTH"],
                     "img_height": row["HEIGHT"],
                     "filename_ext": ext,
                     "img_path": str(Path('images') / dest_name),
                     "modality": None,
+                    "origin": origin,
+                    "sequence_id": sequence_id,
+                    "sequence_frame_index": seq_index_value,
+                    "center_id": None,
+                    "center_known": False,
+                    "content_sha1": sha1,
                 }
             )
 
@@ -801,7 +842,7 @@ def relink_negative_cases(canonical_root: Path | str) -> tuple[pd.DataFrame, pd.
 
 def export_parquet_metadata(
     df: pd.DataFrame, canonical_base: Path | str, negative_frames: list[dict] | None = None
-) -> None:
+) -> list[dict]:
     """Write canonical metadata tables to Parquet files.
 
     Parameters
@@ -811,6 +852,13 @@ def export_parquet_metadata(
     canonical_base : str
         Base directory for the canonical dataset. ``images`` and ``manifests``
         sub-directories are expected beneath this path.
+
+    Returns
+    -------
+    list[dict]
+        Negative frame records that were retained after deduplication. The
+        records follow the same schema as ``negative_frames`` and are suitable
+        for downstream statistics.
     """
 
     canonical_base = Path(canonical_base)
@@ -832,11 +880,13 @@ def export_parquet_metadata(
 
         bboxes = row.get('bounding_boxes')
         has_polyp = isinstance(bboxes, (list, tuple)) and len(bboxes) > 0
+        sha1 = compute_file_sha1(canonical_path)
+        center_val = row.get('center_id')
         frame_records.append({
             'global_frame_id': row.get('global_frame_id'),
             'global_case_id': case_id,
             'dataset': row['dataset'],
-            'center_id': row.get('center_id'),
+            'center_id': center_val,
             'source_frame_id': row['original_frame'],
             'img_width': width,
             'img_height': height,
@@ -844,21 +894,99 @@ def export_parquet_metadata(
             'img_path': str(Path('images') / row['frame']),
             'modality': row.get('image_type'),
             'has_polyp': has_polyp,
+            'origin': 'frame',
+            'sequence_id': pd.NA,
+            'sequence_frame_index': pd.NA,
+            'center_known': bool(pd.notna(center_val)),
+            'content_sha1': sha1,
         })
 
     if negative_frames:
         for rec in negative_frames:
             rec = rec.copy()
             rec.update({'has_polyp': False})
+            rec.setdefault('origin', 'frame')
+            rec.setdefault('sequence_id', pd.NA)
+            rec.setdefault('sequence_frame_index', pd.NA)
+            if 'center_id' not in rec:
+                rec['center_id'] = None
+            rec.setdefault('center_known', bool(pd.notna(rec.get('center_id'))))
+            if 'content_sha1' not in rec or pd.isna(rec['content_sha1']):
+                img_rel = rec.get('img_path')
+                if img_rel:
+                    rec['content_sha1'] = compute_file_sha1(canonical_base / img_rel)
+                else:
+                    rec['content_sha1'] = pd.NA
             frame_records.append(rec)
-    pd.DataFrame(frame_records).to_parquet(
-        manifests_dir / 'frames.parquet', index=False
-    )
+
+    frames_df = pd.DataFrame(frame_records)
+    if 'origin' not in frames_df.columns:
+        frames_df['origin'] = 'frame'
+    frames_df['origin'] = frames_df['origin'].fillna('frame')
+
+    if 'sequence_id' not in frames_df.columns:
+        frames_df['sequence_id'] = pd.NA
+    frames_df['sequence_id'] = frames_df['sequence_id'].astype('string')
+
+    if 'sequence_frame_index' not in frames_df.columns:
+        frames_df['sequence_frame_index'] = pd.Series(pd.NA, index=frames_df.index, dtype='Int64')
+    else:
+        frames_df['sequence_frame_index'] = pd.Series(
+            frames_df['sequence_frame_index'], index=frames_df.index, dtype='Int64'
+        )
+
+    if 'center_known' not in frames_df.columns:
+        frames_df['center_known'] = frames_df['center_id'].notna()
+    else:
+        fallback = frames_df['center_id'].notna()
+        frames_df['center_known'] = frames_df['center_known'].fillna(fallback)
+    frames_df['center_known'] = frames_df['center_known'].astype(bool)
+
+    if 'content_sha1' not in frames_df.columns:
+        frames_df['content_sha1'] = pd.NA
+
+    frames_df['_pos_priority'] = frames_df['has_polyp'].apply(lambda v: 0 if bool(v) else 1)
+    origin_priority = {'frame': 0, 'neg_seq': 1}
+    frames_df['_origin_priority'] = frames_df['origin'].map(origin_priority).fillna(0)
+    frames_df['_row_order'] = np.arange(len(frames_df))
+    frames_df = frames_df.sort_values(
+        ['_pos_priority', '_origin_priority', '_row_order']
+    ).reset_index(drop=True)
+
+    # Drop duplicated content hashes while keeping the first occurrence.
+    if 'content_sha1' in frames_df.columns:
+        mask = frames_df['content_sha1'].notna()
+        dup_mask = frames_df.loc[mask, 'content_sha1'].duplicated(keep='first')
+        drop_idx = frames_df.loc[mask].index[dup_mask]
+        if len(drop_idx):
+            for idx in drop_idx:
+                rel_path = frames_df.at[idx, 'img_path']
+                if isinstance(rel_path, str):
+                    abs_path = canonical_base / rel_path
+                    try:
+                        os.remove(abs_path)
+                    except FileNotFoundError:
+                        pass
+            logger.info(
+                "Dropped %d frames due to duplicate content hashes", len(drop_idx)
+            )
+            frames_df = frames_df.drop(index=drop_idx)
+
+    frames_df = frames_df.drop(columns=['_pos_priority', '_origin_priority', '_row_order'])
+    frames_df.to_parquet(manifests_dir / 'frames.parquet', index=False)
 
     case_records: list[dict] = []
     required_case_cols = {"global_lesion_id", "lesion_id", "n_frames"}
+    frame_counts = (
+        frames_df.dropna(subset=['global_case_id'])
+        .groupby('global_case_id')
+        .size()
+        .to_dict()
+    )
     if required_case_cols.issubset(df.columns) and df["global_lesion_id"].notna().any():
         for lesion_id, group in df.groupby("global_lesion_id"):
+            if pd.isna(lesion_id) or lesion_id not in frame_counts:
+                continue
             first = group.iloc[0]
             case_records.append(
                 {
@@ -868,29 +996,37 @@ def export_parquet_metadata(
                     "shape": first.get("morphology_shape"),
                     "size_mm": first.get("morphology_size"),
                     "location": first.get("morphology_location"),
-                    "n_frames": int(first["n_frames"]),
+                    "n_frames": int(frame_counts.get(lesion_id, first["n_frames"])),
                     "source_lesion_id": first["lesion_id"],
                 }
             )
 
     # Include synthetic negative cases if provided
+    kept_negative_frames: list[dict] = []
     if negative_frames:
-        neg_df = pd.DataFrame(negative_frames)
-        if {"global_case_id", "dataset"}.issubset(neg_df.columns):
-            counts = neg_df.groupby(["global_case_id", "dataset"]).size().reset_index(name="n_frames")
-            for row in counts.itertuples(index=False):
-                case_records.append(
-                    {
-                        "global_case_id": row.global_case_id,
-                        "dataset": row.dataset,
-                        "center_id": None,
-                        "shape": None,
-                        "size_mm": None,
-                        "location": None,
-                        "n_frames": int(row.n_frames),
-                        "source_lesion_id": None,
-                    }
+        kept_ids = set(frames_df.loc[~frames_df['has_polyp'], 'global_frame_id'])
+        kept_negative_frames = [
+            rec for rec in (negative_frames or []) if rec.get('global_frame_id') in kept_ids
+        ]
+        if kept_negative_frames:
+            neg_df = pd.DataFrame(kept_negative_frames)
+            if {"global_case_id", "dataset"}.issubset(neg_df.columns):
+                counts = (
+                    neg_df.groupby(["global_case_id", "dataset"]).size().reset_index(name="n_frames")
                 )
+                for row in counts.itertuples(index=False):
+                    case_records.append(
+                        {
+                            "global_case_id": row.global_case_id,
+                            "dataset": row.dataset,
+                            "center_id": None,
+                            "shape": None,
+                            "size_mm": None,
+                            "location": None,
+                            "n_frames": int(row.n_frames),
+                            "source_lesion_id": None,
+                        }
+                    )
 
     if case_records:
         pd.DataFrame(case_records).to_parquet(
@@ -900,6 +1036,8 @@ def export_parquet_metadata(
         logger.info(
             "Skipping cases.parquet because per-case metadata is missing"
         )
+
+    return kept_negative_frames
 
     ann_records = []
     for _, row in df.iterrows():
@@ -1355,12 +1493,14 @@ def merge_datasets(config: MergeConfig):
 
     # Save the combined DataFrame to a spreadsheet and Parquet manifests
     save_combined_dataframe(combined_df, base_path, output_filename)
-    export_parquet_metadata(combined_df, canonical_base, negative_records)
+    retained_negative_records = export_parquet_metadata(
+        combined_df, canonical_base, negative_records
+    )
 
     # Compute statistics using the new 'global_case_id' terminology without fallbacks
     stats_df = combined_df.rename(
         columns={"global_lesion_id": "global_case_id"})
-    dataset_statistics(stats_df, negative_records, negative_original_count)
+    dataset_statistics(stats_df, retained_negative_records, negative_original_count)
 
     # Loop through the DataFrame and draw bounding boxes on each image
     if config.plot_images:
