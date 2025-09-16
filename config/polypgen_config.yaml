@@ -9,3 +9,5 @@ write_cases: false
 num_elements: null
 prepare: false
 drop_multi_bboxes: false
+negative_sources:
+  sun: /Users/irconde/Desktop/sssl-polyps/polyp-datasets/raw/polypgen/PolypGen2021_MultiCenterData_v3/sequenceData/negativeOnly
