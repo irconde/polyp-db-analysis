@@ -1,3 +1,5 @@
+import shutil
+
 import pandas as pd
 from PIL import Image
 
@@ -37,6 +39,12 @@ def test_export_parquet_includes_center_id(tmp_path):
 
     assert "center_id" in frames_df.columns
     assert frames_df.loc[0, "center_id"] == "C1"
+    assert frames_df.loc[0, "origin"] == "frame"
+    assert pd.isna(frames_df.loc[0, "sequence_id"])
+    assert pd.isna(frames_df.loc[0, "sequence_frame_index"])
+    assert bool(frames_df.loc[0, "center_known"])
+    assert isinstance(frames_df.loc[0, "content_sha1"], str)
+    assert len(frames_df.loc[0, "content_sha1"]) == 40
     assert "center_id" in cases_df.columns
     assert cases_df.loc[0, "center_id"] == "C1"
 
@@ -65,6 +73,7 @@ def test_export_parquet_skips_cases_without_metadata(tmp_path):
     assert not (manifests / "cases.parquet").exists()
     frames_df = pd.read_parquet(manifests / "frames.parquet")
     assert frames_df.loc[0, "global_case_id"] == "F1"
+    assert not bool(frames_df.loc[0, "center_known"])
 
 
 def test_export_parquet_skips_cases_when_ids_empty(tmp_path):
@@ -100,8 +109,8 @@ def test_export_parquet_records_negative_cases(tmp_path):
     canonical_base = tmp_path
     images_dir = canonical_base / "images"
     images_dir.mkdir()
-    Image.new("RGB", (10, 20)).save(images_dir / "neg1.jpg")
-    Image.new("RGB", (10, 20)).save(images_dir / "neg2.jpg")
+    Image.new("RGB", (10, 20), color="red").save(images_dir / "neg1.jpg")
+    Image.new("RGB", (10, 20), color="blue").save(images_dir / "neg2.jpg")
 
     df = pd.DataFrame([])
     negative_frames = [
@@ -129,7 +138,7 @@ def test_export_parquet_records_negative_cases(tmp_path):
         },
     ]
 
-    export_parquet_metadata(df, canonical_base.as_posix(), negative_frames)
+    retained = export_parquet_metadata(df, canonical_base.as_posix(), negative_frames)
 
     manifests = canonical_base / "manifests"
     frames_df = pd.read_parquet(manifests / "frames.parquet")
@@ -138,3 +147,59 @@ def test_export_parquet_records_negative_cases(tmp_path):
     assert len(cases_df) == 1
     assert cases_df.loc[0, "global_case_id"] == "NEG_SUN_g1"
     assert cases_df.loc[0, "n_frames"] == 2
+    assert all(frames_df["origin"] == "frame")
+    assert not frames_df["center_known"].any()
+    assert frames_df["content_sha1"].str.len().eq(40).all()
+    assert len(retained) == 2
+
+
+def test_export_parquet_deduplicates_content_sha1(tmp_path):
+    canonical_base = tmp_path
+    images_dir = canonical_base / "images"
+    images_dir.mkdir()
+    Image.new("RGB", (10, 10), color="white").save(images_dir / "frame1.jpg")
+    shutil.copy(images_dir / "frame1.jpg", images_dir / "frame2.jpg")
+
+    df = pd.DataFrame([
+        {
+            "global_lesion_id": "L1",
+            "global_frame_id": "L1.000001",
+            "frame": "frame1.jpg",
+            "dataset": "polypgen",
+            "original_frame": "frame1.jpg",
+            "n_frames": 1,
+            "lesion_id": "1",
+            "bounding_boxes": [],
+            "morphology_shape": None,
+            "morphology_size": None,
+            "image_type": None,
+            "morphology_location": None,
+            "center_id": "C1",
+        },
+        {
+            "global_lesion_id": "L2",
+            "global_frame_id": "L2.000001",
+            "frame": "frame2.jpg",
+            "dataset": "polypgen",
+            "original_frame": "frame2.jpg",
+            "n_frames": 1,
+            "lesion_id": "2",
+            "bounding_boxes": [],
+            "morphology_shape": None,
+            "morphology_size": None,
+            "image_type": None,
+            "morphology_location": None,
+            "center_id": "C2",
+        },
+    ])
+
+    export_parquet_metadata(df, canonical_base.as_posix())
+
+    manifests = canonical_base / "manifests"
+    frames_df = pd.read_parquet(manifests / "frames.parquet")
+    cases_df = pd.read_parquet(manifests / "cases.parquet")
+
+    assert len(frames_df) == 1
+    assert frames_df.iloc[0]["global_frame_id"] == "L1.000001"
+    assert cases_df["global_case_id"].tolist() == ["L1"]
+    assert (images_dir / "frame2.jpg").exists() is False
