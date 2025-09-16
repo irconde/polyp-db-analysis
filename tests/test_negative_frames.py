@@ -1,9 +1,15 @@
 import os
+from pathlib import Path
 
 import pandas as pd
 from PIL import Image, ImageDraw
 
-from polypdb.merge import copy_and_rename_negative_images
+from polypdb.merge import (
+    compute_file_sha1,
+    copy_and_rename_negative_images,
+    process_negative_images,
+)
+from polypdb.utils.image_ops import get_image_size
 
 
 def test_copy_and_rename_negative_images_with_explicit_dataset(tmp_path):
@@ -110,3 +116,47 @@ def test_copy_and_rename_negative_sequences(tmp_path):
     assert len(second["content_sha1"]) == 40
     assert (dest_dir / "NEGSEQ.seq1_neg.00000.jpg").exists()
     assert (dest_dir / "NEGSEQ.seq1_neg.00001.jpg").exists()
+
+
+def test_polypgen_negatives_preserve_source_files(tmp_path):
+    source_dir = tmp_path / "polypgen_negatives"
+    seq_dir = source_dir / "seq2_neg"
+    seq_dir.mkdir(parents=True)
+
+    original = Image.new("RGB", (10, 20), color="white")
+    original.save(seq_dir / "frame1.jpg")
+
+    dest_dir = tmp_path / "canonical" / "images"
+    records, original_count = copy_and_rename_negative_images(
+        str(source_dir), str(dest_dir), dataset_name="polypgen"
+    )
+
+    assert original_count == 1
+    assert len(records) == 1
+
+    src_size = get_image_size(seq_dir / "frame1.jpg")
+    assert src_size == (10, 20)
+
+    dest_name = Path(records[0]["img_path"]).name
+    dest_path = dest_dir / dest_name
+    assert dest_path.exists()
+    assert get_image_size(dest_path) == (10, 20)
+
+    process_negative_images(
+        dest_dir, 32, 32, files=[dest_name]
+    )
+
+    # Original file should remain untouched while the canonical copy is resized
+    assert get_image_size(seq_dir / "frame1.jpg") == (10, 20)
+    assert get_image_size(dest_path) == (32, 32)
+
+    # Metadata for the copied frame should be updated after sanitisation
+    width, height = get_image_size(dest_path)
+    records[0]["img_width"] = width
+    records[0]["img_height"] = height
+    records[0]["content_sha1"] = compute_file_sha1(dest_path)
+
+    assert records[0]["img_width"] == 32
+    assert records[0]["img_height"] == 32
+    assert isinstance(records[0]["content_sha1"], str)
+    assert len(records[0]["content_sha1"]) == 40
