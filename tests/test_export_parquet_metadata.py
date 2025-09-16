@@ -49,6 +49,59 @@ def test_export_parquet_includes_center_id(tmp_path):
     assert cases_df.loc[0, "center_id"] == "C1"
 
 
+def test_export_parquet_writes_annotations(tmp_path):
+    canonical_base = tmp_path
+    images_dir = canonical_base / "images"
+    images_dir.mkdir()
+    Image.new("RGB", (20, 30)).save(images_dir / "frame1.jpg")
+
+    df = pd.DataFrame(
+        [
+            {
+                "global_lesion_id": "L1",
+                "global_frame_id": "L1.000001",
+                "frame": "frame1.jpg",
+                "dataset": "polypgen",
+                "original_frame": "frame1.jpg",
+                "n_frames": 1,
+                "lesion_id": "1",
+                "bounding_boxes": [[1, 2, 6, 12], [0, 0, 5, 5]],
+                "morphology_shape": None,
+                "morphology_size": None,
+                "image_type": None,
+                "morphology_location": None,
+                "center_id": "C1",
+            }
+        ]
+    )
+
+    export_parquet_metadata(df, canonical_base.as_posix())
+
+    manifests = canonical_base / "manifests"
+    ann_path = manifests / "annotations.parquet"
+    assert ann_path.exists()
+
+    ann_df = pd.read_parquet(ann_path).sort_values("ann_id").reset_index(drop=True)
+    expected_ids = ["L1.000001.00", "L1.000001.01"]
+    assert ann_df["ann_id"].tolist() == expected_ids
+    assert set(ann_df.columns) == {
+        "ann_id",
+        "global_frame_id",
+        "global_case_id",
+        "center_id",
+        "bbox_x",
+        "bbox_y",
+        "bbox_w",
+        "bbox_h",
+        "bbox_format",
+        "bbox_normalized",
+    }
+    assert ann_df.loc[0, "global_case_id"] == "L1"
+    assert ann_df.loc[0, "bbox_x"] == 1.0
+    assert ann_df.loc[0, "bbox_w"] == 5.0
+    assert not ann_df["bbox_normalized"].any()
+
+
 def test_export_parquet_skips_cases_without_metadata(tmp_path):
     canonical_base = tmp_path
     images_dir = canonical_base / "images"
