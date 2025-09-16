@@ -1122,33 +1122,57 @@ def export_parquet_metadata(
             "Skipping cases.parquet because per-case metadata is missing"
         )
 
-    return kept_negative_frames
+    ann_records: list[dict] = []
+    ann_columns = [
+        "ann_id",
+        "global_frame_id",
+        "global_case_id",
+        "center_id",
+        "bbox_x",
+        "bbox_y",
+        "bbox_w",
+        "bbox_h",
+        "bbox_format",
+        "bbox_normalized",
+    ]
 
-    ann_records = []
     for _, row in df.iterrows():
         case_id = row.get("global_lesion_id")
         if pd.isna(case_id):
             case_id = row.get("global_frame_id")
-        for idx, bbox in enumerate(row["bounding_boxes"]):
-            x1, y1, x2, y2 = bbox
+
+        boxes = row.get("bounding_boxes")
+        if isinstance(boxes, np.ndarray):
+            boxes_iter = boxes.tolist()
+        elif isinstance(boxes, (list, tuple)):
+            boxes_iter = boxes
+        else:
+            continue
+
+        for idx, bbox in enumerate(boxes_iter):
+            if not isinstance(bbox, Iterable) or len(bbox) != 4:
+                continue
+
+            x1, y1, x2, y2 = [float(coord) for coord in bbox]
             ann_records.append(
                 {
                     "ann_id": f"{row.get('global_frame_id')}.{idx:02d}",
                     "global_frame_id": row.get("global_frame_id"),
                     "global_case_id": case_id,
                     "center_id": row.get("center_id"),
-                    "bbox_x": float(x1),
-                    "bbox_y": float(y1),
-                    "bbox_w": float(x2 - x1),
-                    "bbox_h": float(y2 - y1),
+                    "bbox_x": x1,
+                    "bbox_y": y1,
+                    "bbox_w": x2 - x1,
+                    "bbox_h": y2 - y1,
                     "bbox_format": "xywh",
                     "bbox_normalized": False,
                 }
             )
 
-    pd.DataFrame(ann_records).to_parquet(
-        manifests_dir / "annotations.parquet", index=False
-    )
+    ann_df = pd.DataFrame(ann_records, columns=ann_columns)
+    ann_df.to_parquet(manifests_dir / "annotations.parquet", index=False)
+
+    return kept_negative_frames
 
 
 def rebuild_parquet_manifests(
