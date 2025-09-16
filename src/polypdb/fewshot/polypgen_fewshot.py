@@ -68,6 +68,20 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                     "unit_of_split": "frame",
                     "selection": f"hmac_sha256(frame_id,{seed})",
                 },
+                "row_schema": {
+                    "fields": [
+                        {"name": "dataset", "type": "string", "desc": "constant 'polypgen_clean'"},
+                        {"name": "split", "type": "string", "desc": "train|test (frame-level)"},
+                        {"name": "case_id", "type": "string"},
+                        {"name": "frame_id", "type": "string"},
+                        {"name": "frame_path", "type": "path"},
+                        {"name": "label", "type": "int"},
+                    ]
+                },
+                "selection_keys": {
+                    "train": f"hmac_sha256(frame_id,{seed})",
+                    "test": "complement of train within polypgen-clean-test",
+                },
                 "roots": roots,
             }
 
