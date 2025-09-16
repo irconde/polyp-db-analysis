@@ -5,6 +5,7 @@ import shutil
 import logging
 import re
 from collections import defaultdict
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -686,11 +687,19 @@ def process_images_and_bboxes(df, source_dir: Path | str, target_width, target_h
             logger.warning("File not found: %s", img_path)
 
 
-def process_negative_images(source_dir: Path | str, target_width, target_height):
+def process_negative_images(
+    source_dir: Path | str,
+    target_width,
+    target_height,
+    *,
+    files: Iterable[str | Path] | None = None,
+):
     """Standardize images in ``source_dir`` without bounding boxes.
 
     The function walks the directory tree recursively so negatives may be
-    organised in arbitrary subfolders.
+    organised in arbitrary subfolders.  When ``files`` is provided only those
+    paths are processed, leaving the remainder untouched.  This allows callers
+    to hygienize copied negatives without mutating the original sources.
 
     Parameters
     ----------
@@ -700,17 +709,38 @@ def process_negative_images(source_dir: Path | str, target_width, target_height)
         Desired output width.
     target_height : int
         Desired output height.
+    files : Iterable[str | Path], optional
+        Specific files to process.  Relative entries are resolved against
+        ``source_dir``.  When omitted the entire directory tree is walked.
     """
+
     IMG_EXT = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif"}
     source_dir = Path(source_dir)
-    if source_dir.exists():
-        file_paths: list[Path] = []
+    if not source_dir.exists():
+        return
+
+    file_paths: list[Path] = []
+    if files is None:
         for p in source_dir.rglob('*'):
             if p.is_file() and p.suffix.lower() in IMG_EXT:
                 file_paths.append(p)
-        for source_file_path in tqdm(file_paths, desc="Processing negatives", total=len(file_paths)):
-            standardize_and_override_image(
-                source_file_path, target_width, target_height)
+    else:
+        for entry in files:
+            candidate = Path(entry)
+            if not candidate.is_absolute():
+                candidate = source_dir / candidate
+            if candidate.is_file() and candidate.suffix.lower() in IMG_EXT:
+                file_paths.append(candidate)
+
+    if not file_paths:
+        return
+
+    for source_file_path in tqdm(
+        file_paths, desc="Processing negatives", total=len(file_paths)
+    ):
+        standardize_and_override_image(
+            source_file_path, target_width, target_height
+        )
 
 
 def cleanup_temp_artifacts(base_path: Path | str, destination_folder: Path | str) -> None:
@@ -1477,10 +1507,39 @@ def merge_datasets(config: MergeConfig):
             src_dir = Path(src).expanduser()
             if not src_dir.is_absolute():
                 src_dir = base_path / src_dir
-            process_negative_images(src_dir, target_width, target_height)
-            recs, orig_count = copy_and_rename_negative_images(
-                src_dir, images_dir, dataset_name=ds_name
-            )
+            dataset_key = str(ds_name).lower()
+            if dataset_key == "polypgen":
+                recs, orig_count = copy_and_rename_negative_images(
+                    src_dir, images_dir, dataset_name=ds_name
+                )
+                dest_files = [
+                    Path(rec["img_path"]).name
+                    for rec in recs
+                    if rec.get("img_path")
+                ]
+                if dest_files:
+                    process_negative_images(
+                        images_dir,
+                        target_width,
+                        target_height,
+                        files=dest_files,
+                    )
+                    for rec in recs:
+                        img_rel = rec.get("img_path")
+                        if not img_rel:
+                            continue
+                        dest_path = images_dir / Path(img_rel).name
+                        if not dest_path.exists():
+                            continue
+                        width, height = get_image_size(dest_path)
+                        rec["img_width"] = width
+                        rec["img_height"] = height
+                        rec["content_sha1"] = compute_file_sha1(dest_path)
+            else:
+                process_negative_images(src_dir, target_width, target_height)
+                recs, orig_count = copy_and_rename_negative_images(
+                    src_dir, images_dir, dataset_name=ds_name
+                )
             negative_records.extend(recs)
             negative_original_count += orig_count
 
