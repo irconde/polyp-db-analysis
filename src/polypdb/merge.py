@@ -24,6 +24,14 @@ logger = logging.getLogger(__name__)
 # Supported image extensions for negative frame processing
 IMG_EXT = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif"}
 
+# Problematic PolypGen negative sequences that should be skipped entirely.
+POLYPGEN_EXCLUDED_NEGATIVE_SEQUENCES = {
+    "seq4_neg",
+    "seq5_neg",
+    "seq6_neg",
+    "seq7_neg",
+}
+
 
 def compute_file_sha1(path: Path | str, chunk_size: int = 1 << 20) -> str:
     """Return the SHA1 hash for ``path``."""
@@ -478,6 +486,24 @@ def copy_and_rename_negative_images(
             return df
 
     filtered_df = _drop_duplicate_frames(df, cache_file=cache_file)
+
+    if not filtered_df.empty:
+        dataset_series = filtered_df["dataset"].str.lower()
+        group_series = filtered_df["group"].fillna("").str.lower()
+        exclusion_mask = (
+            dataset_series.eq("polypgen")
+            & group_series.isin(POLYPGEN_EXCLUDED_NEGATIVE_SEQUENCES)
+        )
+        if exclusion_mask.any():
+            excluded_groups = sorted(set(group_series[exclusion_mask]))
+            dropped = int(exclusion_mask.sum())
+            filtered_df = filtered_df.loc[~exclusion_mask]
+            logger.info(
+                "Skipping %d PolypGen negative frames from excluded sequences: %s",
+                dropped,
+                ", ".join(excluded_groups),
+            )
+
     filtered_df = filtered_df.sort_values(["dataset", "group", "filename"])
     logger.info(
         "Retained %d negative images after dropping duplicates", len(
