@@ -26,6 +26,7 @@ IMG_EXT = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif"}
 
 # Problematic PolypGen negative sequences that should be skipped entirely.
 POLYPGEN_EXCLUDED_NEGATIVE_SEQUENCES = {
+    "seq2_neg",
     "seq4_neg",
     "seq5_neg",
     "seq6_neg",
