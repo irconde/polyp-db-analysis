@@ -158,6 +158,9 @@ def build_polypgen_eval(
         },
     }
 
+    if include_negative_sequences:
+        meta["assertions"]["negative_sequences_train_test_disjoint"] = True
+
     write_pack(out_dir, {"test": rows}, meta)
 
 

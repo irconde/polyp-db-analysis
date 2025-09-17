@@ -107,3 +107,6 @@ def test_build_polypgen_eval_with_sequence_negatives(tmp_path: Path) -> None:
     manifest = yaml.safe_load((out / "manifest.yaml").read_text())
     assert manifest["name"] == "polypgen-clean-test-extended"
     assert manifest["assertions"]["label_counts"] == {"pos": 1, "neg": 2}
+    assert (
+        manifest["assertions"]["negative_sequences_train_test_disjoint"] is True
+    )
