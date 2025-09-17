@@ -15,7 +15,13 @@ from ..manifests.io import write_pack
 logger = logging.getLogger(__name__)
 
 
-def build_polypgen_eval(pg_root: Path, out_dir: Path, track: str = "clean") -> None:
+def build_polypgen_eval(
+    pg_root: Path,
+    out_dir: Path,
+    track: str = "clean",
+    *,
+    include_negative_sequences: bool = False,
+) -> None:
     """Build a test manifest pack for PolypGen.
 
     Parameters
@@ -28,6 +34,10 @@ def build_polypgen_eval(pg_root: Path, out_dir: Path, track: str = "clean") -> N
     track:
         Dataset track name (e.g. ``"clean"`` or ``"raw"``).  This determines the
         ``store_id`` used in the manifest.
+    include_negative_sequences:
+        When ``True`` retain negative frames that originate from sequences.
+        The default ``False`` matches the historical ``polypgen_clean_test``
+        pack which excluded them.
     """
 
     frames_path = pg_root / "manifests" / "frames.parquet"
@@ -56,7 +66,7 @@ def build_polypgen_eval(pg_root: Path, out_dir: Path, track: str = "clean") -> N
     width_col = "img_width" if "img_width" in df.columns else None
     height_col = "img_height" if "img_height" in df.columns else None
 
-    if track == "clean":
+    if track == "clean" and not include_negative_sequences:
         seq_mask = pd.Series(False, index=df.index)
         if "origin" in df.columns:
             origin_series = df["origin"].astype("string")
@@ -118,6 +128,8 @@ def build_polypgen_eval(pg_root: Path, out_dir: Path, track: str = "clean") -> N
     command = f"polypdb polypgen build --root {pg_root} --out {out_dir}"
     if track:
         command += f" --track {track}"
+    if include_negative_sequences:
+        command += " --include-negative-sequences"
     try:
         git_commit = (
             subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
@@ -128,8 +140,9 @@ def build_polypgen_eval(pg_root: Path, out_dir: Path, track: str = "clean") -> N
     n_pos = sum(r.label == 1 for r in rows)
     n_neg = sum(r.label == 0 for r in rows)
 
+    variant_suffix = "-extended" if include_negative_sequences else ""
     meta = {
-        "name": f"polypgen-{track}-test",
+        "name": f"polypgen-{track}-test{variant_suffix}",
         "version": "0.0",
         "generator": {
             "repo": "polyp-db-analysis",

@@ -200,12 +200,17 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
     # Load manifest for roots if available
     roots: Dict[str, str] = {}
     manifest_path = test_pack / "manifest.yaml"
+    manifest_name = None
     if manifest_path.exists():
         try:
             manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
             roots = manifest.get("roots", {}) or {}
+            manifest_name = manifest.get("name")
         except Exception:  # pragma: no cover - malformed manifest fallback
             roots = {}
+            manifest_name = None
+
+    parent_pack_label = manifest_name or test_pack.name.replace("_", "-")
 
     pos_rows = [r for r in test_rows if r.label == 1]
     neg_rows = [r for r in test_rows if r.label == 0]
@@ -303,7 +308,7 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                 },
                 "selection_keys": {
                     "train": f"hmac_sha256(frame_id,{seed})",
-                    "test": "complement of train within polypgen-clean-test",
+                    "test": f"complement of train within {parent_pack_label}",
                 },
                 "roots": roots,
             }
