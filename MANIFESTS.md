@@ -81,7 +81,8 @@ Example commands to generate packs:
 - **SUN subsets:** `polypdb sun subsets --pack sun_full --percents 25 50 --seeds 0 1 --out subsets`
 - **SUN corruption:** `polypdb sun corrupt --pack sun_full --out sun_corrupt --variant corrupt`
 - **PolypGen test:** `polypdb polypgen build --root /path/to/polypgen --out polypgen_test`
-- **PolypGen few‑shot:** `polypdb polypgen fewshot --pack polypgen_test --sizes 1 5 --seeds 0 1 --out fewshot`
+- **PolypGen extended test (few-shot parent pool):** `polypdb polypgen build --root /path/to/polypgen --out polypgen_test_extended --track clean --include-negative-sequences`
+- **PolypGen few‑shot:** `polypdb polypgen fewshot --pack polypgen_test_extended --sizes 1 5 --seeds 0 1 --out fewshot`
 
 ## Validation
 Run one of the following checks before using a pack:

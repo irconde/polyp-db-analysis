@@ -211,6 +211,9 @@ def test_polypgen_fewshot_disjoint_and_balanced(tmp_path: Path, monkeypatch) -> 
     assert neg_policy["sequences_in_train"] == len(expected_sequence_ids)
     assert neg_policy.get("shortfall", 0) == 0
 
+    parent_manifest = yaml.safe_load((test_pack / "manifest.yaml").read_text())
+    parent_name = parent_manifest["name"]
+    assert manifest["selection_keys"]["test"] == f"complement of train within {parent_name}"
     assert manifest["counts"]["train"]["frames"] == len(train_rows)
     assert manifest["counts"]["test"]["frames"] == len(test_rows)
 

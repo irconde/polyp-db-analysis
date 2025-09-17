@@ -23,6 +23,11 @@ def register(subparsers) -> None:
         default=None,
         help="Dataset track (default: infer from root name)",
     )
+    build.add_argument(
+        "--include-negative-sequences",
+        action="store_true",
+        help="Retain sequence-derived negatives when building the pack",
+    )
     build.set_defaults(func=_run_build)
 
     fewshot = sub.add_parser("fewshot", help="Build few-shot PolypGen packs")
@@ -39,7 +44,12 @@ def register(subparsers) -> None:
 
 def _run_build(args) -> None:
     track = args.track or args.root.name
-    build_polypgen_eval(args.root, args.out, track=track)
+    build_polypgen_eval(
+        args.root,
+        args.out,
+        track=track,
+        include_negative_sequences=args.include_negative_sequences,
+    )
     manifest = yaml.safe_load((args.out / "manifest.yaml").read_text(encoding="utf-8"))
     print(args.out)
     print(manifest.get("counts", {}))

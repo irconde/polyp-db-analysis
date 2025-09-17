@@ -27,8 +27,11 @@ python -m polypdb.cli --log-level "$LOG_LEVEL" sun subsets --pack "$SUN_FULL" --
 POLYPGEN_TEST="$PACKS_DIR/polypgen_clean_test"
 python -m polypdb.cli --log-level "$LOG_LEVEL" polypgen build --root "$POLYPGEN_ROOT" --out "$POLYPGEN_TEST" --track clean
 
+POLYPGEN_TEST_EXT="$PACKS_DIR/polypgen_clean_test_extended"
+python -m polypdb.cli --log-level "$LOG_LEVEL" polypgen build --root "$POLYPGEN_ROOT" --out "$POLYPGEN_TEST_EXT" --track clean --include-negative-sequences
+
 POLYPGEN_FEWSHOT="$PACKS_DIR/polypgen_fewshot"
-python -m polypdb.cli --log-level "$LOG_LEVEL" polypgen fewshot --pack "$POLYPGEN_TEST" --sizes 50 100 200 500 --seeds 13 29 47 --out "$POLYPGEN_FEWSHOT"
+python -m polypdb.cli --log-level "$LOG_LEVEL" polypgen fewshot --pack "$POLYPGEN_TEST_EXT" --sizes 50 100 200 500 --seeds 13 29 47 --out "$POLYPGEN_FEWSHOT"
 
 ROBUST_SPEC="$REPO_ROOT/specs/robustness.yaml"
 if [ -f "$ROBUST_SPEC" ]; then
