@@ -116,10 +116,10 @@ def _make_test_pack(tmp_path: Path) -> tuple[Path, List[Dict[str, object]]]:
 
 def _expected_alpha(size: int) -> float:
     if size >= 200:
-        return 0.20
+        return pg_fewshot.VAL_FRACTION_RULE["size_gte_200"]
     if size >= 100:
-        return 0.15
-    return 0.10
+        return pg_fewshot.VAL_FRACTION_RULE["size_100_to_199"]
+    return pg_fewshot.VAL_FRACTION_RULE["size_lt_100"]
 
 
 def _hash_file(path: Path) -> str:
@@ -233,7 +233,6 @@ def test_polypgen_fewshot_disjoint_and_balanced(tmp_path: Path, monkeypatch) -> 
 
     manifest = yaml.safe_load((pack_dir / "manifest.yaml").read_text())
     policy = manifest["policy"]
-    assert policy["selection"] == "hmac_sha256(frame_id,123)"
     assert policy["parent_pack"] == test_pack.name
     assert policy["target_train_size"] == 6
     assert policy["fewshot_budget_S"] == 6
@@ -245,6 +244,7 @@ def test_polypgen_fewshot_disjoint_and_balanced(tmp_path: Path, monkeypatch) -> 
     assert policy["val_fraction_realized"]["overall"] == pytest.approx(
         len(val_rows) / (len(train_rows) + len(val_rows)) if (len(train_rows) + len(val_rows)) else 0.0
     )
+    assert policy["val_fraction_rule"] == pg_fewshot.VAL_FRACTION_RULE
     assert policy["class_ratio_per_split"]["train"] == {"pos": pos_train, "neg": neg_train}
     assert policy["class_ratio_per_split"]["val"] == {"pos": pos_val, "neg": neg_val}
     assert policy["class_ratio_per_split"]["test"] == {
@@ -278,7 +278,13 @@ def test_polypgen_fewshot_disjoint_and_balanced(tmp_path: Path, monkeypatch) -> 
     assert policy["max_frames_per_sequence_train"] == pg_fewshot.MAX_NEG_FRAMES_PER_SEQUENCE
     assert policy["sequence_disjointness_across"] == ["train", "val", "test"]
     assert str(seed := manifest["generator"]["seed"]) == "123"
-    assert str(seed) in policy["sampling"]
+    expected_sampling = (
+        "pos:frame_id; "
+        f"neg:frame_pool_then_sequence(cap={pg_fewshot.MAX_NEG_FRAMES_PER_SEQUENCE}); "
+        "seed=123"
+    )
+    assert policy["sampling"] == expected_sampling
+    assert "selection" not in policy
 
     neg_policy = policy["neg_sampling"]
     assert neg_policy["strategy"] == "pool_first_sequence_cap_single_pass"
@@ -435,6 +441,7 @@ def test_polypgen_fewshot_relaxes_balance_when_negatives_insufficient(
     assert policy["val_fraction_target"] == _expected_alpha(4)
     assert policy["class_ratio_per_split"]["val"] == {"pos": 0, "neg": 0}
     assert manifest["counts"]["val"]["total"] == 0
+    assert policy["val_fraction_rule"] == pg_fewshot.VAL_FRACTION_RULE
 
     neg_policy = policy["neg_sampling"]
     assert neg_policy["phase_counts"]["base_pool"] == 1

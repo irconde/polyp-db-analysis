@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, cast
 import logging
 import subprocess
 
@@ -20,6 +20,12 @@ logger = logging.getLogger(__name__)
 
 # Maximum number of frames to draw from any negative sequence.
 MAX_NEG_FRAMES_PER_SEQUENCE = 5
+
+VAL_FRACTION_RULE = {
+    "size_lt_100": 0.10,
+    "size_100_to_199": 0.15,
+    "size_gte_200": 0.20,
+}
 
 
 @dataclass
@@ -253,11 +259,11 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                 )
 
             if size >= 200:
-                val_fraction = 0.20
+                val_fraction = VAL_FRACTION_RULE["size_gte_200"]
             elif size >= 100:
-                val_fraction = 0.15
+                val_fraction = VAL_FRACTION_RULE["size_100_to_199"]
             else:
-                val_fraction = 0.10
+                val_fraction = VAL_FRACTION_RULE["size_lt_100"]
 
             def _build_units(rows: List[ManifestRow], label: int) -> list[dict[str, object]]:
                 units: dict[str, dict[str, object]] = {}
@@ -284,8 +290,11 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                             "sequence_id": seq_id if seq_id else None,
                         },
                     )
-                    unit["rows"].append(row)
-                    unit["tie"] = min(unit["tie"], row.frame_id)  # type: ignore[arg-type]
+                    rows_bucket = cast(List[ManifestRow], unit.setdefault("rows", []))
+                    rows_bucket.append(row)
+                    unit["rows"] = rows_bucket
+                    tie_val = cast(str, unit.setdefault("tie", row.frame_id))
+                    unit["tie"] = min(tie_val, row.frame_id)
                 return list(units.values())
 
             def _split_units(units: list[dict[str, object]]) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
@@ -321,12 +330,12 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
             train_rows = [
                 replace(row, split="train")
                 for unit in train_pos_units + train_neg_units
-                for row in unit["rows"]  # type: ignore[index]
+                for row in cast(List[ManifestRow], unit["rows"])
             ]
             val_rows = [
                 replace(row, split="val")
                 for unit in val_pos_units + val_neg_units
-                for row in unit["rows"]  # type: ignore[index]
+                for row in cast(List[ManifestRow], unit["rows"])
             ]
 
             selected_ids = {r.frame_id for r in train_rows + val_rows}
@@ -425,11 +434,10 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
 
             meta = {
                 "name": f"polypgen_fewshot_s{size}_seed{seed}",
-                "version": "0.0",
+                "version": "1.0.0",
                 "policy": {
                     "unit_of_split": "frame",
                     "fewshot_budget_S": size,
-                    "selection": f"hmac_sha256(frame_id,{seed})",
                     "parent_pack": test_pack.name,
                     "target_train_size": size,
                     "target_class_balance": {"pos": target_pos, "neg": target_neg},
@@ -446,6 +454,7 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                     "balance_relaxed": actual_neg < target_neg,
                     "val_fraction_target": val_fraction,
                     "val_fraction_realized": val_fraction_realized,
+                    "val_fraction_rule": dict(VAL_FRACTION_RULE),
                     "neg_sampling": {
                         "strategy": "pool_first_sequence_cap_single_pass",
                         "pool_first": True,
@@ -469,7 +478,8 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                     "max_frames_per_sequence_train": MAX_NEG_FRAMES_PER_SEQUENCE,
                     "sequence_disjointness_across": ["train", "val", "test"],
                     "sampling": (
-                        "unit_key=pos:frame_id|neg:sequence_id_or_frame_id; "
+                        "pos:frame_id; "
+                        f"neg:frame_pool_then_sequence(cap={MAX_NEG_FRAMES_PER_SEQUENCE}); "
                         f"seed={seed}"
                     ),
                 },
@@ -502,7 +512,8 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
             }
 
             if shortfall > 0:
-                meta["policy"]["neg_sampling"]["shortfall"] = shortfall
+                neg_sampling_policy = cast(dict[str, object], meta["policy"]["neg_sampling"])  # type: ignore[index]
+                neg_sampling_policy["shortfall"] = shortfall
 
             command = (
                 f"polypdb polypgen fewshot --pack {test_pack} --sizes {size} "
@@ -521,46 +532,11 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                 "seed": seed,
             }
 
-            computed_counts = {
-                "train": train_counts,
-                "val": val_counts,
-                "test": test_counts,
-            }
-
             write_pack(
                 pack_dir,
                 {"train": train_rows, "val": val_rows, "test": test_rows_out},
                 meta,
             )
-
-            manifest_path_out = pack_dir / "manifest.yaml"
-            try:
-                manifest_data = yaml.safe_load(manifest_path_out.read_text(encoding="utf-8"))
-            except Exception:  # pragma: no cover - unexpected I/O issues
-                manifest_data = None
-
-            if isinstance(manifest_data, dict):
-                original_counts = manifest_data.get("counts", {})
-                manifest_data["counts_extended"] = original_counts
-                manifest_data["counts"] = computed_counts
-                notes = manifest_data.setdefault("notes", {})
-                notes["excluded_sequences_in_test"] = excluded_sequences_in_test
-                policy_block = manifest_data.setdefault("policy", {})
-                policy_block["negatives_source"] = {
-                    "train": neg_source_train,
-                    "val": neg_source_val,
-                    "test": neg_source_test,
-                }
-                if "row_schema" in manifest_data and manifest_data["row_schema"].get("fields"):
-                    manifest_data["row_schema"]["fields"][1]["desc"] = "train|val|test (frame-level)"
-                selection_keys_block = manifest_data.setdefault("selection_keys", {})
-                selection_keys_block["val"] = meta["selection_keys"]["val"]
-                selection_keys_block["test"] = meta["selection_keys"]["test"]
-
-                manifest_path_out.write_text(
-                    yaml.safe_dump(manifest_data, sort_keys=False),
-                    encoding="utf-8",
-                )
 
 
 __all__ = ["build_polypgen_fewshot"]
