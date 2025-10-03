@@ -322,11 +322,9 @@ def test_polypgen_fewshot_disjoint_and_balanced(tmp_path: Path, monkeypatch) -> 
             if row.label != 0:
                 continue
             info = metadata.get(row.frame_id, {})
-            origin_raw = info.get("origin")
-            origin = origin_raw.lower() if isinstance(origin_raw, str) else ""
             seq_raw = info.get("sequence_id")
             seq_id = str(seq_raw) if seq_raw else None
-            if origin == "neg_seq" and seq_id:
+            if seq_id:
                 neg_seq_frames += 1
                 neg_seq_sequences.add(seq_id)
             else:

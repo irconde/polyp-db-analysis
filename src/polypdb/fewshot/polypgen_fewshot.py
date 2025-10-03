@@ -297,13 +297,12 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                     unit["tie"] = min(tie_val, row.frame_id)
                 return list(units.values())
 
-            def _split_units(units: list[dict[str, object]]) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+            def _split_units_by_frames(
+                units: list[dict[str, object]],
+                target_frames: int,
+            ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
                 if not units:
                     return [], []
-
-                target = int(round(val_fraction * len(units)))
-                if target >= len(units):
-                    target = max(0, len(units) - 1)
 
                 ordered = sorted(
                     units,
@@ -313,19 +312,32 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                     ),
                 )
 
-                val_units = ordered[:target]
-                train_units = ordered[target:]
+                val_units: list[dict[str, object]] = []
+                train_units: list[dict[str, object]] = []
+                frames_in_val = 0
+
+                for unit in ordered:
+                    rows_u = cast(List[ManifestRow], unit["rows"])
+                    if frames_in_val < target_frames:
+                        val_units.append(unit)
+                        frames_in_val += len(rows_u)
+                    else:
+                        train_units.append(unit)
 
                 if not train_units and val_units:
-                    train_units.append(val_units.pop())
+                    fallback_unit = val_units.pop()
+                    train_units.append(fallback_unit)
 
                 return train_units, val_units
 
             pos_units = _build_units(pos_selected, 1)
             neg_units = _build_units(neg_selected, 0)
 
-            train_pos_units, val_pos_units = _split_units(pos_units)
-            train_neg_units, val_neg_units = _split_units(neg_units)
+            val_pos_frames_target = int(val_fraction * len(pos_selected))
+            val_neg_frames_target = int(val_fraction * len(neg_selected))
+
+            train_pos_units, val_pos_units = _split_units_by_frames(pos_units, val_pos_frames_target)
+            train_neg_units, val_neg_units = _split_units_by_frames(neg_units, val_neg_frames_target)
 
             train_rows = [
                 replace(row, split="train")
@@ -377,12 +389,10 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                     if row.label != 0:
                         continue
                     info = frame_metadata.get(row.frame_id, {})
-                    origin_raw = info.get("origin")
-                    origin = origin_raw.lower() if isinstance(origin_raw, str) else ""
                     seq_raw = info.get("sequence_id")
                     seq_id = str(seq_raw) if seq_raw else None
 
-                    if origin == "neg_seq" and seq_id:
+                    if seq_id:
                         neg_seq_frames += 1
                         neg_seq_sequences.add(seq_id)
                     else:
@@ -531,6 +541,20 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                 "command": command,
                 "seed": seed,
             }
+
+            train_ids = {r.frame_id for r in train_rows}
+            val_ids = {r.frame_id for r in val_rows}
+            test_ids = {r.frame_id for r in test_rows_out}
+
+            assert train_ids.isdisjoint(val_ids), "train/val frame overlap"
+            assert train_ids.isdisjoint(test_ids), "train/test frame overlap"
+            assert val_ids.isdisjoint(test_ids), "val/test frame overlap"
+
+            assert not any(
+                frame_metadata.get(r.frame_id, {}).get("sequence_id") in selected_sequence_ids
+                for r in test_rows_out
+                if r.label == 0
+            ), "test split includes selected negative sequence"
 
             write_pack(
                 pack_dir,
