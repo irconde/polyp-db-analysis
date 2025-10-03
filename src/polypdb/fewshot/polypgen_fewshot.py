@@ -359,17 +359,33 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                 total = len(rows)
                 pos_ct = sum(r.label == 1 for r in rows)
                 neg_ct = total - pos_ct
-                neg_seq_ids = {
-                    str(frame_metadata.get(r.frame_id, {}).get("sequence_id"))
-                    for r in rows
-                    if r.label == 0 and frame_metadata.get(r.frame_id, {}).get("sequence_id")
-                }
+
+                neg_frame = 0
+                neg_seq_frames = 0
+                neg_seq_sequences: set[str] = set()
+
+                for row in rows:
+                    if row.label != 0:
+                        continue
+                    info = frame_metadata.get(row.frame_id, {})
+                    origin_raw = info.get("origin")
+                    origin = origin_raw.lower() if isinstance(origin_raw, str) else ""
+                    seq_raw = info.get("sequence_id")
+                    seq_id = str(seq_raw) if seq_raw else None
+
+                    if origin == "neg_seq" and seq_id:
+                        neg_seq_frames += 1
+                        neg_seq_sequences.add(seq_id)
+                    else:
+                        neg_frame += 1
+
                 return {
                     "total": total,
                     "pos": pos_ct,
                     "neg": neg_ct,
-                    "neg_frame": neg_ct,
-                    "neg_seq": len(neg_seq_ids),
+                    "neg_frame": neg_frame,
+                    "neg_seq_frames": neg_seq_frames,
+                    "neg_seq_sequences": len(neg_seq_sequences),
                 }
 
             def _negative_source(rows: list[ManifestRow]) -> dict[str, int]:

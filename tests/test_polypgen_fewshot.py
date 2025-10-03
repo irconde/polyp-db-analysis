@@ -307,10 +307,38 @@ def test_polypgen_fewshot_disjoint_and_balanced(tmp_path: Path, monkeypatch) -> 
     assert manifest["row_schema"]["fields"][1]["desc"] == "train|val|test (frame-level)"
 
     counts = manifest["counts"]
-    assert counts["train"]["total"] == len(train_rows)
-    assert counts["val"]["total"] == len(val_rows)
-    assert counts["test"]["total"] == len(test_rows)
-    assert counts["test"]["neg_seq"] == len(test_sequence_ids)
+
+    def _expected_neg_breakdown(rows: list[ManifestRow]) -> tuple[int, int, int]:
+        neg_frame = 0
+        neg_seq_frames = 0
+        neg_seq_sequences: set[str] = set()
+        for row in rows:
+            if row.label != 0:
+                continue
+            info = metadata.get(row.frame_id, {})
+            origin_raw = info.get("origin")
+            origin = origin_raw.lower() if isinstance(origin_raw, str) else ""
+            seq_raw = info.get("sequence_id")
+            seq_id = str(seq_raw) if seq_raw else None
+            if origin == "neg_seq" and seq_id:
+                neg_seq_frames += 1
+                neg_seq_sequences.add(seq_id)
+            else:
+                neg_frame += 1
+        return neg_frame, neg_seq_frames, len(neg_seq_sequences)
+
+    for split_name, split_rows in (
+        ("train", train_rows),
+        ("val", val_rows),
+        ("test", test_rows),
+    ):
+        neg_frame_expected, neg_seq_frames_expected, neg_seq_sequences_expected = _expected_neg_breakdown(split_rows)
+        assert counts[split_name]["total"] == len(split_rows)
+        assert counts[split_name]["pos"] == sum(r.label == 1 for r in split_rows)
+        assert counts[split_name]["neg"] == sum(r.label == 0 for r in split_rows)
+        assert counts[split_name]["neg_frame"] == neg_frame_expected
+        assert counts[split_name]["neg_seq_frames"] == neg_seq_frames_expected
+        assert counts[split_name]["neg_seq_sequences"] == neg_seq_sequences_expected
 
     notes = manifest["notes"]
     assert notes["excluded_sequences_in_test"] == sorted(expected_sequence_ids)
