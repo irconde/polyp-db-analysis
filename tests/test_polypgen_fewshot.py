@@ -11,7 +11,7 @@ import yaml
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 import polypdb.fewshot.polypgen_fewshot as pg_fewshot
-from polypdb.fewshot import build_polypgen_fewshot
+from polypdb.fewshot import build_polypgen_fewshot, build_polypgen_fewshot_canonical
 from polypdb.manifests.core import ManifestRow, hmac_rank, pick_k
 from polypdb.manifests.io import read_csv, write_pack
 
@@ -150,7 +150,7 @@ def test_polypgen_fewshot_disjoint_and_balanced(tmp_path: Path, monkeypatch) -> 
     out_dir = tmp_path / "out"
     build_polypgen_fewshot(test_pack, [6], [123], out_dir)
 
-    pack_dir = out_dir / "polypgen_fewshot_s6_seed123"
+    pack_dir = out_dir / "polypgen_fewshot_s6"
     train_rows = read_csv(pack_dir / "train.csv")
     val_rows = read_csv(pack_dir / "val.csv")
     test_rows = read_csv(pack_dir / "test.csv")
@@ -233,6 +233,7 @@ def test_polypgen_fewshot_disjoint_and_balanced(tmp_path: Path, monkeypatch) -> 
 
     manifest = yaml.safe_load((pack_dir / "manifest.yaml").read_text())
     policy = manifest["policy"]
+    assert manifest["name"] == "polypgen_fewshot_s6"
     assert policy["parent_pack"] == test_pack.name
     assert policy["target_train_size"] == 6
     assert policy["fewshot_budget_S"] == 6
@@ -419,7 +420,7 @@ def test_polypgen_fewshot_relaxes_balance_when_negatives_insufficient(
     out_dir = tmp_path / "out_small"
     build_polypgen_fewshot(pack_dir, [4], [7], out_dir)
 
-    pack_dir_out = out_dir / "polypgen_fewshot_s4_seed7"
+    pack_dir_out = out_dir / "polypgen_fewshot_s4"
     train_rows = read_csv(pack_dir_out / "train.csv")
     val_rows = read_csv(pack_dir_out / "val.csv")
 
@@ -432,6 +433,7 @@ def test_polypgen_fewshot_relaxes_balance_when_negatives_insufficient(
 
     manifest = yaml.safe_load((pack_dir_out / "manifest.yaml").read_text())
     policy = manifest["policy"]
+    assert manifest["name"] == "polypgen_fewshot_s4"
     assert policy["target_class_balance"] == {"pos": 2, "neg": 2}
     assert policy["balance_relaxed"] is True
     assert policy["realized_train_counts"] == {"pos": pos_count, "neg": neg_count}
@@ -449,3 +451,79 @@ def test_polypgen_fewshot_relaxes_balance_when_negatives_insufficient(
 
     assert manifest["counts"]["train"]["total"] == len(train_rows)
     assert manifest["notes"]["excluded_sequences_in_test"] == []
+
+
+def test_polypgen_fewshot_multi_seed_keeps_suffix(tmp_path: Path, monkeypatch) -> None:
+    test_pack, frame_records = _make_test_pack(tmp_path)
+
+    metadata = {
+        rec["global_frame_id"]: {
+            "origin": rec["origin"],
+            "sequence_id": rec["sequence_id"],
+        }
+        for rec in frame_records
+    }
+
+    monkeypatch.setattr(
+        pg_fewshot,
+        "_load_frame_metadata",
+        lambda roots, store_ids, frame_ids: {
+            fid: metadata[fid]
+            for fid in frame_ids
+            if fid in metadata
+        },
+    )
+
+    out_dir = tmp_path / "multi"
+    seeds = [5, 9]
+    build_polypgen_fewshot(test_pack, [6], seeds, out_dir)
+
+    for seed in seeds:
+        pack_dir = out_dir / f"polypgen_fewshot_s6_seed{seed}"
+        assert pack_dir.exists()
+        manifest = yaml.safe_load((pack_dir / "manifest.yaml").read_text())
+        assert manifest["name"] == f"polypgen_fewshot_s6_seed{seed}"
+        assert manifest["generator"]["seed"] == seed
+
+
+def test_polypgen_fewshot_canonical_builds_expected_packs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    test_pack, frame_records = _make_test_pack(tmp_path)
+
+    metadata = {
+        rec["global_frame_id"]: {
+            "origin": rec["origin"],
+            "sequence_id": rec["sequence_id"],
+        }
+        for rec in frame_records
+    }
+
+    monkeypatch.setattr(
+        pg_fewshot,
+        "_load_frame_metadata",
+        lambda roots, store_ids, frame_ids: {
+            fid: metadata[fid]
+            for fid in frame_ids
+            if fid in metadata
+        },
+    )
+
+    out_dir = tmp_path / "canonical"
+    build_polypgen_fewshot_canonical(test_pack, out_dir)
+
+    expected_map = {
+        size: pg_fewshot.CANONICAL_FEWSHOT_SEED for size in pg_fewshot.CANONICAL_FEWSHOT_SIZES
+    }
+    for size, seed in expected_map.items():
+        pack_dir = out_dir / f"polypgen_fewshot_s{size}"
+        assert pack_dir.exists()
+        manifest = yaml.safe_load((pack_dir / "manifest.yaml").read_text())
+        generator = manifest["generator"]
+        assert manifest["name"] == f"polypgen_fewshot_s{size}"
+        assert generator["seed"] == seed
+        assert generator.get("size_seed_map") == expected_map
+        assert "fewshot-canonical" in generator["command"]
+        assert (pack_dir / "train.csv").exists()
+        assert (pack_dir / "val.csv").exists()
+        assert (pack_dir / "test.csv").exists()

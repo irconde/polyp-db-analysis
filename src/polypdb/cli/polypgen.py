@@ -6,7 +6,12 @@ from pathlib import Path
 import yaml
 
 from ..datasets.polypgen_build import build_polypgen_eval
-from ..fewshot import build_polypgen_fewshot
+from ..fewshot import (
+    CANONICAL_FEWSHOT_SEED,
+    CANONICAL_FEWSHOT_SIZES,
+    build_polypgen_fewshot,
+    build_polypgen_fewshot_canonical,
+)
 
 
 def register(subparsers) -> None:
@@ -41,6 +46,30 @@ def register(subparsers) -> None:
     fewshot.add_argument("--out", type=Path, required=True, help="Output directory")
     fewshot.set_defaults(func=_run_fewshot)
 
+    fewshot_canonical = sub.add_parser(
+        "fewshot-canonical", help="Build canonical few-shot PolypGen packs"
+    )
+    fewshot_canonical.add_argument("--pack", type=Path, required=True, help="Input test pack")
+    fewshot_canonical.add_argument(
+        "--sizes",
+        type=int,
+        nargs="+",
+        default=None,
+        help=(
+            "Training set sizes to build (default: "
+            + ", ".join(str(s) for s in CANONICAL_FEWSHOT_SIZES)
+            + ")"
+        ),
+    )
+    fewshot_canonical.add_argument(
+        "--seed",
+        type=int,
+        default=CANONICAL_FEWSHOT_SEED,
+        help=f"Seed for canonical selection (default: {CANONICAL_FEWSHOT_SEED})",
+    )
+    fewshot_canonical.add_argument("--out", type=Path, required=True, help="Output directory")
+    fewshot_canonical.set_defaults(func=_run_fewshot_canonical)
+
 
 def _run_build(args) -> None:
     track = args.track or args.root.name
@@ -57,14 +86,29 @@ def _run_build(args) -> None:
 
 def _run_fewshot(args) -> None:
     build_polypgen_fewshot(args.pack, args.sizes, args.seeds, args.out)
+    unique_seeds = set(args.seeds)
+    include_seed_in_name = len(unique_seeds) > 1
     for size in args.sizes:
         for seed in args.seeds:
-            pack_dir = args.out / f"polypgen_fewshot_s{size}_seed{seed}"
+            suffix = f"_seed{seed}" if include_seed_in_name else ""
+            pack_dir = args.out / f"polypgen_fewshot_s{size}{suffix}"
             manifest = yaml.safe_load(
                 (pack_dir / "manifest.yaml").read_text(encoding="utf-8")
             )
             print(pack_dir)
             print(manifest.get("counts", {}))
+
+
+def _run_fewshot_canonical(args) -> None:
+    sizes = tuple(sorted(set(args.sizes))) if args.sizes else CANONICAL_FEWSHOT_SIZES
+    build_polypgen_fewshot_canonical(args.pack, args.out, sizes=sizes, seed=args.seed)
+    for size in sizes:
+        pack_dir = args.out / f"polypgen_fewshot_s{size}"
+        manifest = yaml.safe_load(
+            (pack_dir / "manifest.yaml").read_text(encoding="utf-8")
+        )
+        print(pack_dir)
+        print(manifest.get("counts", {}))
 
 
 __all__ = ["register"]

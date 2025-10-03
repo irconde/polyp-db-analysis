@@ -27,6 +27,9 @@ VAL_FRACTION_RULE = {
     "size_gte_200": 0.20,
 }
 
+CANONICAL_FEWSHOT_SIZES: tuple[int, ...] = (50, 100, 200, 500)
+CANONICAL_FEWSHOT_SEED = 13
+
 
 @dataclass
 class NegativeSelectionResult:
@@ -182,7 +185,15 @@ def _select_negative_rows(
     )
 
 
-def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], out_dir: Path) -> None:
+def build_polypgen_fewshot(
+    test_pack: Path,
+    sizes: list[int],
+    seeds: list[int],
+    out_dir: Path,
+    *,
+    size_seed_map: Dict[int, int] | None = None,
+    generator_command: str | None = None,
+) -> None:
     """Build few-shot training/test splits from a PolypGen test pack.
 
     Parameters
@@ -222,8 +233,15 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
     neg_rows = [r for r in test_rows if r.label == 0]
     frame_metadata = _load_frame_metadata(roots, {r.store_id for r in test_rows}, {r.frame_id for r in test_rows})
 
-    for size in sizes:
-        for seed in seeds:
+    if size_seed_map:
+        size_seed_pairs = sorted(size_seed_map.items())
+    else:
+        size_seed_pairs = [(size, seed) for size in sizes for seed in seeds]
+
+    unique_seeds = {seed for _, seed in size_seed_pairs}
+    include_seed_in_name = len(unique_seeds) > 1
+
+    for size, seed in size_seed_pairs:
             target_neg = size // 2
             target_pos = size - target_neg
 
@@ -470,10 +488,12 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                 "neg": (neg_val / neg_total) if neg_total else 0.0,
             }
 
-            pack_dir = out_dir / f"polypgen_fewshot_s{size}_seed{seed}"
+            pack_suffix = f"_seed{seed}" if include_seed_in_name else ""
+            pack_name = f"polypgen_fewshot_s{size}{pack_suffix}"
+            pack_dir = out_dir / pack_name
 
             meta = {
-                "name": f"polypgen_fewshot_s{size}_seed{seed}",
+                "name": pack_name,
                 "version": "1.0.0",
                 "policy": {
                     "unit_of_split": "frame",
@@ -556,7 +576,7 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                 neg_sampling_policy = cast(dict[str, object], meta["policy"]["neg_sampling"])  # type: ignore[index]
                 neg_sampling_policy["shortfall"] = shortfall
 
-            command = (
+            command = generator_command or (
                 f"polypdb polypgen fewshot --pack {test_pack} --sizes {size} "
                 f"--seeds {seed} --out {out_dir}"
             )
@@ -566,12 +586,15 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                 ).strip()
             except Exception:  # pragma: no cover
                 git_commit = "unknown"
-            meta["generator"] = {
+            generator_meta: dict[str, object] = {
                 "repo": "polyp-db-analysis",
                 "git_commit": git_commit,
                 "command": command,
                 "seed": seed,
             }
+            if size_seed_map:
+                generator_meta["size_seed_map"] = dict(size_seed_map)
+            meta["generator"] = generator_meta
 
             train_ids = {r.frame_id for r in train_rows}
             val_ids = {r.frame_id for r in val_rows}
@@ -594,4 +617,33 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
             )
 
 
-__all__ = ["build_polypgen_fewshot"]
+def build_polypgen_fewshot_canonical(
+    test_pack: Path,
+    out_dir: Path,
+    *,
+    sizes: tuple[int, ...] = CANONICAL_FEWSHOT_SIZES,
+    seed: int = CANONICAL_FEWSHOT_SEED,
+) -> None:
+    ordered_sizes = tuple(sorted(sizes))
+    size_seed_map = {size: seed for size in ordered_sizes}
+    sizes_arg = " ".join(str(s) for s in ordered_sizes)
+    command = (
+        f"polypdb polypgen fewshot-canonical --pack {test_pack}"
+        f" --sizes {sizes_arg} --seed {seed} --out {out_dir}"
+    )
+    build_polypgen_fewshot(
+        test_pack,
+        sizes=list(ordered_sizes),
+        seeds=[seed],
+        out_dir=out_dir,
+        size_seed_map=size_seed_map,
+        generator_command=command,
+    )
+
+
+__all__ = [
+    "build_polypgen_fewshot",
+    "build_polypgen_fewshot_canonical",
+    "CANONICAL_FEWSHOT_SIZES",
+    "CANONICAL_FEWSHOT_SEED",
+]
