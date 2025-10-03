@@ -132,8 +132,11 @@ def write_pack(
     hashes: Dict[str, str] = {}
     counts: Dict[str, Dict[str, int]] = {}
 
-    summary_by_split: List[Dict[str, int]] = []
+    summary_by_split: List[Dict[str, object]] = []
     case_lengths: Dict[int, int] = {}
+
+    provided_counts = meta.get("counts") if isinstance(meta, dict) else None
+    provided_summary = meta.get("summary_by_split") if isinstance(meta, dict) else None
 
     for split, rows in splits.items():
         csv_path = out_dir / f"{split}.csv"
@@ -177,8 +180,10 @@ def write_pack(
         manifest["selection_key_policy"] = selection_key_policy
     manifest["generated_at"] = datetime.now(timezone.utc).isoformat()
     manifest["hashes"] = hashes
-    manifest["counts"] = counts
-    manifest["summary_by_split"] = summary_by_split
+    manifest["counts"] = provided_counts if isinstance(provided_counts, dict) else counts
+    manifest["summary_by_split"] = (
+        provided_summary if isinstance(provided_summary, list) else summary_by_split
+    )
     if case_lengths:
         manifest["case_lengths"] = case_lengths
 

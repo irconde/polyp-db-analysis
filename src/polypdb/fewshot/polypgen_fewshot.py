@@ -33,7 +33,7 @@ class NegativeSelectionResult:
     """Outcome of the negative frame selection procedure."""
 
     rows: List[ManifestRow]
-    sequence_ids: List[str]
+    sequences: List[str]
     sequence_frames: Dict[str, set[str]]
     base_selected_count: int
 
@@ -43,7 +43,7 @@ def _load_frame_metadata(
     store_ids: Iterable[str],
     frame_ids: Iterable[str],
 ) -> Dict[str, Dict[str, str | None]]:
-    """Load auxiliary metadata for frames referenced in ``frame_ids``.
+    """Load frame-level metadata for the referenced frame identifiers.
 
     Parameters
     ----------
@@ -380,7 +380,6 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                 total = len(rows)
                 pos_ct = sum(r.label == 1 for r in rows)
                 neg_ct = total - pos_ct
-
                 neg_frame = 0
                 neg_seq_frames = 0
                 neg_seq_sequences: set[str] = set()
@@ -399,6 +398,7 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                         neg_frame += 1
 
                 return {
+                    "frames": total,
                     "total": total,
                     "pos": pos_ct,
                     "neg": neg_ct,
@@ -423,6 +423,36 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
             train_counts = _count_split(train_rows)
             val_counts = _count_split(val_rows)
             test_counts = _count_split(test_rows_out)
+
+            summary_by_split = [
+                {
+                    "split": "train",
+                    "frames": train_counts["frames"],
+                    "pos_frames": train_counts["pos"],
+                    "neg_frames": train_counts["neg"],
+                    "neg_frame": train_counts["neg_frame"],
+                    "neg_seq_frames": train_counts["neg_seq_frames"],
+                    "neg_seq_sequences": train_counts["neg_seq_sequences"],
+                },
+                {
+                    "split": "val",
+                    "frames": val_counts["frames"],
+                    "pos_frames": val_counts["pos"],
+                    "neg_frames": val_counts["neg"],
+                    "neg_frame": val_counts["neg_frame"],
+                    "neg_seq_frames": val_counts["neg_seq_frames"],
+                    "neg_seq_sequences": val_counts["neg_seq_sequences"],
+                },
+                {
+                    "split": "test",
+                    "frames": test_counts["frames"],
+                    "pos_frames": test_counts["pos"],
+                    "neg_frames": test_counts["neg"],
+                    "neg_frame": test_counts["neg_frame"],
+                    "neg_seq_frames": test_counts["neg_seq_frames"],
+                    "neg_seq_sequences": test_counts["neg_seq_sequences"],
+                },
+            ]
 
             neg_source_train = _negative_source(train_rows)
             neg_source_val = _negative_source(val_rows)
@@ -515,6 +545,7 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                     "val": val_counts,
                     "test": test_counts,
                 },
+                "summary_by_split": summary_by_split,
                 "notes": {
                     "excluded_sequences_in_test": excluded_sequences_in_test,
                 },
