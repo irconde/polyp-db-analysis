@@ -6,7 +6,12 @@ import yaml
 from ..datasets.sun_build import build_sun_full, build_sun_morphology
 from ..datasets.sun_corrupt import build_sun_corrupt
 from ..datasets.sun_perturbations import build_sun_test_perturbations
-from ..subsets.sun_subsets import build_sun_train_subsets
+from ..subsets.sun_subsets import (
+    CANONICAL_SUBSET_PERCENTAGES,
+    CANONICAL_SUBSET_SEED,
+    build_sun_canonical_subsets,
+    build_sun_train_subsets,
+)
 
 def register(subparsers) -> None:
     parser = subparsers.add_parser("sun", help="SUN dataset utilities")
@@ -44,6 +49,26 @@ def register(subparsers) -> None:
     subsets.add_argument("--seeds", type=int, nargs="+", required=True, help="Selection seeds")
     subsets.add_argument("--out", type=Path, required=True, help="Output directory")
     subsets.set_defaults(func=_run_subsets)
+
+    canonical = sub.add_parser(
+        "subsets-canonical", help="Create canonical SUN train subset packs"
+    )
+    canonical.add_argument("--pack", type=Path, required=True, help="Path to sun_full pack")
+    canonical.add_argument(
+        "--percents",
+        type=int,
+        nargs="+",
+        default=list(CANONICAL_SUBSET_PERCENTAGES),
+        help="Subset percentages (default: canonical 5 10 25 50 100)",
+    )
+    canonical.add_argument(
+        "--seed",
+        type=int,
+        default=CANONICAL_SUBSET_SEED,
+        help="Canonical selection seed (default: 13)",
+    )
+    canonical.add_argument("--out", type=Path, required=True, help="Output directory")
+    canonical.set_defaults(func=_run_subsets_canonical)
 
     corrupt = sub.add_parser("corrupt", help="Create corrupted SUN pack")
     corrupt.add_argument("--pack", type=Path, required=True, help="Path to sun_full pack")
@@ -86,14 +111,28 @@ def _run_build(args) -> None:
 
 def _run_subsets(args) -> None:
     build_sun_train_subsets(args.pack, args.percents, args.seeds, args.out)
+    include_seed = len(set(args.seeds)) > 1
     for percent in args.percents:
         for seed in args.seeds:
-            pack_dir = args.out / f"sun_p{percent:02d}_seed{seed}"
+            suffix = f"_seed{seed}" if include_seed else ""
+            pack_dir = args.out / f"sun_p{percent:02d}{suffix}"
             manifest = yaml.safe_load(
                 (pack_dir / "manifest.yaml").read_text(encoding="utf-8")
             )
             print(pack_dir)
             print(manifest.get("counts", {}))
+
+
+def _run_subsets_canonical(args) -> None:
+    percents = tuple(sorted(set(args.percents)))
+    build_sun_canonical_subsets(args.pack, args.out, seed=args.seed, percents=percents)
+    for percent in percents:
+        pack_dir = args.out / f"sun_p{percent:02d}"
+        manifest = yaml.safe_load(
+            (pack_dir / "manifest.yaml").read_text(encoding="utf-8")
+        )
+        print(pack_dir)
+        print(manifest.get("counts", {}))
 
 
 def _run_corrupt(args) -> None:
