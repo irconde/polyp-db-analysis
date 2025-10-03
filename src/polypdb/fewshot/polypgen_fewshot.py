@@ -252,12 +252,100 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                     seed,
                 )
 
-            train_rows = [replace(r, split="train") for r in pos_selected + neg_selected]
-            selected_ids = {r.frame_id for r in train_rows}
+            if size >= 200:
+                val_fraction = 0.20
+            elif size >= 100:
+                val_fraction = 0.15
+            else:
+                val_fraction = 0.10
+
+            def _build_units(rows: List[ManifestRow], label: int) -> list[dict[str, object]]:
+                units: dict[str, dict[str, object]] = {}
+                if label == 1:
+                    for row in rows:
+                        units[row.frame_id] = {
+                            "key": row.frame_id,
+                            "rows": [row],
+                            "tie": row.frame_id,
+                            "sequence_id": None,
+                        }
+                    return list(units.values())
+
+                for row in rows:
+                    info = frame_metadata.get(row.frame_id, {})
+                    seq_id = info.get("sequence_id")
+                    seq_key = seq_id or row.frame_id
+                    unit = units.setdefault(
+                        seq_key,
+                        {
+                            "key": seq_key,
+                            "rows": [],
+                            "tie": row.frame_id,
+                            "sequence_id": seq_id if seq_id else None,
+                        },
+                    )
+                    unit["rows"].append(row)
+                    unit["tie"] = min(unit["tie"], row.frame_id)  # type: ignore[arg-type]
+                return list(units.values())
+
+            def _split_units(units: list[dict[str, object]]) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+                if not units:
+                    return [], []
+
+                target = int(round(val_fraction * len(units)))
+                if target >= len(units):
+                    target = max(0, len(units) - 1)
+
+                ordered = sorted(
+                    units,
+                    key=lambda u: (
+                        hmac_rank(seed, str(u["key"])),
+                        str(u["tie"]),
+                    ),
+                )
+
+                val_units = ordered[:target]
+                train_units = ordered[target:]
+
+                if not train_units and val_units:
+                    train_units.append(val_units.pop())
+
+                return train_units, val_units
+
+            pos_units = _build_units(pos_selected, 1)
+            neg_units = _build_units(neg_selected, 0)
+
+            train_pos_units, val_pos_units = _split_units(pos_units)
+            train_neg_units, val_neg_units = _split_units(neg_units)
+
+            train_rows = [
+                replace(row, split="train")
+                for unit in train_pos_units + train_neg_units
+                for row in unit["rows"]  # type: ignore[index]
+            ]
+            val_rows = [
+                replace(row, split="val")
+                for unit in val_pos_units + val_neg_units
+                for row in unit["rows"]  # type: ignore[index]
+            ]
+
+            selected_ids = {r.frame_id for r in train_rows + val_rows}
+
+            selected_sequence_ids: set[str] = {
+                str(unit["sequence_id"])
+                for unit in train_neg_units + val_neg_units
+                if unit.get("sequence_id")
+            }
+
+            excluded_sequences_in_test = sorted(selected_sequence_ids)
 
             sequence_frame_ids: set[str] = set()
-            for frames in neg_selection.sequence_frames.values():
-                sequence_frame_ids.update(frames)
+            if selected_sequence_ids:
+                for row in test_rows:
+                    info = frame_metadata.get(row.frame_id, {})
+                    seq_id = info.get("sequence_id")
+                    if seq_id and str(seq_id) in selected_sequence_ids:
+                        sequence_frame_ids.add(row.frame_id)
 
             test_rows_out: List[ManifestRow] = []
             for row in test_rows:
@@ -267,6 +355,56 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                     continue
                 test_rows_out.append(replace(row, split="test"))
 
+            def _count_split(rows: list[ManifestRow]) -> dict[str, int]:
+                total = len(rows)
+                pos_ct = sum(r.label == 1 for r in rows)
+                neg_ct = total - pos_ct
+                neg_seq_ids = {
+                    str(frame_metadata.get(r.frame_id, {}).get("sequence_id"))
+                    for r in rows
+                    if r.label == 0 and frame_metadata.get(r.frame_id, {}).get("sequence_id")
+                }
+                return {
+                    "total": total,
+                    "pos": pos_ct,
+                    "neg": neg_ct,
+                    "neg_frame": neg_ct,
+                    "neg_seq": len(neg_seq_ids),
+                }
+
+            def _negative_source(rows: list[ManifestRow]) -> dict[str, int]:
+                base = 0
+                seq = 0
+                for row in rows:
+                    if row.label != 0:
+                        continue
+                    info = frame_metadata.get(row.frame_id, {})
+                    if info.get("sequence_id"):
+                        seq += 1
+                    else:
+                        base += 1
+                return {"base": base, "sequence": seq}
+
+            train_counts = _count_split(train_rows)
+            val_counts = _count_split(val_rows)
+            test_counts = _count_split(test_rows_out)
+
+            neg_source_train = _negative_source(train_rows)
+            neg_source_val = _negative_source(val_rows)
+            neg_source_test = _negative_source(test_rows_out)
+
+            total_selected = len(train_rows) + len(val_rows)
+            pos_val = sum(r.label == 1 for r in val_rows)
+            neg_val = sum(r.label == 0 for r in val_rows)
+            pos_total = sum(r.label == 1 for r in train_rows + val_rows)
+            neg_total = sum(r.label == 0 for r in train_rows + val_rows)
+
+            val_fraction_realized = {
+                "overall": (len(val_rows) / total_selected) if total_selected else 0.0,
+                "pos": (pos_val / pos_total) if pos_total else 0.0,
+                "neg": (neg_val / neg_total) if neg_total else 0.0,
+            }
+
             pack_dir = out_dir / f"polypgen_fewshot_s{size}_seed{seed}"
 
             meta = {
@@ -274,16 +412,24 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                 "version": "0.0",
                 "policy": {
                     "unit_of_split": "frame",
+                    "fewshot_budget_S": size,
                     "selection": f"hmac_sha256(frame_id,{seed})",
                     "parent_pack": test_pack.name,
                     "target_train_size": size,
                     "target_class_balance": {"pos": target_pos, "neg": target_neg},
+                    "class_ratio_per_split": {
+                        "train": {"pos": train_counts["pos"], "neg": train_counts["neg"]},
+                        "val": {"pos": val_counts["pos"], "neg": val_counts["neg"]},
+                        "test": {"pos": test_counts["pos"], "neg": test_counts["neg"]},
+                    },
                     "realized_train_size": len(train_rows),
                     "realized_train_counts": {
-                        "pos": actual_pos,
-                        "neg": actual_neg,
+                        "pos": train_counts["pos"],
+                        "neg": train_counts["neg"],
                     },
                     "balance_relaxed": actual_neg < target_neg,
+                    "val_fraction_target": val_fraction,
+                    "val_fraction_realized": val_fraction_realized,
                     "neg_sampling": {
                         "strategy": "pool_first_sequence_cap_single_pass",
                         "pool_first": True,
@@ -293,13 +439,28 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                             "base_pool": neg_selection.base_selected_count,
                             "sequence": actual_neg - neg_selection.base_selected_count,
                         },
-                        "sequences_in_train": len(neg_selection.sequence_ids),
+                        "sequences_in_train": len({
+                            unit.get("sequence_id")
+                            for unit in train_neg_units
+                            if unit.get("sequence_id")
+                        }),
                     },
+                    "negatives_source": {
+                        "train": neg_source_train,
+                        "val": neg_source_val,
+                        "test": neg_source_test,
+                    },
+                    "max_frames_per_sequence_train": MAX_NEG_FRAMES_PER_SEQUENCE,
+                    "sequence_disjointness_across": ["train", "val", "test"],
+                    "sampling": (
+                        "unit_key=pos:frame_id|neg:sequence_id_or_frame_id; "
+                        f"seed={seed}"
+                    ),
                 },
                 "row_schema": {
                     "fields": [
                         {"name": "dataset", "type": "string", "desc": "constant 'polypgen_clean'"},
-                        {"name": "split", "type": "string", "desc": "train|test (frame-level)"},
+                        {"name": "split", "type": "string", "desc": "train|val|test (frame-level)"},
                         {"name": "case_id", "type": "string"},
                         {"name": "frame_id", "type": "string"},
                         {"name": "frame_path", "type": "path"},
@@ -308,7 +469,18 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                 },
                 "selection_keys": {
                     "train": f"hmac_sha256(frame_id,{seed})",
-                    "test": f"complement of train within {parent_pack_label}",
+                    "val": f"hmac_sha256(unit_key=frame_id|sequence_id_or_frame_id,{seed})",
+                    "test": (
+                        f"complement of train|val with neg-sequence exclusion within {parent_pack_label}"
+                    ),
+                },
+                "counts": {
+                    "train": train_counts,
+                    "val": val_counts,
+                    "test": test_counts,
+                },
+                "notes": {
+                    "excluded_sequences_in_test": excluded_sequences_in_test,
                 },
                 "roots": roots,
             }
@@ -333,7 +505,46 @@ def build_polypgen_fewshot(test_pack: Path, sizes: list[int], seeds: list[int], 
                 "seed": seed,
             }
 
-            write_pack(pack_dir, {"train": train_rows, "test": test_rows_out}, meta)
+            computed_counts = {
+                "train": train_counts,
+                "val": val_counts,
+                "test": test_counts,
+            }
+
+            write_pack(
+                pack_dir,
+                {"train": train_rows, "val": val_rows, "test": test_rows_out},
+                meta,
+            )
+
+            manifest_path_out = pack_dir / "manifest.yaml"
+            try:
+                manifest_data = yaml.safe_load(manifest_path_out.read_text(encoding="utf-8"))
+            except Exception:  # pragma: no cover - unexpected I/O issues
+                manifest_data = None
+
+            if isinstance(manifest_data, dict):
+                original_counts = manifest_data.get("counts", {})
+                manifest_data["counts_extended"] = original_counts
+                manifest_data["counts"] = computed_counts
+                notes = manifest_data.setdefault("notes", {})
+                notes["excluded_sequences_in_test"] = excluded_sequences_in_test
+                policy_block = manifest_data.setdefault("policy", {})
+                policy_block["negatives_source"] = {
+                    "train": neg_source_train,
+                    "val": neg_source_val,
+                    "test": neg_source_test,
+                }
+                if "row_schema" in manifest_data and manifest_data["row_schema"].get("fields"):
+                    manifest_data["row_schema"]["fields"][1]["desc"] = "train|val|test (frame-level)"
+                selection_keys_block = manifest_data.setdefault("selection_keys", {})
+                selection_keys_block["val"] = meta["selection_keys"]["val"]
+                selection_keys_block["test"] = meta["selection_keys"]["test"]
+
+                manifest_path_out.write_text(
+                    yaml.safe_dump(manifest_data, sort_keys=False),
+                    encoding="utf-8",
+                )
 
 
 __all__ = ["build_polypgen_fewshot"]

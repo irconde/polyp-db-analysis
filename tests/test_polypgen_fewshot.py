@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
 import sys
 from typing import Dict, List
 
+import pytest
 import yaml
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
@@ -112,6 +114,20 @@ def _make_test_pack(tmp_path: Path) -> tuple[Path, List[Dict[str, object]]]:
     return pack_dir, frame_records
 
 
+def _expected_alpha(size: int) -> float:
+    if size >= 200:
+        return 0.20
+    if size >= 100:
+        return 0.15
+    return 0.10
+
+
+def _hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
 def test_polypgen_fewshot_disjoint_and_balanced(tmp_path: Path, monkeypatch) -> None:
     test_pack, frame_records = _make_test_pack(tmp_path)
     metadata = {
@@ -136,19 +152,24 @@ def test_polypgen_fewshot_disjoint_and_balanced(tmp_path: Path, monkeypatch) -> 
 
     pack_dir = out_dir / "polypgen_fewshot_s6_seed123"
     train_rows = read_csv(pack_dir / "train.csv")
+    val_rows = read_csv(pack_dir / "val.csv")
     test_rows = read_csv(pack_dir / "test.csv")
 
-    # Disjointness at frame level
+    # Disjointness at frame level across splits
     train_ids = {r.frame_id for r in train_rows}
+    val_ids = {r.frame_id for r in val_rows}
     test_ids = {r.frame_id for r in test_rows}
+    assert train_ids.isdisjoint(val_ids)
     assert train_ids.isdisjoint(test_ids)
+    assert val_ids.isdisjoint(test_ids)
 
     # Ensure base negatives are prioritised
     neg_rows_all = [r for r in read_csv(test_pack / "test.csv") if r.label == 0]
     base_negatives = [r for r in neg_rows_all if metadata.get(r.frame_id, {}).get("origin") != "neg_seq"]
     expected_base = pick_k(base_negatives, 123, min(3, len(base_negatives)), key=lambda r: r.frame_id)
     train_neg_ids = {r.frame_id for r in train_rows if r.label == 0}
-    assert {r.frame_id for r in expected_base}.issubset(train_neg_ids)
+    train_val_neg_ids = train_neg_ids | {r.frame_id for r in val_rows if r.label == 0}
+    assert {r.frame_id for r in expected_base}.issubset(train_val_neg_ids)
 
     # Determine expected sequence contributions
     remaining = 3 - len(expected_base)
@@ -173,7 +194,7 @@ def test_polypgen_fewshot_disjoint_and_balanced(tmp_path: Path, monkeypatch) -> 
 
     selected_sequence_ids = {
         metadata.get(r.frame_id, {}).get("sequence_id")
-        for r in train_rows
+        for r in train_rows + val_rows
         if r.label == 0 and metadata.get(r.frame_id, {}).get("sequence_id")
     }
     assert set(expected_sequence_ids) == selected_sequence_ids
@@ -186,36 +207,123 @@ def test_polypgen_fewshot_disjoint_and_balanced(tmp_path: Path, monkeypatch) -> 
     assert not selected_sequence_ids & test_sequence_ids
 
     # Approximate balance
-    pos = sum(r.label == 1 for r in train_rows)
-    neg = sum(r.label == 0 for r in train_rows)
-    assert pos + neg == 6
-    assert abs(pos - neg) <= 1
+    pos_train = sum(r.label == 1 for r in train_rows)
+    neg_train = sum(r.label == 0 for r in train_rows)
+    pos_val = sum(r.label == 1 for r in val_rows)
+    neg_val = sum(r.label == 0 for r in val_rows)
+    assert pos_train + neg_train == len(train_rows)
+    assert pos_val + neg_val == len(val_rows)
+
+    alpha = _expected_alpha(6)
+    for label, total, val_count in (
+        (1, pos_train + pos_val, pos_val),
+        (0, neg_train + neg_val, neg_val),
+    ):
+        if total == 0:
+            continue
+        realized = val_count / total
+        tolerance = max(0.15, 1 / total)
+        assert realized <= alpha + tolerance + 1e-6
+        assert realized + tolerance + 1e-6 >= max(0, alpha - tolerance)
+
+    assert abs((pos_train + pos_val) - (neg_train + neg_val)) <= 1
+    assert abs(pos_train - neg_train) <= 1
+    if val_rows:
+        assert abs(pos_val - neg_val) <= 1
 
     manifest = yaml.safe_load((pack_dir / "manifest.yaml").read_text())
     policy = manifest["policy"]
     assert policy["selection"] == "hmac_sha256(frame_id,123)"
     assert policy["parent_pack"] == test_pack.name
     assert policy["target_train_size"] == 6
+    assert policy["fewshot_budget_S"] == 6
     assert policy["target_class_balance"] == {"pos": 3, "neg": 3}
     assert policy["realized_train_size"] == len(train_rows)
-    assert policy["realized_train_counts"] == {"pos": pos, "neg": neg}
+    assert policy["realized_train_counts"] == {"pos": pos_train, "neg": neg_train}
     assert policy["balance_relaxed"] is False
+    assert policy["val_fraction_target"] == alpha
+    assert policy["val_fraction_realized"]["overall"] == pytest.approx(
+        len(val_rows) / (len(train_rows) + len(val_rows)) if (len(train_rows) + len(val_rows)) else 0.0
+    )
+    assert policy["class_ratio_per_split"]["train"] == {"pos": pos_train, "neg": neg_train}
+    assert policy["class_ratio_per_split"]["val"] == {"pos": pos_val, "neg": neg_val}
+    assert policy["class_ratio_per_split"]["test"] == {
+        "pos": sum(r.label == 1 for r in test_rows),
+        "neg": sum(r.label == 0 for r in test_rows),
+    }
+    assert policy["negatives_source"]["train"] == {
+        "base": sum(
+            1 for r in train_rows if r.label == 0 and not metadata.get(r.frame_id, {}).get("sequence_id")
+        ),
+        "sequence": sum(
+            1 for r in train_rows if r.label == 0 and metadata.get(r.frame_id, {}).get("sequence_id")
+        ),
+    }
+    assert policy["negatives_source"]["val"] == {
+        "base": sum(
+            1 for r in val_rows if r.label == 0 and not metadata.get(r.frame_id, {}).get("sequence_id")
+        ),
+        "sequence": sum(
+            1 for r in val_rows if r.label == 0 and metadata.get(r.frame_id, {}).get("sequence_id")
+        ),
+    }
+    assert policy["negatives_source"]["test"] == {
+        "base": sum(
+            1 for r in test_rows if r.label == 0 and not metadata.get(r.frame_id, {}).get("sequence_id")
+        ),
+        "sequence": sum(
+            1 for r in test_rows if r.label == 0 and metadata.get(r.frame_id, {}).get("sequence_id")
+        ),
+    }
+    assert policy["max_frames_per_sequence_train"] == pg_fewshot.MAX_NEG_FRAMES_PER_SEQUENCE
+    assert policy["sequence_disjointness_across"] == ["train", "val", "test"]
+    assert str(seed := manifest["generator"]["seed"]) == "123"
+    assert str(seed) in policy["sampling"]
 
     neg_policy = policy["neg_sampling"]
     assert neg_policy["strategy"] == "pool_first_sequence_cap_single_pass"
     assert neg_policy["pool_first"] is True
     assert neg_policy["max_frames_per_sequence"] == pg_fewshot.MAX_NEG_FRAMES_PER_SEQUENCE
     assert neg_policy["sequence_level_disjointness"] is True
+    total_neg_selected = neg_train + neg_val
     assert neg_policy["phase_counts"]["base_pool"] == len(expected_base)
-    assert neg_policy["phase_counts"]["sequence"] == neg - len(expected_base)
-    assert neg_policy["sequences_in_train"] == len(expected_sequence_ids)
+    assert neg_policy["phase_counts"]["sequence"] == total_neg_selected - len(expected_base)
+    train_sequence_ids = {
+        metadata.get(r.frame_id, {}).get("sequence_id")
+        for r in train_rows
+        if r.label == 0 and metadata.get(r.frame_id, {}).get("sequence_id")
+    }
+    assert neg_policy["sequences_in_train"] == len(train_sequence_ids)
     assert neg_policy.get("shortfall", 0) == 0
 
     parent_manifest = yaml.safe_load((test_pack / "manifest.yaml").read_text())
     parent_name = parent_manifest["name"]
-    assert manifest["selection_keys"]["test"] == f"complement of train within {parent_name}"
-    assert manifest["counts"]["train"]["frames"] == len(train_rows)
-    assert manifest["counts"]["test"]["frames"] == len(test_rows)
+    assert manifest["selection_keys"]["train"] == "hmac_sha256(frame_id,123)"
+    assert "unit_key=frame_id|sequence_id_or_frame_id" in manifest["selection_keys"]["val"]
+    assert manifest["selection_keys"]["test"] == (
+        f"complement of train|val with neg-sequence exclusion within {parent_name}"
+    )
+
+    assert manifest["row_schema"]["fields"][1]["desc"] == "train|val|test (frame-level)"
+
+    counts = manifest["counts"]
+    assert counts["train"]["total"] == len(train_rows)
+    assert counts["val"]["total"] == len(val_rows)
+    assert counts["test"]["total"] == len(test_rows)
+    assert counts["test"]["neg_seq"] == len(test_sequence_ids)
+
+    notes = manifest["notes"]
+    assert notes["excluded_sequences_in_test"] == sorted(expected_sequence_ids)
+
+    # Determinism check via hashes
+    hashes_first = {
+        split: _hash_file(pack_dir / f"{split}.csv") for split in ("train", "val", "test")
+    }
+    build_polypgen_fewshot(test_pack, [6], [123], out_dir)
+    hashes_second = {
+        split: _hash_file(pack_dir / f"{split}.csv") for split in ("train", "val", "test")
+    }
+    assert hashes_first == hashes_second
 
 
 def test_polypgen_fewshot_relaxes_balance_when_negatives_insufficient(
@@ -281,12 +389,14 @@ def test_polypgen_fewshot_relaxes_balance_when_negatives_insufficient(
 
     pack_dir_out = out_dir / "polypgen_fewshot_s4_seed7"
     train_rows = read_csv(pack_dir_out / "train.csv")
+    val_rows = read_csv(pack_dir_out / "val.csv")
 
     pos_count = sum(r.label == 1 for r in train_rows)
     neg_count = sum(r.label == 0 for r in train_rows)
     assert len(train_rows) == 4
     assert pos_count == 3
     assert neg_count == 1
+    assert not val_rows  # Validation should be empty due to minimum-train guard
 
     manifest = yaml.safe_load((pack_dir_out / "manifest.yaml").read_text())
     policy = manifest["policy"]
@@ -294,6 +404,9 @@ def test_polypgen_fewshot_relaxes_balance_when_negatives_insufficient(
     assert policy["balance_relaxed"] is True
     assert policy["realized_train_counts"] == {"pos": pos_count, "neg": neg_count}
     assert policy["realized_train_size"] == len(train_rows)
+    assert policy["val_fraction_target"] == _expected_alpha(4)
+    assert policy["class_ratio_per_split"]["val"] == {"pos": 0, "neg": 0}
+    assert manifest["counts"]["val"]["total"] == 0
 
     neg_policy = policy["neg_sampling"]
     assert neg_policy["phase_counts"]["base_pool"] == 1
@@ -301,4 +414,5 @@ def test_polypgen_fewshot_relaxes_balance_when_negatives_insufficient(
     assert neg_policy["sequences_in_train"] == 0
     assert neg_policy["shortfall"] == 1
 
-    assert manifest["counts"]["train"]["frames"] == len(train_rows)
+    assert manifest["counts"]["train"]["total"] == len(train_rows)
+    assert manifest["notes"]["excluded_sequences_in_test"] == []
