@@ -417,7 +417,6 @@ def build_polypgen_fewshot(
 
                 return {
                     "frames": total,
-                    "total": total,
                     "pos": pos_ct,
                     "neg": neg_ct,
                     "neg_frame": neg_frame,

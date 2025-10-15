@@ -338,7 +338,7 @@ def test_polypgen_fewshot_disjoint_and_balanced(tmp_path: Path, monkeypatch) -> 
         ("test", test_rows),
     ):
         neg_frame_expected, neg_seq_frames_expected, neg_seq_sequences_expected = _expected_neg_breakdown(split_rows)
-        assert counts[split_name]["total"] == len(split_rows)
+        assert counts[split_name]["frames"] == len(split_rows)
         assert counts[split_name]["pos"] == sum(r.label == 1 for r in split_rows)
         assert counts[split_name]["neg"] == sum(r.label == 0 for r in split_rows)
         assert counts[split_name]["neg_frame"] == neg_frame_expected
@@ -440,7 +440,7 @@ def test_polypgen_fewshot_relaxes_balance_when_negatives_insufficient(
     assert policy["realized_train_size"] == len(train_rows)
     assert policy["val_fraction_target"] == _expected_alpha(4)
     assert policy["class_ratio_per_split"]["val"] == {"pos": 0, "neg": 0}
-    assert manifest["counts"]["val"]["total"] == 0
+    assert manifest["counts"]["val"]["frames"] == 0
     assert policy["val_fraction_rule"] == pg_fewshot.VAL_FRACTION_RULE
 
     neg_policy = policy["neg_sampling"]
@@ -449,7 +449,7 @@ def test_polypgen_fewshot_relaxes_balance_when_negatives_insufficient(
     assert neg_policy["sequences_in_train"] == 0
     assert neg_policy["shortfall"] == 1
 
-    assert manifest["counts"]["train"]["total"] == len(train_rows)
+    assert manifest["counts"]["train"]["frames"] == len(train_rows)
     assert manifest["notes"]["excluded_sequences_in_test"] == []
 
 
