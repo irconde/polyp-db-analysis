@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Callable, Dict, List, Any
-import subprocess
 import logging
 from itertools import combinations
 from collections import Counter
 
 from ..manifests.core import ManifestRow, pick_k, hmac_rank
+from ..manifests.provenance import tool_provenance
 from ..manifests.io import write_pack
 
 logger = logging.getLogger(__name__)
@@ -538,13 +538,7 @@ def build_sun_full(
         f"polypdb sun build --root {sun_root} --out {out_dir} "
         f"--seed {seed} --frames-per-case {frames_per_case}"
     )
-    try:
-        git_commit = (
-            subprocess.check_output(["git", "rev-parse", "HEAD"], text=True)
-            .strip()
-        )
-    except Exception:  # pragma: no cover - fallback when git unavailable
-        git_commit = "unknown"
+    git_commit = tool_provenance()["git_commit"]
 
     meta = {
         "name": "sun-full",
@@ -802,12 +796,7 @@ def build_sun_morphology(
         f"polypdb sun morph --root {sun_root} --out {out_dir} "
         f"--seed {seed} --frames-per-case {frames_per_case}"
     )
-    try:
-        git_commit = (
-            subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-        )
-    except Exception:  # pragma: no cover - fallback when git unavailable
-        git_commit = "unknown"
+    git_commit = tool_provenance()["git_commit"]
 
     meta = {
         "name": "sun-morphology",

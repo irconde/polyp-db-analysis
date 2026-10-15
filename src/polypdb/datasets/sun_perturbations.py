@@ -12,9 +12,9 @@ from dataclasses import replace
 from pathlib import Path
 import hashlib
 import hmac
-import subprocess
 import yaml
 
+from ..manifests.provenance import tool_provenance
 from ..manifests.io import read_csv, write_pack
 
 
@@ -166,10 +166,7 @@ def build_sun_test_perturbations(
         f"polypdb sun perturbations --pack {sun_full_pack} --out {out_dir}"
         f" --master-seed {rng_master_seed}"
     )
-    try:
-        git_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-    except Exception:  # pragma: no cover - git not available
-        git_commit = "unknown"
+    git_commit = tool_provenance()["git_commit"]
 
     meta = {
         "name": "sun_test_perturbations",

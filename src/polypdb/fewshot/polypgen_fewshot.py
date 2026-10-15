@@ -7,12 +7,12 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Dict, Iterable, List, cast
 import logging
-import subprocess
 
 import pandas as pd
 import yaml
 
 from ..manifests.core import ManifestRow, hmac_rank, pick_k
+from ..manifests.provenance import parent_pack_info, tool_provenance
 from ..manifests.io import read_csv, write_pack
 
 
@@ -72,11 +72,14 @@ def _load_frame_metadata(
     for store_id in sorted({sid for sid in store_ids if sid}):
         root = roots.get(store_id)
         if not root:
-            continue
+            raise FileNotFoundError(
+                f"no root recorded for store_id {store_id!r}; cannot load frame metadata"
+            )
         frames_path = Path(root) / "manifests" / "frames.parquet"
         if not frames_path.exists():
-            logger.warning("frames.parquet not found for store_id %s at %s", store_id, frames_path)
-            continue
+            raise FileNotFoundError(
+                f"frames.parquet not found for store_id {store_id!r} at {frames_path}"
+            )
         try:
             df = pd.read_parquet(
                 frames_path,
@@ -90,8 +93,9 @@ def _load_frame_metadata(
                     frames_path, columns=["global_frame_id", "origin", "sequence_id"]
                 )
             except Exception as exc:  # pragma: no cover - unexpected parquet issues
-                logger.warning("Failed to load frame metadata from %s: %s", frames_path, exc)
-                continue
+                raise RuntimeError(
+                    f"Failed to load frame metadata from {frames_path}: {exc}"
+                ) from exc
             df = df[df["global_frame_id"].astype(str).isin(frame_ids)]
 
         if df.empty:
@@ -569,6 +573,7 @@ def build_polypgen_fewshot(
                     "excluded_sequences_in_test": excluded_sequences_in_test,
                 },
                 "roots": roots,
+                "parent_pack": parent_pack_info(test_pack),
             }
 
             if shortfall > 0:
@@ -579,12 +584,7 @@ def build_polypgen_fewshot(
                 f"polypdb polypgen fewshot --pack {test_pack} --sizes {size} "
                 f"--seeds {seed} --out {out_dir}"
             )
-            try:
-                git_commit = subprocess.check_output(
-                    ["git", "rev-parse", "HEAD"], text=True
-                ).strip()
-            except Exception:  # pragma: no cover
-                git_commit = "unknown"
+            git_commit = tool_provenance()["git_commit"]
             generator_meta: dict[str, object] = {
                 "repo": "polyp-db-analysis",
                 "git_commit": git_commit,

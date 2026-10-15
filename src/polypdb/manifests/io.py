@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from collections import Counter
 
 from .core import ManifestRow, sha256_file
+from .provenance import stamp_manifest
 
 CSV_FIELDS = [
     "dataset",
@@ -117,6 +118,8 @@ def write_pack(
     splits: Dict[str, List[ManifestRow]],
     meta: Dict,
     selection_key_policy: Dict | None = None,
+    *,
+    validate: bool = True,
 ) -> None:
     """Write a manifest pack to ``out_dir``.
 
@@ -187,9 +190,14 @@ def write_pack(
     if case_lengths:
         manifest["case_lengths"] = case_lengths
 
+    stamp_manifest(manifest)
+
     manifest_path = out_dir / "manifest.yaml"
     with manifest_path.open("w", encoding="utf-8") as f:
         yaml.safe_dump(manifest, f, sort_keys=False)
+
+    if validate:
+        validate_pack(out_dir)
 
 
 def validate_pack(
@@ -217,15 +225,58 @@ def validate_pack(
         roots = manifest.get("roots", {})
 
     hashes: Dict[str, str] = manifest.get("hashes", {})
-    sun_cases: Dict[str, set[str]] = {}
+    counts_meta: Dict = manifest.get("counts", {}) or {}
+    parent = manifest.get("parent_pack") or {}
+    parent_dir = Path(parent["path"]) if parent.get("path") else None
+    if parent_dir is not None and not parent_dir.is_dir():
+        parent_dir = None
 
+    parent_ids: set[str] = set()
+    parent_ids_by_split: Dict[str, set[str]] = {}
+    if parent_dir is not None:
+        if parent.get("manifest_sha256") and (parent_dir / "manifest.yaml").exists():
+            if sha256_file(parent_dir / "manifest.yaml") != parent["manifest_sha256"]:
+                raise AssertionError("parent manifest hash mismatch")
+        for pcsv in sorted(parent_dir.glob("*.csv")):
+            ids = {r.frame_id for r in read_csv(pcsv)}
+            parent_ids_by_split[pcsv.stem] = ids
+            parent_ids.update(ids)
+
+    rows_by_split: Dict[str, List[ManifestRow]] = {}
     for split, expected_sha in hashes.items():
         csv_path = out_dir / f"{split}.csv"
+        if not csv_path.exists():
+            # Derived pack: the split lives in the parent pack.
+            parent_sha = (parent.get("hashes") or {}).get(split)
+            if parent_sha is None:
+                raise AssertionError(f"missing CSV for {split} and no parent hash")
+            if parent_sha != expected_sha:
+                raise AssertionError(f"hash mismatch for inherited {split}")
+            if parent_dir is not None and (parent_dir / f"{split}.csv").exists():
+                if sha256_file(parent_dir / f"{split}.csv") != expected_sha:
+                    raise AssertionError(f"parent CSV hash mismatch for {split}")
+                rows_by_split[split] = read_csv(parent_dir / f"{split}.csv")
+            continue
+
         actual_sha = sha256_file(csv_path)
         if actual_sha != expected_sha:
             raise AssertionError(f"hash mismatch for {split}")
 
         rows = read_csv(csv_path)
+        rows_by_split[split] = rows
+
+        frames_expected = (counts_meta.get(split) or {}).get("frames")
+        if frames_expected is not None and frames_expected != len(rows):
+            raise AssertionError(
+                f"{split}: manifest counts {frames_expected} frames, CSV has {len(rows)}"
+            )
+        if parent_ids:
+            allowed = parent_ids_by_split.get(split, parent_ids)
+            outside = [r.frame_id for r in rows if r.frame_id not in allowed]
+            if outside:
+                raise AssertionError(
+                    f"{split}: {len(outside)} frames not present in parent pack"
+                )
 
         seen_keys: set[tuple] = set()
         for row in rows:
@@ -242,10 +293,6 @@ def validate_pack(
             if row.split_unit not in {"case", "source_case"}:
                 raise AssertionError(f"invalid split_unit {row.split_unit} in {split}")
 
-        sun_cases[split] = {
-            r.case_id for r in rows if r.dataset.lower() == "sun"
-        }
-
         if require_files_exist:
             rng = random.Random(0)
             sample = rows if len(rows) <= 3 else rng.sample(rows, 3)
@@ -258,6 +305,10 @@ def validate_pack(
                         f"missing file {(Path(root) / row.frame_path)!s}"
                     )
 
+    sun_cases: Dict[str, set[str]] = {
+        split: {r.case_id for r in rows if r.dataset.lower() == "sun"}
+        for split, rows in rows_by_split.items()
+    }
     required = {"train", "val", "test"}
     if required.issubset(sun_cases):
         for a, b in combinations(sorted(required), 2):
@@ -265,5 +316,20 @@ def validate_pack(
                 raise AssertionError(
                     "SUN case_id overlap between splits",
                 )
+
+    # A source video (negative) must never be shared between splits.
+    neg_sources = {
+        split: {
+            r.source_case_id
+            for r in rows
+            if r.label == 0 and r.synthetic_case and r.source_case_id
+        }
+        for split, rows in rows_by_split.items()
+    }
+    for a, b in combinations(sorted(neg_sources), 2):
+        if not neg_sources[a].isdisjoint(neg_sources[b]):
+            raise AssertionError(
+                f"negative source video shared between {a} and {b}"
+            )
 
     return manifest

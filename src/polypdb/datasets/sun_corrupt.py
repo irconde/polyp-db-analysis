@@ -9,8 +9,8 @@ The output pack retains the original validation and test splits.
 
 from dataclasses import replace
 from pathlib import Path
-import subprocess
 
+from ..manifests.provenance import tool_provenance
 from ..manifests.io import read_csv, write_pack
 
 
@@ -39,10 +39,7 @@ def build_sun_corrupt(sun_full_pack: Path, out_dir: Path, variant: str = "corrup
         splits[split] = rows
 
     command = f"polypdb sun corrupt --pack {sun_full_pack} --out {out_dir}"
-    try:
-        git_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-    except Exception:  # pragma: no cover - git not available
-        git_commit = "unknown"
+    git_commit = tool_provenance()["git_commit"]
 
     meta = {
         "name": f"sun_{variant}",

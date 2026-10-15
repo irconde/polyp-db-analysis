@@ -14,7 +14,8 @@ from datetime import datetime, timezone
 import yaml
 
 from ..manifests.core import pick_k, sha256_file
-from ..manifests.io import read_csv, write_csv
+from ..manifests.io import read_csv, write_csv, validate_pack
+from ..manifests.provenance import parent_pack_info, stamp_manifest
 
 CANONICAL_SUBSET_PERCENTAGES: tuple[int, ...] = (5, 10, 25, 50, 100)
 CANONICAL_SUBSET_SEED = 13
@@ -99,15 +100,8 @@ def build_sun_train_subsets(
         manifest["counts"] = counts
 
         # parent pack provenance
-        parent_pack = {
-            "name": "sun_full",
-            "hashes": {
-                "val": hashes.get("val", ""),
-                "test": hashes.get("test", ""),
-                "train": parent_train_hash,
-            },
-            "path": str(sun_full_pack),
-        }
+        parent_pack = parent_pack_info(sun_full_pack)
+        parent_pack["name"] = "sun_full"
         manifest["parent_pack"] = parent_pack
 
         # subset metadata
@@ -174,9 +168,11 @@ def build_sun_train_subsets(
         if percent_seed_map:
             generator["percent_seed_map"] = percent_seed_map
         manifest["generator"] = generator
+        stamp_manifest(manifest)
 
         with (pack_dir / "manifest.yaml").open("w", encoding="utf-8") as f:
             yaml.safe_dump(manifest, f, sort_keys=False)
+        validate_pack(pack_dir)
 
 
 def build_sun_canonical_subsets(

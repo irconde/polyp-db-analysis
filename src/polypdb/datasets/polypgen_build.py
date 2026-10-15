@@ -3,12 +3,12 @@ from __future__ import annotations
 """Build manifest pack for the PolypGen dataset."""
 
 from pathlib import Path
-import subprocess
 import logging
 
 import pandas as pd
 
 from ..manifests.core import ManifestRow
+from ..manifests.provenance import tool_provenance
 from ..manifests.io import write_pack
 
 
@@ -130,12 +130,7 @@ def build_polypgen_eval(
         command += f" --track {track}"
     if include_negative_sequences:
         command += " --include-negative-sequences"
-    try:
-        git_commit = (
-            subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-        )
-    except Exception:  # pragma: no cover - fallback when git unavailable
-        git_commit = "unknown"
+    git_commit = tool_provenance()["git_commit"]
 
     n_pos = sum(r.label == 1 for r in rows)
     n_neg = sum(r.label == 0 for r in rows)
