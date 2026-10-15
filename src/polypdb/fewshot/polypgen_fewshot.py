@@ -197,6 +197,7 @@ def build_polypgen_fewshot(
     *,
     size_seed_map: Dict[int, int] | None = None,
     generator_command: str | None = None,
+    dir_template: str | None = None,
 ) -> None:
     """Build few-shot training/test splits from a PolypGen test pack.
 
@@ -211,6 +212,10 @@ def build_polypgen_fewshot(
         quota when the available pool is exhausted.
     seeds:
         Seeds used for deterministic selection.
+    dir_template:
+        Optional directory name template (fields ``{size}`` and ``{seed}``)
+        replacing the default ``polypgen_fewshot_s{size}[_seed{seed}]``; the
+        pack ``name`` inside the manifest is unchanged.
     out_dir:
         Directory where the generated packs will be written.  Packs are named
         ``polypgen_fewshot_s{S}_seed{seed}``.
@@ -493,7 +498,9 @@ def build_polypgen_fewshot(
 
             pack_suffix = f"_seed{seed}" if include_seed_in_name else ""
             pack_name = f"polypgen_fewshot_s{size}{pack_suffix}"
-            pack_dir = out_dir / pack_name
+            pack_dir = out_dir / (
+                dir_template.format(size=size, seed=seed) if dir_template else pack_name
+            )
 
             meta = {
                 "name": pack_name,
@@ -583,6 +590,7 @@ def build_polypgen_fewshot(
             command = generator_command or (
                 f"polypdb polypgen fewshot --pack {test_pack} --sizes {size} "
                 f"--seeds {seed} --out {out_dir}"
+                + (f" --dir-template {dir_template}" if dir_template else "")
             )
             git_commit = tool_provenance()["git_commit"]
             generator_meta: dict[str, object] = {

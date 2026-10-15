@@ -44,6 +44,12 @@ def register(subparsers) -> None:
         "--seeds", type=int, nargs="+", required=True, help="Selection seeds"
     )
     fewshot.add_argument("--out", type=Path, required=True, help="Output directory")
+    fewshot.add_argument(
+        "--dir-template",
+        type=str,
+        default=None,
+        help="Pack directory name template with {size} and {seed} fields",
+    )
     fewshot.set_defaults(func=_run_fewshot)
 
     fewshot_canonical = sub.add_parser(
@@ -85,7 +91,14 @@ def _run_build(args) -> None:
 
 
 def _run_fewshot(args) -> None:
-    build_polypgen_fewshot(args.pack, args.sizes, args.seeds, args.out)
+    build_polypgen_fewshot(
+        args.pack, args.sizes, args.seeds, args.out, dir_template=args.dir_template
+    )
+    if args.dir_template:
+        for size in args.sizes:
+            for seed in args.seeds:
+                print(args.out / args.dir_template.format(size=size, seed=seed))
+        return
     unique_seeds = set(args.seeds)
     include_seed_in_name = len(unique_seeds) > 1
     for size in args.sizes:
