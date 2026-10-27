@@ -20,20 +20,24 @@ Key features include:
 ## Installation
 
 An optional Conda environment specification is provided at
-`environment.yml` for a reproducible setup:
+`environment.yml` (conda-forge, Linux/macOS) for a reproducible setup. It
+installs the core dependencies; the package itself is installed with pip:
 
 ```bash
 conda env create -f environment.yml
 conda activate polyp-db-processing
+pip install -e .
 ```
 
-Install the package and its dependencies.  The OCR utilities rely on
-`PaddleOCR`, which in turn requires the `paddlepaddle` runtime.  Install
-`paddlepaddle` first, then the package itself:
+Without Conda, `pip install -e .` installs the same core dependencies
+(`pandas>=2.1,<3`, `pyarrow`, `openpyxl`, ...). Building manifest packs
+(including the v3 packs) only needs the core install.
+
+The OCR utilities (text-overlay masking, HyperKvasir cleaning) rely on
+`PaddleOCR` and LaMa inpainting, which are optional:
 
 ```bash
-pip install "paddlepaddle<3"
-pip install -e .
+pip install -e ".[ocr]"
 ```
 
 This exposes the `polypdb` command line interface.

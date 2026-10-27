@@ -21,6 +21,10 @@ dependencies = [
     "tifffile",
     "opencv-python-headless",
     "ImageHash",
+]
+
+[project.optional-dependencies]
+ocr = [
     "paddlepaddle<3",
     "paddleocr<3",
     "simple-lama-inpainting",
