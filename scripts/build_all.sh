@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# OBSOLETE: this script reproduces the pre-v3 flow (seeds 13/29/47, `sun perturb`).
+# For the v3 packs use scripts/build_v3_packs.py (see README, "Reproducing the v3 manifest packs").
+echo "scripts/build_all.sh is obsolete; use scripts/build_v3_packs.py" >&2
+[ "${ALLOW_OBSOLETE:-0}" = "1" ] || exit 1
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PACKS_DIR="${PACKS_DIR:-$REPO_ROOT/packs}"

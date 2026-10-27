@@ -95,3 +95,33 @@ Run one of the following checks before using a pack:
 Validation ensures SHA256 hashes match, frame IDs are unique per split, labels are
 0 or 1, morphology is one of `flat`, `polypoid`, or empty, and SUN case IDs do
 not overlap across splits.
+
+## v3 packs and provenance
+Packs built from v3 onwards stamp their `manifest.yaml` with provenance:
+
+- `generator.git_commit` and `generator.git_dirty` (tool commit and whether the
+  working tree was clean)
+- `generator.environment` (`python`, `pandas`, `numpy` versions)
+- SHA-256 of the input `frames.parquet` and `cases.parquet`
+- for derived packs (`sun_subsets`, `polypgen_fewshot`), a `parent_pack` entry
+  with the parent's name and manifest hash
+
+Derived packs fail loudly when `frames.parquet` is missing, and every pack is
+checked with `validate_pack` right after it is written.
+
+`scripts/build_v3_packs.py` writes the layout
+
+```
+_parent/polypgen_clean_test_extended
+k{1..5}/base
+k{1..5}/sun_subsets/sun_p{05,10,25,50,100}
+k{1..5}/polypgen_fewshot/seed{13,29,47}/s{50,100,200,500}
+index.yaml
+```
+
+`index.yaml` lists the partition seeds, the subset seed, the few-shot pack seeds
+and the SHA-256 of every CSV; it is the file to compare against when
+reproducing the packs (see the README). Manifests published in SSL4POLYP have
+absolute data paths replaced by `<DATA_ROOT>`, so `parent_pack.manifest_sha256`
+does not match the published parent manifest byte for byte; the CSV hashes are
+unaffected.

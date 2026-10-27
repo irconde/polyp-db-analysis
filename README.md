@@ -38,6 +38,47 @@ pip install -e .
 
 This exposes the `polypdb` command line interface.
 
+## Reproducing the v3 manifest packs
+
+The v3 partitions used by [SSL4POLYP](https://github.com/irconde/SSL4POLYP)
+(`data_packs/v3`: 5 SUN morphology partitions, `sun_subsets` and PolypGen
+few-shot packs, 221 CSV files in total) are produced by
+[`scripts/build_v3_packs.py`](scripts/build_v3_packs.py). The script only calls
+the public `polypdb` CLI (`sun morph`, `sun subsets-canonical`, `polypgen build`,
+`polypgen fewshot`), so the commands recorded in every `manifest.yaml` are the
+ones that were executed.
+
+1. **Environment.** Use pandas 2.x (`pandas>=2.1,<3`). With pandas 3 the
+   string representation of missing values changes and the hash of
+   `polypgen_clean_test_extended` differs. The reference packs were generated
+   with Python 3.14, pandas 2.3.3 and numpy 2.3.5 (also recorded in each
+   manifest under `generator.environment`).
+2. **Canonical datasets.** The raw SUN and PolypGen data are not redistributed.
+   Obtain them from their original sources, edit the placeholders
+   (`<RAW_ROOT>`, `<DATA_ROOT>`) in `config/sun_config.yaml` and
+   `config/polypgen_config.yaml` and run `polypdb pipeline <config>` to
+   produce the canonical `frames.parquet` / `cases.parquet`. Each manifest stores
+   the SHA-256 of those parquet files (`provenance`), so you can check that your
+   canonical data matches the one used for the published packs.
+3. **Build.**
+
+   ```bash
+   python scripts/build_v3_packs.py \
+       --sun-root /path/to/canonical/sun \
+       --polypgen-root /path/to/canonical/polypgen \
+       --out /path/to/v3_out
+   ```
+
+   Partition seeds are 47 (k=1) and the first four candidates in 101..120 that
+   pass validation (101-104); subsets use seed 13 and few-shot packs use seed
+   `1000*k + s` with `s` in 13, 29, 47.
+4. **Verify.** Compare `v3_out/index.yaml` with
+   `SSL4POLYP/data_packs/v3/index.yaml`; the `csv_sha256` entries must be
+   identical for all 221 CSV files (the `manifest.yaml` files differ in paths
+   and in the recorded tool commit, the CSV hashes do not).
+
+`scripts/build_all.sh` is obsolete (pre-v3 flow) and is kept only for reference.
+
 ## CLI usage
 
 Each command expects a YAML configuration file. Example configs are provided in
@@ -230,7 +271,7 @@ raw_sources:
     db_config:
       host: localhost
       user: myuser
-      password: mypass
+      password: <DB_PASSWORD>
       database: pibadb
   polar:
     path: /path/to/raw/polar
@@ -352,11 +393,34 @@ raw_sources:
     db_config:
       host: localhost
       user: myuser
-      password: mypass
+      password: <DB_PASSWORD>
       database: pibadb
 base_path: /path/to/standardized
 datasets: [piba]
 ```
+## History rewrite
+
+The git history of this repository was rewritten once before publication to
+remove (a) the image outputs of the root `sun-database-analysis.ipynb` notebook
+in the commits where they were embedded and (b) tool co-authorship trailers
+from two commit messages. File contents of every other commit are unchanged:
+the tree of every commit after `5c9dddc` is identical to the original one.
+Because commit hashes depend on their ancestors, all hashes changed (also
+because GitHub merge signatures are not preserved). The full mapping, with
+author and commit dates and the tree hash, is in
+[`docs/history-rewrite.csv`](docs/history-rewrite.csv).
+
+Commits cited by the SSL4POLYP manifests (`generator.git_commit` fields in the
+published packs carry the **old** hashes):
+
+| Pack generation | Old hash | New hash | Tag |
+|---|---|---|---|
+| v2 packs (SUN full/morphology, PolypGen clean) | `7de86f7` | `6dbcb2b` | `v2-packs` |
+| v2 subsets and few-shot | `dafb5a5` | `4486226` | `v2-subsets-fewshot` |
+| v3 packs (221 CSV) | `d78ed76` | `73729bf` | `v3-packs` |
+
+The final state submitted with the paper is tagged `v3-cmpb-submission`.
+
 ## Contributing
 
 Contributions are welcome! Fork the repository and open a pull request with your
