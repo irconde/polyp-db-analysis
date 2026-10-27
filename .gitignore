@@ -138,3 +138,10 @@ ui-tests/playwright-report
 ui-tests/.yarn/*
 ui-tests/.pnp.*
 .venv/
+
+# Local environments, tooling and data artefacts
+venv*/
+.claude/
+*.parquet
+sun_neg_hash_cache.csv
+__pycache__/
