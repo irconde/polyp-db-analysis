@@ -1,6 +1,6 @@
 raw_sources:
   piba:
-    path: /Users/irconde/Desktop/sssl-polyps/polyp-datasets/raw/piba
+    path: <RAW_ROOT>/piba
     # Use the MySQL database instead of an Excel dump
     db_config:
       host: localhost
@@ -8,7 +8,7 @@ raw_sources:
       password: 
       database: pibadb
 
-base_path: /Users/irconde/Desktop/sssl-polyps/polyp-datasets
+base_path: <DATA_ROOT>
 
 datasets: [piba]
 
@@ -22,4 +22,4 @@ prepare: false
 
 # Optional: include if you have negatives for PIBA
 # negative_sources:
-#   piba: /Users/irconde/Desktop/sssl-polyps/polyp-datasets/raw/piba/negatives
+#   piba: <RAW_ROOT>/piba/negatives

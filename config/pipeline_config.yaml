@@ -1,16 +1,16 @@
 raw_sources:
   piccolo:
-    path: /Users/irconde/Desktop/sssl-polyps/polyp-datasets/raw/piccolo
+    path: <RAW_ROOT>/piccolo
     metadata_file: clinical metadata_release0.1.csv
   sun:
-    path: /Users/irconde/Desktop/sssl-polyps/polyp-datasets/raw/sun
+    path: <RAW_ROOT>/sun
     metadata_file: metadata.csv
   polar:
-    path: /Users/irconde/Desktop/sssl-polyps/polyp-datasets/raw/polar
+    path: <RAW_ROOT>/polar
     metadata_file: polar_annotations.xlsx
-base_path: /Users/irconde/Desktop/sssl-polyps/polyp-datasets
+base_path: <DATA_ROOT>
 datasets: [piccolo, sun, polar]
 num_elements: null
 prepare: false
 negative_sources:
-  sun: /Users/irconde/Desktop/sssl-polyps/polyp-datasets/raw/sun/sundatabase_negative
+  sun: <RAW_ROOT>/sun/sundatabase_negative

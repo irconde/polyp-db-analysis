@@ -1,8 +1,8 @@
 raw_sources:
   piccolo:
-    path: /Users/irconde/Desktop/sssl-polyps/polyp-datasets/raw/piccolo
+    path: <RAW_ROOT>/piccolo
     metadata_file: clinical metadata_release0.1.csv
-base_path: /Users/irconde/Desktop/sssl-polyps/polyp-datasets
+base_path: <DATA_ROOT>
 datasets: [piccolo]
 num_elements: null
 prepare: false

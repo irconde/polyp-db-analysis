@@ -1,11 +1,11 @@
 raw_sources:
   sun:
-    path: /Users/irconde/Desktop/sssl-polyps/polyp-datasets/raw/sun
+    path: <RAW_ROOT>/sun
     metadata_file: metadata.csv
-base_path: /Users/irconde/Desktop/sssl-polyps/polyp-datasets
+base_path: <DATA_ROOT>
 datasets: [sun]
 num_elements: null
 prepare: false
 drop_multi_bboxes: false
 negative_sources:
-  sun: /Users/irconde/Desktop/sssl-polyps/polyp-datasets/raw/sun/sundatabase_negative
+  sun: <RAW_ROOT>/sun/sundatabase_negative

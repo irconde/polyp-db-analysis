@@ -1,13 +1,13 @@
 raw_sources:
   polypgen:
-    path: /Users/irconde/Desktop/sssl-polyps/polyp-datasets/raw/polypgen/PolypGen2021_MultiCenterData_v3
+    path: <RAW_ROOT>/polypgen/PolypGen2021_MultiCenterData_v3
     save_raw: false
     skip_cleaning: false
-base_path: /Users/irconde/Desktop/sssl-polyps/polyp-datasets
+base_path: <DATA_ROOT>
 datasets: [polypgen]
 write_cases: false
 num_elements: null
 prepare: false
 drop_multi_bboxes: false
 negative_sources:
-  polypgen: /Users/irconde/Desktop/sssl-polyps/polyp-datasets/raw/polypgen/PolypGen2021_MultiCenterData_v3/sequenceData/negativeOnly
+  polypgen: <RAW_ROOT>/polypgen/PolypGen2021_MultiCenterData_v3/sequenceData/negativeOnly
