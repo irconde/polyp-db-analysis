@@ -10,7 +10,9 @@ authors = [{name = ""}]
 dependencies = [
     "pillow",
     "matplotlib",
-    "pandas",
+    "pandas>=2.1,<3",
+    "pyarrow",
+    "openpyxl",
     "numpy",
     "scikit-learn",
     "pyyaml",
