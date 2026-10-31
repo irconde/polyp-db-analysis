@@ -31,8 +31,7 @@ Use pandas 2.x (see the README).
    keeps its `s500` assignment: sequences of the `s500` training support supply
    training negatives, sequences of its validation support supply validation
    negatives. Hence validation negatives always come from sequences different from the
-   training ones (the `s500` packs have 9-12 train and 2-5 val sequences, never
-   fewer than two in total).
+   training ones (the `s500` packs have 9-12 train and 2-5 val sequences).
 3. **Quota.** The negatives per split of the registered `s200` (80 train / 20 val:
    the same 80/20 proportion).
 4. **Selection (deterministic).** `selection_seed = 200000 + pack_seed`
@@ -45,7 +44,7 @@ Use pandas 2.x (see the README).
    the same number of frames (+-1). The cap of 5 frames per sequence of the registered
    packs is not applied: 100 frames over at most 14 sequences cannot satisfy it.
 5. **Evaluation split.** `test.csv` is byte-identical to the registered `s500`
-   `test.csv` (same SHA-256). Using the `s200` test split would put 3,000 sequence
+   `test.csv` (same SHA-256). Using the `s200` test split would put about 3,000 sequence
    frames, including the new negatives, into evaluation.
 
 ## Checks (assertions in the script; any failure aborts)
